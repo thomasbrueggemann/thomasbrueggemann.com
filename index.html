@@ -1,109 +1,162 @@
-<!doctype html>
-<html lang="en" class="no-js">
+<!DOCTYPE html>
+<html lang="de">
+
 <head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-
-	<link href='http://fonts.googleapis.com/css?family=Droid+Serif|Open+Sans:400,700' rel='stylesheet' type='text/css'>
-
-	<link rel="stylesheet" href="css/reset.css"> <!-- CSS reset -->
-	<link rel="stylesheet" href="css/style.css"> <!-- Resource style -->
-	<script src="js/modernizr.js"></script> <!-- Modernizr -->
-
-	<title>THOMAS BRÜGGEMANN - Webentwicklung | IT-Beratung | Softwareentwicklung in Viersen</title>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+	<meta name="description" content="Thomas Brüggemann: Softwareentwicklung - IT-Beratung - Appentwicklung"/>
+	<meta name="keywords" content="thomas brüggemann, brüggemann, brueggemann, software, apps, javascript, nodejs, phonegap, python, .net, c#"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>THOMAS BRÜGGEMANN | Webentwicklung - IT-Beratung - Appentwicklung</title>
+	<style>
+		body {
+			background-color: #2B3D50;
+		}
+		#head {
+			font-family: monospace;
+			color: #fff;
+			margin: auto;
+			padding: 35px;
+			font-size: 40px;
+			text-align: center;
+		}
+		#bar {
+			text-align: center;
+			width: 750px;
+			height: 25px;
+			background-color: #DAD9D9;
+			margin: 0 auto;
+			font-family: monospace;
+			padding: auto;
+			float: none;
+			border-radius: 5px;
+		}
+		#red {
+			background-color: #E94B35;
+			border-radius: 100%;
+			width: 15px;
+			height: 15px;
+			margin: 0 auto;
+			left: -47%;
+			bottom: -20%;
+			position:relative;
+		}
+		#yellow {
+			background-color: #f0f000;
+			border-radius: 100%;
+			width: 15px;
+			height: 15px;
+			margin: 0 auto;
+			left: -44%;
+			bottom: 40%;
+			position:relative;
+			display: block;
+		}
+		#green {
+			background-color: #1AAF5C;
+			border-radius: 100%;
+			width: 15px;
+			height: 15px;
+			margin: 0 auto;
+			left: -41%;
+			bottom: 99%;
+			position:relative;
+			display: block;
+		}
+		#screen {
+			background-color: #33485E;
+			width: 750px;
+			height: 450px;
+			border-radius: 2%;
+			margin: 0 auto;
+			padding: 1px;
+			padding-left: 5px;
+		}
+		#screen p {
+			color: #fff;
+			font-family: monospace;
+			font-size: 15px;
+			text-align: left;
+			position: static;
+		}
+		.head {
+			color:rgb(220,220,220)!important;
+		}
+		.tab {
+			padding-left:60px;
+			color:rgb(220,220,220)!important;
+		}
+		.typed-cursor{
+			opacity: 1;
+			-webkit-animation: blink 0.7s infinite;
+			-moz-animation: blink 0.7s infinite;
+			animation: blink 0.7s infinite;
+		}
+		@keyframes blink{
+			0% { opacity:1; }
+			50% { opacity:0; }
+			100% { opacity:1; }
+		}
+		@-webkit-keyframes blink{
+			0% { opacity:1; }
+			50% { opacity:0; }
+			100% { opacity:1; }
+		}
+		@-moz-keyframes blink{
+			0% { opacity:1; }
+			50% { opacity:0; }
+			100% { opacity:1; }
+		}
+		#man {
+			display:none;
+		}
+	</style>
 </head>
 <body>
-	<header>
-		<h1>Thomas Brüggemann</h1>
-		<h2>M.Sc. Information Systems</h2>
-		<h2>IT Berater &amp; Softwareentwickler</h2>
-		<address>
-			9 pmakrefoH<br />
-			nesreiV 15714<br />
-			4952538-771 (94+)<br />
-			moc.nnameggeurbsamoht@liam
-		</address>
-	</header>
 
-	<section id="cd-timeline" class="cd-container">
-		<div class="cd-timeline-block">
-			<div class="cd-timeline-img cd-picture">
-				<img src="img/cd-icon-picture.svg" alt="Picture">
-			</div> <!-- cd-timeline-img -->
+	<div id="head">THOMAS BRÜGGEMANN</div>
+	<div id="bar">
+	    <div id="red"></div>
+	    <div id="yellow"></div>
+	    <div id="green"></div>
+	</div>
+	<div id="screen"></div>
 
-			<div class="cd-timeline-content">
-				<h2>Title of section 1</h2>
-				<p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Iusto, optio, dolorum provident rerum aut hic quasi placeat iure tempora laudantium ipsa ad debitis unde? Iste voluptatibus minus veritatis qui ut.</p>
-				<a href="#0" class="cd-read-more">Read more</a>
-				<span class="cd-date">Jan 14</span>
-			</div> <!-- cd-timeline-content -->
-		</div> <!-- cd-timeline-block -->
+	<!-- MAN TEMPLATE -->
+	<div id="man">
+		<p class="head">MAN(1)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;thomasbrueggemann</p>
+		<p>NAME</p>
+		<p class="tab">Thomas Brüggemann</p>
+		<p>ADDRESS</p>
+		<p class="tab">Hoferkamp 9<br />41751 Viersen<br />(+49) 177-8352594<br />mail@thomasbrueggemann.com</p>
+		<p>DESCRIPTION</p>
+		<p class="tab">Software development with special focus on web applications.<br />M.Sc. Information Systems.<br /><br />Know how in:</p>
+		<p class="tab">Node.js, JavaScript, React.js, Python, HTML5, C++, Docker, .NET, PHP, MySQL, MSSQL, MongoDB, Redis, SQL, Solr, Amazon AWS, Telematik, M2M, PhoneGap, NMEA, Elasticsearch, AIS, Backbone.js, Azure, Google Cloud</p>
+	</div>
 
-		<div class="cd-timeline-block">
-			<div class="cd-timeline-img cd-movie">
-				<img src="img/cd-icon-movie.svg" alt="Movie">
-			</div> <!-- cd-timeline-img -->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/1.1.4/typed.min.js"></script>
+	<script>
 
-			<div class="cd-timeline-content">
-				<h2>Title of section 2</h2>
-				<p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Iusto, optio, dolorum provident rerum aut hic quasi placeat iure tempora laudantium ipsa ad debitis unde?</p>
-				<a href="#0" class="cd-read-more">Read more</a>
-				<span class="cd-date">Jan 18</span>
-			</div> <!-- cd-timeline-content -->
-		</div> <!-- cd-timeline-block -->
+		function $line(input) {
+			return "<p>" + input + "</p>";
+		}
 
-		<div class="cd-timeline-block">
-			<div class="cd-timeline-img cd-picture">
-				<img src="img/cd-icon-picture.svg" alt="Picture">
-			</div> <!-- cd-timeline-img -->
+	    $(function() {
 
-			<div class="cd-timeline-content">
-				<h2>Title of section 3</h2>
-				<p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Excepturi, obcaecati, quisquam id molestias eaque asperiores voluptatibus cupiditate error assumenda delectus odit similique earum voluptatem doloremque dolorem ipsam quae rerum quis. Odit, itaque, deserunt corporis vero ipsum nisi eius odio natus ullam provident pariatur temporibus quia eos repellat consequuntur perferendis enim amet quae quasi repudiandae sed quod veniam dolore possimus rem voluptatum eveniet eligendi quis fugiat aliquam sunt similique aut adipisci.</p>
-				<a href="#0" class="cd-read-more">Read more</a>
-				<span class="cd-date">Jan 24</span>
-			</div> <!-- cd-timeline-content -->
-		</div> <!-- cd-timeline-block -->
-
-		<div class="cd-timeline-block">
-			<div class="cd-timeline-img cd-location">
-				<img src="img/cd-icon-location.svg" alt="Location">
-			</div> <!-- cd-timeline-img -->
-
-			<div class="cd-timeline-content">
-				<h2>Title of section 4</h2>
-				<p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Iusto, optio, dolorum provident rerum aut hic quasi placeat iure tempora laudantium ipsa ad debitis unde? Iste voluptatibus minus veritatis qui ut.</p>
-				<a href="#0" class="cd-read-more">Read more</a>
-				<span class="cd-date">Feb 14</span>
-			</div> <!-- cd-timeline-content -->
-		</div> <!-- cd-timeline-block -->
-
-		<div class="cd-timeline-block">
-			<div class="cd-timeline-img cd-location">
-				<img src="img/cd-icon-location.svg" alt="Location">
-			</div> <!-- cd-timeline-img -->
-
-			<div class="cd-timeline-content">
-				<h2>Title of section 5</h2>
-				<p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Iusto, optio, dolorum provident rerum.</p>
-				<a href="#0" class="cd-read-more">Read more</a>
-				<span class="cd-date">Feb 18</span>
-			</div> <!-- cd-timeline-content -->
-		</div> <!-- cd-timeline-block -->
-
-		<div class="cd-timeline-block">
-			<div class="cd-timeline-img cd-movie">
-				<img src="img/cd-icon-movie.svg" alt="Movie">
-			</div> <!-- cd-timeline-img -->
-
-			<div class="cd-timeline-content">
-				<h2>Final Section</h2>
-				<p>This is the content of the last section</p>
-				<span class="cd-date">Feb 26</span>
-			</div> <!-- cd-timeline-content -->
-		</div> <!-- cd-timeline-block -->
-	</section> <!-- cd-timeline -->
-<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
-<script src="js/main.js"></script> <!-- Resource jQuery -->
+			$.getJSON('https://jsonip.com/?callback=?', function(data) {
+			  	var ip = data.ip;
+				$("#screen").append($line("root@" + ip + ":~$ <span id=\"type_man\"></span>"));
+				$("#type_man").typed({
+		            strings: ["man ^492 thomasbrueggemann"],
+		            typeSpeed: 49,
+					startDelay: 712,
+					callback: function() {
+						window.setTimeout(function() {
+							$("#screen").html($("#man").html());
+						}, 712);
+					}
+		        });
+			});
+		});
+	</script>
 </body>
-</html>
