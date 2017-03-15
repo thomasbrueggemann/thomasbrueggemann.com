@@ -148,7 +148,7 @@
 
 	    $(function() {
 
-			$.getJSON('https://jsonip.com/?callback=?', function(data) {
+			$.getJSON("https://api.ipify.org?format=jsonp&callback=?", function(data) {
 			  	var ip = data.ip;
 				$("#screen").append($line("root@" + ip + ":~$ <span id=\"type_man\"></span>"));
 				$("#type_man").typed({
