@@ -1,199 +1,174 @@
-<!--
-
-
-
-
-             ___
-            / _ \
-           | / \ |
-           | \_/ |
-            \___/ ___
-            _|_|_/[_]\__==_
-           [---------------]
-           | O   /---\     |
-           |    |     |    |
-           |     \___/     |
-           [---------------]
-                 [___]
-                  | |\\
-                  | | \\
-                  [ ]  \\_
-                 /|_|\  ( \
-                //| |\\  \ \
-               // | | \\  \ \
-              //  |_|  \\  \_\
-             //   | |   \\
-            //\   | |   /\\
-           //  \  | |  /  \\
-          //    \ | | /    \\
-         //      \|_|/      \\
-        //        [_]        \\
-       //          H          \\
-      //           H           \\
-     //            H            \\
-    //             H             \\
-   //              H              \\
-  //                               \\ 		Thomas Brüggemann
- //                                 \\
-
-
-
-
-
-
--->
-
 <!DOCTYPE html>
 <html lang="de">
+
 <head>
 	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
-	<meta name="description" content="Thomas Brüggemann: Softwareentwicklung - IT-Beratung - Apps"/>
+	<meta name="description" content="Thomas Brüggemann: Softwareentwicklung - IT-Beratung - Appentwicklung"/>
 	<meta name="keywords" content="thomas brüggemann, brüggemann, brueggemann, software, apps, javascript, nodejs, phonegap, python, .net, c#"/>
 	<meta name="viewport" content="width=device-width, initial-scale=1"/>
-	<title>THOMAS BRÜGGEMANN | Webentwicklung - IT-Beratung - Appentwicklung in Köln</title>
-	<link href="/favicon.ico" rel="shortcut icon" type="image/x-icon" />
-	<link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css" rel="stylesheet">
-	<link href="https://fonts.googleapis.com/css?family=Raleway:300" rel="stylesheet" type="text/css">
+	<title>THOMAS BRÜGGEMANN | Webentwicklung - IT-Beratung - Appentwicklung</title>
 	<style>
-		html, body {
-			margin:0px;
-			padding:0px;
-		}
-
 		body {
-			overflow-x: hidden;
-		    background:url('bg.jpg') no-repeat center center fixed;
-		     -webkit-background-size: cover;
-		    -moz-background-size: cover;
-		    -o-background-size: cover;
-		    background-size: cover;
-		    background-color:#e4e4e4;
+			background-color: #2B3D50;
 		}
-
-		#main {
-			font-family: raleway, sans-serif;
-			width:700px;
-			height:530px;
-			background-color:rgba(255, 255, 255, 0.85);
-			position:absolute;
-			margin-left:-350px;
-			margin-top:-265px;
-			left:50%;
-			top:50%;
-			text-align:center;
-			font-weight: 1.2em;
-			box-shadow: 0px 0px 50px rgba(0,0,0,0.4);
-		}
-
-
-		h1 {
-			font-size: 2.2em;
-			margin-top:40px;
-		}
-
-		h2 {
-			font-size: 1.4em;
-			margin-top:30px;
-		}
-
-		address {
-			display:block;
-			margin-top:30px;
-			font-weight: bold;
-		}
-
-		a {
-			color: #888;
-			text-decoration: none
-		}
-
-		a:hover {
-			color: black;
-		}
-
-		#main ul {
-			list-style: none;
-			font-size: 2em;
-			display:block;
+		#head {
+			font-family: monospace;
+			color: #fff;
+			margin: auto;
+			padding: 35px;
+			font-size: 40px;
 			text-align: center;
-			margin-left:0px;
-			padding-left:0px;
 		}
-
-		#main li {
-			display:inline;
-			margin:10px;
+		#bar {
+			text-align: center;
+			width: 750px;
+			height: 25px;
+			background-color: #DAD9D9;
+			margin: 0 auto;
+			font-family: monospace;
+			padding: auto;
+			float: none;
+			border-radius: 5px;
 		}
-
-		@media (max-width: 768px) {
-			#main {
-				width:100%;
-				left:0px;
-				margin-left:0px;
-				margin-bottom:50px;
-				box-shadow: none;
-			}
-
-			body {
-				background:white;
-			}
+		#red {
+			background-color: #E94B35;
+			border-radius: 100%;
+			width: 15px;
+			height: 15px;
+			margin: 0 auto;
+			left: -47%;
+			bottom: -20%;
+			position:relative;
 		}
-
+		#yellow {
+			background-color: #f0f000;
+			border-radius: 100%;
+			width: 15px;
+			height: 15px;
+			margin: 0 auto;
+			left: -44%;
+			bottom: 40%;
+			position:relative;
+			display: block;
+		}
+		#green {
+			background-color: #1AAF5C;
+			border-radius: 100%;
+			width: 15px;
+			height: 15px;
+			margin: 0 auto;
+			left: -41%;
+			bottom: 99%;
+			position:relative;
+			display: block;
+		}
+		#screen {
+			background-color: #33485E;
+			width: 750px;
+			height: 450px;
+			border-radius: 2%;
+			margin: 0 auto;
+			padding: 1px;
+			padding-left: 5px;
+		}
+		#screen p {
+			color: #fff;
+			font-family: monospace;
+			font-size: 15px;
+			text-align: left;
+			position: static;
+		}
+		.head {
+			color:rgb(220,220,220)!important;
+		}
+		.tab {
+			padding-left:60px;
+			color:rgb(220,220,220)!important;
+		}
+		.typed-cursor{
+			opacity: 1;
+			-webkit-animation: blink 0.7s infinite;
+			-moz-animation: blink 0.7s infinite;
+			animation: blink 0.7s infinite;
+		}
+		@keyframes blink{
+			0% { opacity:1; }
+			50% { opacity:0; }
+			100% { opacity:1; }
+		}
+		@-webkit-keyframes blink{
+			0% { opacity:1; }
+			50% { opacity:0; }
+			100% { opacity:1; }
+		}
+		@-moz-keyframes blink{
+			0% { opacity:1; }
+			50% { opacity:0; }
+			100% { opacity:1; }
+		}
+		#man {
+			display:none;
+		}
 		.reverse {
             unicode-bidi: bidi-override;
             direction: rtl;
             text-align: left;
         }
-
-        p {
-        	display:block;
-        	padding:0px 50px;
-        }
 	</style>
 </head>
-
 <body>
 
-	<section id="main">
-		<h1>Thomas Brüggemann</h1>
-		<h2>M.Sc. Information Systems</h2>
-		<h3>Webentwicklung - IT-Beratung - Appentwicklung</h3>
+	<div id="head">THOMAS BRÜGGEMANN</div>
+	<div id="bar">
+	    <div id="red"></div>
+	    <div id="yellow"></div>
+	    <div id="green"></div>
+	</div>
+	<div id="screen"></div>
 
-				<address>
-					Thomas Brüggemann<br />
-					<span class="reverse">21 grubnenorC</span><br />
-					<span class="reverse">nehcrikslegnE 66715</span>
-				</address>
+	<!-- MAN TEMPLATE -->
+	<div id="man">
+		<p class="head">MAN(1)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;thomasbrueggemann</p>
+		<p>NAME</p>
+		<p class="tab">Thomas Brüggemann</p>
+		<p>ADDRESS</p>
+		<p class="tab reverse">21 grubnenorC<br />nehcrikslegnE 66715<br />4952538771 (94+)<br />moc.nnameggeurbsamoht@liam</p>
+		<p>DESCRIPTION</p>
+		<p class="tab">Software developer with special focus on web applications.<br />M.Sc. Information Systems, PhD Student Information Systems<br /><br />Know how in:</p>
+		<p class="tab">Node.js, JavaScript, React.js, Python, HTML5, C++, Docker, .NET, PHP, MySQL, MSSQL, MongoDB, Redis, SQL, Solr, Amazon AWS, Telematik, M2M, PhoneGap, NMEA, Elasticsearch, AIS, Backbone.js, Azure, Google Cloud</p>
+	</div>
 
-				<address>
-					Telefon: <span class="reverse">4952538771 (94+)</span><br />
-					Mail: <span class="reverse">moc.nnameggeurbsamoht@liam</span>
-				</address>
-
-				<ul>
-					<li>
-						<a href="https://github.com/thomasbrueggemann" target="_blank" title="Code @ Github">
-							<i class="fa fa-github-square"></i>
-						</a>
-					</li>
-					<li>
-						<a href="http://stackoverflow.com/users/874508/tomaszbrue" target="_blank" title="Wissen @ StackOverflow">
-							<i class="fa fa-stack-overflow" style="font-size:28px"></i>
-						</a>
-					</li>
-				</ul>
-
-		<p>Node.js, JavaScript, React.js, Python, HTML5, C++, Docker, .NET, PHP, MySQL, MSSQL, MongoDB, Redis, SQL, Solr, Amazon AWS, Telematik, M2M, PhoneGap, NMEA, Elasticsearch, AIS, Backbone.js, Azure, Google Cloud</p>
-	</section>
-
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/1.1.4/typed.min.js"></script>
 	<script>
+
+		function $line(input) {
+			return "<p>" + input + "</p>";
+		}
+
+	    $(function() {
+
+			$.getJSON("https://api.ipify.org?format=jsonp&callback=?", function(data) {
+			  	var ip = data.ip;
+				$("#screen").append($line("root@" + ip + ":~$ <span id=\"type_man\"></span>"));
+				$("#type_man").typed({
+		            strings: ["man ^492 thomasbrueggemann"],
+		            typeSpeed: 49,
+					startDelay: 712,
+					callback: function() {
+						window.setTimeout(function() {
+							$("#screen").html($("#man").html());
+						}, 712);
+					}
+		        });
+			});
+		});
+
 		(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
 		(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
 		m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-	})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
-
+		})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
 		ga('create', 'UA-15981085-1', 'auto');
 		ga('send', 'pageview');
 	</script>
-
 </body>
