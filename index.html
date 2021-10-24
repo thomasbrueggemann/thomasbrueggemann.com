@@ -1,225 +1,477 @@
 <!DOCTYPE html>
-<html lang="de">
+<html>
+  <head>
+    <title>Thomas Brüggemann</title>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
 
-<head>
-	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-	<meta name="description" content="Thomas Brüggemann: Softwareentwicklung - IT-Beratung - Appentwicklung" />
-	<meta name="keywords" content="thomas brüggemann, brüggemann, brueggemann, software, apps, javascript, nodejs, phonegap, python, .net, c#"
-	/>
-	<meta name="viewport" content="width=device-width, initial-scale=1" />
-	<title>THOMAS BRÜGGEMANN | Software development</title>
-	<style>
-		body {
-			background-color: #2B3D50;
-		}
+    <link href="http://fonts.cdnfonts.com/css/nafeeda" rel="stylesheet" />
+    <style>
+      html,
+      body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        font-family: "Nafeeda", sans-serif;
+      }
 
-		#head {
-			font-family: monospace;
-			color: #fff;
-			margin: auto;
-			padding: 35px;
-			font-size: 40px;
-			text-align: center;
-		}
+      #photos {
+        width: 50%;
+        left: 50%;
+        margin-left: -25%;
+        position: absolute;
+      }
 
-		#bar {
-			text-align: center;
-			width: 750px;
-			height: 25px;
-			background-color: #DAD9D9;
-			margin: 0 auto;
-			font-family: monospace;
-			padding: auto;
-			float: none;
-			border-radius: 5px;
-		}
+      #photos img {
+        margin-bottom: 100px;
+        width: 100%;
+      }
 
-		#red {
-			background-color: #E94B35;
-			border-radius: 100%;
-			width: 15px;
-			height: 15px;
-			margin: 0 auto;
-			left: -47%;
-			bottom: -20%;
-			position: relative;
-		}
+      h1 {
+        margin-bottom: 50px;
+        margin-top: 50px;
+        width: 100%;
+        text-align: center;
+        font-size: 111px;
+        font-weight: 100;
+        color: gray;
+      }
 
-		#yellow {
-			background-color: #f0f000;
-			border-radius: 100%;
-			width: 15px;
-			height: 15px;
-			margin: 0 auto;
-			left: -44%;
-			bottom: 40%;
-			position: relative;
-			display: block;
-		}
+      #photos a {
+        font-size: 50px;
+        text-align: center;
+        width: 100%;
+        display: block;
+        margin-bottom: 100px;
+      }
 
-		#green {
-			background-color: #1AAF5C;
-			border-radius: 100%;
-			width: 15px;
-			height: 15px;
-			margin: 0 auto;
-			left: -41%;
-			bottom: 99%;
-			position: relative;
-			display: block;
-		}
+      ul {
+        width: 100%;
+        display: block;
+        text-align: center;
+        margin: 0;
+        padding: 0;
+        margin-bottom: 100px;
+      }
 
-		#screen {
-			background-color: #33485E;
-			width: 750px;
-			height: 450px;
-			border-radius: 2%;
-			margin: 0 auto;
-			padding: 1px;
-			padding-left: 5px;
-		}
+      ul li {
+        list-style: none;
+        display: inline;
+        margin-right: 10px;
+        font-size: 20px;
+      }
 
-		#screen p {
-			color: #fff;
-			font-family: monospace;
-			font-size: 15px;
-			text-align: left;
-			position: static;
-		}
+      @media only screen and (max-width: 1700px) {
+        #photos {
+          width: 70%;
+          margin-left: -35%;
+        }
 
-		.head {
-			color: rgb(220, 220, 220)!important;
-		}
+        #photos img,
+        #photos a,
+        ul {
+          margin-bottom: 70px;
+        }
 
-		.tab {
-			padding-left: 60px;
-			color: rgb(220, 220, 220)!important;
-		}
+        h1 {
+          font-size: 80px;
+        }
+      }
 
-		.typed-cursor {
-			opacity: 1;
-			-webkit-animation: blink 0.7s infinite;
-			-moz-animation: blink 0.7s infinite;
-			animation: blink 0.7s infinite;
-		}
+      @media only screen and (max-width: 600px) {
+        #photos {
+          width: 100%;
+          margin-left: -50%;
+        }
 
-		@keyframes blink {
-			0% {
-				opacity: 1;
-			}
-			50% {
-				opacity: 0;
-			}
-			100% {
-				opacity: 1;
-			}
-		}
+        #photos img,
+        #photos a,
+        ul {
+          margin-bottom: 50px;
+        }
 
-		@-webkit-keyframes blink {
-			0% {
-				opacity: 1;
-			}
-			50% {
-				opacity: 0;
-			}
-			100% {
-				opacity: 1;
-			}
-		}
+        h1 {
+          font-size: 50px;
+        }
+      }
+    </style>
+  </head>
 
-		@-moz-keyframes blink {
-			0% {
-				opacity: 1;
-			}
-			50% {
-				opacity: 0;
-			}
-			100% {
-				opacity: 1;
-			}
-		}
+  <body>
+    <h1>Thomas Brüggemann</h1>
+    <ul>
+      <li><a href="#2021">2021</a></li>
+      <li><a href="#2018">2018</a></li>
+      <li><a href="#2017">2017</a></li>
+      <li><a href="#2015">2015</a></li>
+      <li><a href="#2014">2014</a></li>
+      <li><a href="#2013">2013</a></li>
+      <li><a href="#2012">2012</a></li>
+      <li><a href="#2011">2011</a></li>
+      <li><a href="#2010">2010</a></li>
+      <li><a href="#2008">2008</a></li>
+      <li><a href="#2007">2007</a></li>
+    </ul>
+    <div id="photos">
+      <a id="2021">2021</a>
+      <img
+        title="Pizza Oven, SE, September 2021"
+        src="https://lh3.googleusercontent.com/pw/AM-JKLX_vV_-mC113CxQlrQKGNTOiB7iq1ZTkOhHUDaGsw83iyjtkpj8vcloaEkCfWMqaCtt8E0pF3vDtO8d8h4zUAAa0HDah07oxzL6kq_JQ6kfq-4BIwOXQHXHq-cZSj8EOuj-CjXzpBva_XedEs6jDTXqyg=w1536-h1024-no"
+      />
+      <a id="2018">2018</a>
+      <img
+        title="First Gray Hair, Engelskirchen, DE, May 2018"
+        src="https://live.staticflickr.com/828/28241220498_c70e655726_k.jpg"
+      />
+      <img
+        title=" Hiking towards Monschau, DE, February 2018"
+        src="https://live.staticflickr.com/4616/40156075732_7679221808_k.jpg"
+      />
+      <img
+        title=" Winter forests, Eifel, DE, February 2018"
+        src="https://live.staticflickr.com/4719/28408636059_0b816ffc9a_k.jpg"
+      />
+      <img
+        title="New crashs Old, Strasbourg, FR, February 2018"
+        src="https://live.staticflickr.com/4759/40189131741_9ac466cc26_k.jpg"
+      />
+      <img
+        title="La Chambre, Strasbourg, FR, February 2018"
+        src="https://live.staticflickr.com/4711/40189187631_24cdbfdfb4_k.jpg"
+      />
+      <a id="2017">2017</a>
+      <img
+        title="Schnee, Engelskirchen, DE, December 2017"
+        src="https://live.staticflickr.com/4691/25239452238_e3dc69e468_k.jpg"
+      />
+      <img
+        title="Leaving Port, Tallinn, EE, September 2017"
+        src="https://live.staticflickr.com/4346/36199450773_104ad9849c_k.jpg"
+      />
+      <img
+        title=" It was windy in Tallinn, EE, September 2017"
+        src="https://live.staticflickr.com/4368/37007871815_f39d731c1e_k.jpg"
+      />
+      <img
+        title=" Rotterdam Watertaxi, NL, August 2017"
+        src="https://live.staticflickr.com/4414/36036468693_4c8660175b_k.jpg"
+      />
+      <img
+        title="Surrendering, Rotterdam, NL, August 2017"
+        src="https://live.staticflickr.com/4391/36275099311_7d8402e720_k.jpg"
+      />
+      <img
+        title="Pilots, Rotterdam, NL, August 2017"
+        src="https://live.staticflickr.com/4347/36011574230_7c29be5a1d_k.jpg"
+      />
+      <img
+        title=" Berlin Tempelhof Airfield, DE, July 2017"
+        src="https://live.staticflickr.com/4319/35961630465_33587e80fc_h.jpg"
+      />
+      <img
+        title="Cows in the way on our mountain hike into the clouds, Zug, CH"
+        src="https://live.staticflickr.com/4207/35143693300_1fcf1cd7e7_k.jpg"
+      />
+      <img
+        title="Summer, Engelskirchen, DE, June 2017"
+        src="https://live.staticflickr.com/4218/35491439946_ede0430f6a_k.jpg"
+      />
+      <img
+        title="Smoooothie, Engelskirchen, DE, June 2017"
+        src="https://live.staticflickr.com/4228/34947977271_c3abd1f28c_k.jpg"
+      />
+      <img
+        title="Kumquats, Engelskirchen, DE, June 2017"
+        src="https://live.staticflickr.com/4196/34364802483_e3f13f3703_k.jpg"
+      />
+      <a id="2015">2015</a>
+      <img
+        title="Untitled, Rügen, DE, April 2015"
+        src="https://live.staticflickr.com/413/19724230301_02ac787a5c_k.jpg"
+      />
+      <img
+        title="Forward, Rügen, DE, April 2015"
+        src="https://live.staticflickr.com/8855/18020115051_11bb9d343a_k.jpg"
+      />
+      <img
+        title="Vor Anker, Roermond, NL, March 2015"
+        src="https://live.staticflickr.com/8807/17181968275_183321b8df_k.jpg"
+      />
+      <img
+        title="Paw, Boisheim, DE, January 2015"
+        src="https://live.staticflickr.com/8563/16681871922_f92c994b0a_k.jpg"
+      />
+      <a id="2014">2014</a>
+      <img
+        title="Moody Gradient Trees, Boisheim, DE, September 2014"
+        src="https://live.staticflickr.com/5612/14967234233_a600ea89eb_k.jpg"
+      />
+      <img
+        title="Money Moon, Grevelingenmeer, NL, August 2014"
+        src="https://live.staticflickr.com/3862/14808149382_b93f69df8d_k.jpg"
+      />
+      <img
+        title="Rubio, Roermond, NL, May 2014"
+        src="https://live.staticflickr.com/2911/14017860700_b8e2943ad4_k.jpg"
+      />
+      <img
+        title="Rubio, Roermond, NL, May 2014"
+        src="https://live.staticflickr.com/2930/14017911700_c10d92ddf7_k.jpg"
+      />
+      <img
+        title="Morning Mast, Roermond, NL, April 2014"
+        src="https://live.staticflickr.com/2940/14008903514_151a0e6b7c_k.jpg"
+      />
+      <img
+        title="Cimetière du Montparnasse, Paris, FR, March 2014"
+        src="https://live.staticflickr.com/3774/12914093343_99c9d0e3be_k.jpg"
+      />
+      <img
+        title="Moon over Paris, FR, February 2014"
+        src="https://live.staticflickr.com/2882/12654792193_932e00cc2b_k.jpg"
+      />
+      <img
+        title="River Rhine, Assmannshausen, DE, January 2014"
+        src="https://live.staticflickr.com/3678/11761707936_c9323c1c30_k.jpg"
+      />
+      <a id="2013">2013</a>
+      <img
+        title="Boote im Nebel, Langweer, NL, October 2013"
+        src="https://live.staticflickr.com/8551/10185179636_2c35d59ad9_k.jpg"
+      />
+      <img
+        title=" Fahrrinne im Nebel, Langweer, NL, October 2013"
+        src="https://live.staticflickr.com/7371/10185148946_9d2bb7b84a_k.jpg"
+      />
+      <img
+        title="The Sprawl, Edinburgh, UK, September 2013"
+        src="https://live.staticflickr.com/2831/9804668363_5356a79697_k.jpg"
+      />
+      <img
+        title="Flow, North Berwick, UK, September 2013"
+        src="https://live.staticflickr.com/7284/9759349531_ca87a08cd8_k.jpg"
+      />
+      <img
+        title="Streets of Edinburgh, UK, September 2013"
+        src="https://live.staticflickr.com/7305/9741735709_2138ec046a_k.jpg"
+      />
+      <img
+        title="Newcastle Brown Ale, Edinburgh, UK, September 2013"
+        src="https://live.staticflickr.com/7340/9741662405_0c21f8a770_k.jpg"
+      />
+      <img
+        title="Fish traps, North Berwick, UK, September 2013"
+        src="https://live.staticflickr.com/3776/9718950364_68ff5fa55a_k.jpg"
+      />
+      <img
+        title="We'll leave our tracks untraceable, Edinburgh, UK, September 2013"
+        src="https://live.staticflickr.com/3726/9715476797_f5531467a0_k.jpg"
+      />
+      <img
+        title="Untitled, Schaag, DE, August 2013"
+        src="https://live.staticflickr.com/5525/9597500341_9dd66cb6a7_k.jpg"
+      />
+      <img
+        title="Backyards, Gedser, DK, August 2013"
+        src="https://live.staticflickr.com/5336/9607128019_fc3ef5e23b_k.jpg"
+      />
+      <img
+        title="Untitled, Graal Müritz, DE, August 2013"
+        src="https://live.staticflickr.com/3692/9596803623_c333753e19_k.jpg"
+      />
+      <img
+        title="Old Seagull, Warnemünde, DE, August 2013"
+        src="https://live.staticflickr.com/3720/9539508237_76834046ec_k.jpg"
+      />
+      <img
+        title="Clouds 2, Warnemünde, DE, August 2013"
+        src="https://live.staticflickr.com/5449/9541610034_0470319d14_k.jpg"
+      />
+      <img
+        title="Parkdeck, Cologne, DE, August 2013"
+        src="https://live.staticflickr.com/2814/9468213012_e2798a2e9e_k.jpg"
+      />
+      <img
+        title="Untitled, Warnemünde, DE, August 2013"
+        src="https://live.staticflickr.com/3712/9512670668_8ba6f94710_k.jpg"
+      />
+      <img
+        title="Untitled, Tegelen, NL, August 2013"
+        src="https://live.staticflickr.com/3780/9430982236_ac1e864732_k.jpg"
+      />
+      <img
+        title="Helmet Hive, Duisburg, DE, August 2013"
+        src="https://live.staticflickr.com/2890/9414768861_0be458f61e_k.jpg"
+      />
+      <img
+        title="Lighthouse at the City Centre, Cologne, DE, July 2013"
+        src="https://live.staticflickr.com/5531/9411472894_37af456b0e_k.jpg"
+      />
+      <img
+        title="Dune, Nordwijk, NL, May 2013"
+        src="https://live.staticflickr.com/5544/9402347249_32705e2b33_k.jpg"
+      />
+      <img
+        title="Untitled, DE, June 2013"
+        src="https://live.staticflickr.com/3697/9389220462_3e31e8ba70_k.jpg"
+      /><img
+        title="Good Morning, Boisheim, DE, July 2013"
+        src="https://live.staticflickr.com/5449/9287110570_4db83716c3_k.jpg"
+      /><img
+        title="Nighthawks, Boisheim, DE, June 2013"
+        src="https://live.staticflickr.com/8277/9015974446_db7f4e4a21_k.jpg"
+      />
+      <img
+        title="Dark, Cologne, DE, June 2013"
+        src="https://live.staticflickr.com/2818/9078081794_87ce881518_k.jpg"
+      />
+      <img
+        title="It#s hard to get around the wind, DE, June 2013"
+        src="https://live.staticflickr.com/2870/9153848562_8aa97b8ae9_k.jpg"
+      />
+      <img
+        title="Clouds, Warnemünde, DE, 2013"
+        src="https://live.staticflickr.com/3670/9530579387_d78ad5f224_k.jpg"
+      />
+      <img
+        title="Leuchtfeuer, Warnemünde, DE, 2013"
+        src="https://live.staticflickr.com/3793/9530652473_391c083620_k.jpg"
+      />
+      <img
+        title="North Sea, NL, May 2013"
+        src="https://live.staticflickr.com/7289/8727461522_a94a46ba23_k.jpg"
+      />
+      <img
+        title="Colder Days, Cologne, DE, April 2013"
+        src="https://live.staticflickr.com/8112/8654740612_e5a809baa9_k.jpg"
+      />
+      <img
+        title="Remember the First Days of Spring, Brüggen, DE, March 2013"
+        src="https://live.staticflickr.com/8107/8653620629_9b50671f29_k.jpg"
+      />
+      <img
+        title="In Milano 2, IT, January 2013"
+        src="https://live.staticflickr.com/7049/8687499627_93254f71a5_k.jpg"
+      />
+      <img
+        title="In Milano, IT, January 2013"
+        src="https://live.staticflickr.com/8076/8343702658_19d1caafae_k.jpg"
+      />
 
-		#man {
-			display: none;
-		}
+      <a id="2012">2012</a>
 
-		.reverse {
-			unicode-bidi: bidi-override;
-			direction: rtl;
-			text-align: left;
-		}
-	</style>
-</head>
+      <img
+        title="Untitled, Cologne, DE, 2012"
+        src="https://live.staticflickr.com/8483/8244949663_ad8e233a9e_k.jpg"
+      />
+      <img
+        title="Home, Cologne, DE, 2012"
+        src="https://live.staticflickr.com/8200/8242871486_9c1f70ebbc_k.jpg"
+      />
+      <img
+        title="Kristy, Cologne, DE, December 2012"
+        src="https://live.staticflickr.com/8487/8278856066_1ccc0157bd_k.jpg"
+      />
+      <img
+        title="Kristy, Cologne, DE, December 2012"
+        src="https://live.staticflickr.com/8210/8244987907_0c35866d4c_k.jpg"
+      />
+      <img
+        title="Milchstrasse, Mörtschach, AT, August 2012"
+        src="https://live.staticflickr.com/8063/8246067162_3603788826_k.jpg"
+      />
+      <img
+        title="Seecharte 2200m, Wangnitzsee, Kärnten, AT, August 2012"
+        src="https://live.staticflickr.com/5492/12176878663_37a77eb72c_k.jpg"
+      />
+      <img
+        title="Laitenkopf, AT, August 2012"
+        src="https://live.staticflickr.com/8198/8245011951_b6d2115ea7_k.jpg"
+      />
+      <img
+        title="Mölltal, AT, August 2012"
+        src="https://live.staticflickr.com/8060/8246081338_43fead7648_k.jpg"
+      />
+      <img
+        title="Brooklyn Bridge, NY, USA, February 2012"
+        src="https://live.staticflickr.com/7052/8688581456_21f09e46f5_k.jpg"
+      />
+      <img
+        title="The Eye, NY, USA, February 2012"
+        src="https://live.staticflickr.com/3801/9343719082_f00855a8bc_k.jpg"
+      />
+      <img
+        title="Brooklyn, NY, USA, February 2012"
+        src="https://live.staticflickr.com/8198/8246047728_795810ca48_k.jpg"
+      />
+      <img
+        title="Macy's, NY, USA, February 2012"
+        src="https://live.staticflickr.com/3721/9343549798_17bad803fc_k.jpg"
+      />
+      <img
+        title="World Trade Center, NY, USA, February 2012"
+        src="https://live.staticflickr.com/7052/8687463457_9639a3a644_k.jpg"
+      />
 
-<body>
+      <a id="2011">2011</a>
 
-	<div id="head">THOMAS BRÜGGEMANN</div>
-	<div id="bar">
-		<div id="red"></div>
-		<div id="yellow"></div>
-		<div id="green"></div>
-	</div>
-	<div id="screen"></div>
+      <img
+        title="Are you the summer?, Boisheim, DE, July 2011"
+        src="https://live.staticflickr.com/8209/8247497021_96c16b77ae_k.jpg"
+      />
+      <img
+        title="Untitled, Brüggen, DE, 2011"
+        src="https://live.staticflickr.com/8484/8247481065_6930a282db_k.jpg"
+      />
+      <img
+        title="Life up, Boisheim, DE, March 2011"
+        src="https://live.staticflickr.com/8350/8247510585_5fe0fa2aad_k.jpg"
+      />
+      <img
+        title="Welt am Draht 3, Boisheim, DE, Februar 2011"
+        src="https://live.staticflickr.com/8480/8247588267_b7ae6d80da_k.jpg"
+      />
+      <img
+        title="Welt am Draht 2, Boisheim, DE, Februar 2011"
+        src="https://live.staticflickr.com/8487/8248638810_91d292ec76_b.jpg"
+      />
+      <img
+        title="Welt am Draht 1, Boisheim, DE, Februar 2011"
+        src="https://live.staticflickr.com/8200/8248639024_65c82cf901_b.jpg"
+      />
 
-	<!-- MAN TEMPLATE -->
-	<div id="man">
-		<p class="head">MAN(1)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;thomasbrueggemann</p>
-		<p>NAME</p>
-		<p class="tab">Thomas Brüggemann</p>
-		<p>ADDRESS</p>
-		<p class="tab reverse">
-			4952538771 (94+)
-			<br />moc.nnameggeurbsamoht@liam
-		</p>
-		<p>DESCRIPTION</p>
-		<p class="tab">Software engineer and architect with special focus on mobile and distributed web applications.
-			<br />M.Sc. Information Systems
-			<br />
-			<br />Know how in:</p>
-		<p class="tab">Node.js, TypeScript, React, React Native, Python, HTML5, Docker, C#.NET, MySQL, MongoDB, Redis,
-			AWS Cloud, MQTT, IoT, NMEA, ElasticSearch, Cloud Architecture, Event-driven architectures</p>
-	</div>
+      <a id="2010">2010</a>
 
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/1.1.4/typed.min.js"></script>
-	<script>
-		function $line(input) {
-			return "<p>" + input + "</p>";
-		}
+      <img
+        title="Limone sul Garda, IT, July 2010"
+        src="https://live.staticflickr.com/8068/8244966039_f25cc95e79_k.jpg"
+      />
+      <img
+        title="Porto di Salò, IT, June 2010"
+        src="https://live.staticflickr.com/8069/8248658654_0db048fa7b_k.jpg"
+      />
 
-		$(function () {
-			$.getJSON("https://api.ipify.org?format=jsonp&callback=?", function (data) {
-				var ip = data.ip;
-				$("#screen").append(
-					$line("root@" + ip + ':~$ <span id="type_man"></span>')
-				);
-				$("#type_man").typed({
-					strings: ["man ^492 thomasbrueggemann"],
-					typeSpeed: 49,
-					startDelay: 712,
-					callback: function () {
-						window.setTimeout(function () {
-							$("#screen").html($("#man").html());
-						}, 712);
-					}
-				});
-			});
-		});
+      <a id="2008">2008</a>
 
-		(function (i, s, o, g, r, a, m) {
-			i["GoogleAnalyticsObject"] = r;
-			(i[r] =
-				i[r] ||
-				function () {
-					(i[r].q = i[r].q || []).push(arguments);
-				}),
-				(i[r].l = 1 * new Date());
-			(a = s.createElement(o)), (m = s.getElementsByTagName(o)[0]);
-			a.async = 1;
-			a.src = g;
-			m.parentNode.insertBefore(a, m);
-		})(window, document, "script", "//www.google-analytics.com/analytics.js", "ga");
-		ga("create", "UA-15981085-1", "auto");
-		ga("send", "pageview");
-	</script>
-</body>
+      <img
+        title="Corinna, Boisheim, DE, August 2008"
+        src="https://live.staticflickr.com/8205/8247494089_a460df5a18_k.jpg"
+      />
+      <img
+        title="Louvre, Paris, FR, March 2008"
+        src="https://live.staticflickr.com/8203/8247533073_288e0b9fa9_k.jpg"
+      />
+
+      <a id="2007">2007</a>
+
+      <img
+        title="Vereister See im Morgennebel, Boisheim, DE, December 2007"
+        src="https://live.staticflickr.com/8064/8247487525_609f67ceba_k.jpg"
+      />
+    </div>
+  </body>
+</html>
