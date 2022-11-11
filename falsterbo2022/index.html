@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Thomas Brüggemann // Falsterbo 2022</title>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Cache-Control"
+      content="no-cache, no-store, must-revalidate"
+    />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
+    <link href="https://fonts.cdnfonts.com/css/nafeeda" rel="stylesheet" />
+
+    <style>
+      html,
+      body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        font-family: "Nafeeda", sans-serif;
+      }
+
+      #photos {
+        width: 50%;
+        left: 50%;
+        margin-left: -25%;
+        position: absolute;
+      }
+
+      #photos img {
+        margin-bottom: 100px;
+        width: 100%;
+      }
+
+      h1 {
+        margin-bottom: 50px;
+        margin-top: 50px;
+        width: 100%;
+        text-align: center;
+        font-size: 111px;
+        font-weight: 100;
+        color: black;
+      }
+
+      @media only screen and (max-width: 1700px) {
+        #photos {
+          width: 70%;
+          margin-left: -35%;
+        }
+
+        #photos img {
+          margin-bottom: 70px;
+        }
+
+        h1 {
+          font-size: 80px;
+        }
+      }
+
+      @media only screen and (max-width: 600px) {
+        #photos {
+          width: 100%;
+          margin-left: -50%;
+        }
+
+        #photos img {
+          margin-bottom: 50px;
+        }
+
+        h1 {
+          font-size: 50px;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Thomas Brüggemann // Falsterbo 2022</h1>
+    <div id="photos">
+      <img src="img/falsterbo_1.jpeg" />
+      <img src="img/falsterbo_2.jpeg" />
+      <img src="img/falsterbo_3.jpeg" />
+      <img src="img/falsterbo_4.jpeg" />
+      <img src="img/falsterbo_5.jpeg" />
+      <img src="img/falsterbo_6.jpeg" />
+    </div>
+  </body>
+</html>
