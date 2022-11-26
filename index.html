@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Thomas Brüggemann // Analog 35mm Photography</title>
+    <meta charset="UTF-8" />
+
+    <meta
+      http-equiv="Cache-Control"
+      content="no-cache, no-store, must-revalidate"
+    />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
+    <link href="https://fonts.cdnfonts.com/css/nafeeda" rel="stylesheet" />
+
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        font-family: "Nafeeda", sans-serif;
+      }
+
+      h1 {
+        margin-bottom: 50px;
+        margin-top: 50px;
+        width: 100%;
+        text-align: center;
+        font-size: 111px;
+        font-weight: 100;
+        color: black;
+      }
+
+      .albums {
+        display: grid;
+        grid-template-columns: 25% 25%;
+        grid-gap: 2%;
+        justify-content: center;
+      }
+
+      img {
+        width: 100%;
+      }
+
+      .card h2 {
+        display: block;
+        text-align: center;
+        width: 100%;
+        margin-top: 7px;
+      }
+
+      @media only screen and (max-width: 1700px) {
+        h1 {
+          font-size: 80px;
+        }
+
+        .albums {
+          grid-template-columns: 25% 25%;
+        }
+      }
+
+      @media only screen and (max-width: 600px) {
+        h1 {
+          font-size: 50px;
+        }
+
+        .albums {
+          grid-template-columns: 40% 40%;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Thomas Brüggemann</h1>
+
+    <div class="albums">
+      <div class="card">
+        <a href="/india2022">
+          <img src="./india2022/img/000079a.jpeg" />
+        </a>
+        <h2>🇮🇳 India 2022</h2>
+      </div>
+
+      <div class="card">
+        <a href="/falsterbo2022">
+          <img src="./falsterbo2022/img/falsterbo_1.jpeg" />
+        </a>
+        <h2>🇸🇪 Falsterbo 2022</h2>
+      </div>
+
+      <div class="card">
+        <a href="/autumn2022">
+          <img src="./autumn2022/img/autumn_1.jpeg" />
+        </a>
+        <h2>🍂 Autumn Forest Walk 2022</h2>
+      </div>
+    </div>
+  </body>
+</html>
