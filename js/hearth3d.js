@@ -360,29 +360,19 @@ float needles(vec2 p, float seed){
   hgt += m * (0.03 + mt * 0.02);
   float gold = smoothstep(0.5, 0.85, vnoise(p * 0.9 + 3.) * 0.5 + op * 0.6) * (1. - m) * (1. - path);
   alb = mix(alb, vec3(0.36, 0.20, 0.05) * (0.6 + nd * 0.6), gold * 0.55);
-  // the path: big flat natural stones bedded in the needles, moss and needles in the joints, rain standing in the hollows
-  vec2 sq = p * 1.45, sid = floor(sq), sf = fract(sq), sc = vec2(0.);
-  float s1 = 9., s2 = 9.;
-  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
-    vec2 o = vec2(i, j), h = vec2(hash12(sid + o + 9.1), hash12(sid + o + 3.7)) * 0.8 + 0.1, c = o + h - sf;
-    float d = dot(c, c);
-    if (d < s1) { s2 = s1; s1 = d; sc = sid + o + h; } else if (d < s2) s2 = d;
-  }
-  float sEdge = sqrt(s2) - sqrt(s1);
-  float onPath = step(pathDist(sc / 1.45), 0.7);
-  float flag = onPath * smoothstep(0.035, 0.09, sEdge);
-  float sh = hash12(floor(sc * 3.1));
-  vec3 stone = mix(vec3(0.13, 0.125, 0.12), vec3(0.30, 0.285, 0.26), sh) * (0.75 + 0.5 * (n3(vec3(p * 6., 1.)) * 0.6 + n3(vec3(p * 25., 2.)) * 0.4));
-  stone = mix(stone, vec3(0.30, 0.25, 0.19), step(0.82, fract(sh * 9.)) * 0.5);                     // a few warmer ones
-  stone = mix(stone, vec3(0.34, 0.37, 0.31), smoothstep(0.72, 0.8, n3(vec3(p * 3., sh * 10.))) * 0.5);   // lichen
-  stone = mix(stone, alb, step(0.55, nd) * nk * 0.5 * smoothstep(0.25, 0.05, sEdge));                 // needles blown onto the edges
-  float joint = onPath * (1. - flag);
-  alb = mix(alb, stone, flag);
-  alb = mix(alb, mix(alb * 0.55, vec3(0.05, 0.08, 0.02), 0.5), joint * 0.7);
-  hgt = mix(hgt, smoothstep(0.035, 0.3, sEdge) * 0.035 + n3(vec3(p * 18., 4.)) * 0.003, flag);
-  float pud = flag * smoothstep(0.74, 0.8, vnoise(p * 1.1 + 21.) * 0.6 + vnoise(p * 3.3) * 0.4) * smoothstep(0.08, 0.2, sEdge);
+  // the path: a strip beaten into the needles, darker and flattened, worn bare down the middle, a root across it now
+  // and then, rain standing in the bare hollows
+  float bare = smoothstep(0.5, 0.12, dp) * smoothstep(0.35, 0.65, vnoise(p * 0.8 + 4.));
+  vec3 trod = mix(vec3(0.12, 0.07, 0.04), vec3(0.24, 0.135, 0.065), vnoise(p * 3.) * 0.6 + nd * nk * 0.4);   // flattened needles, paler than the loose litter
+  alb = mix(alb, trod, path * 0.85);
+  alb = mix(alb, vec3(0.09, 0.065, 0.045) * (0.8 + 0.4 * vnoise(p * 9.)), bare * 0.55);
+  float rl = abs(sin(dot(p, vec2(0.8, 0.6)) * 1.1 + vnoise(p * 0.6) * 7.));
+  float root = smoothstep(0.08, 0.02, rl) * step(0.72, vnoise(p * 0.35 + 7.)) * path;
+  alb = mix(alb, vec3(0.13, 0.085, 0.05) * (0.8 + 0.4 * vnoise(p * 20.)), root);
+  hgt = hgt * mix(1., 0.3, path) + root * 0.025;
+  float pud = smoothstep(0.78, 0.84, vnoise(p * 1.2 + 21.) * 0.65 + vnoise(p * 3.3) * 0.35) * bare;
   alb *= 1. - pud * 0.5;
-  spec = flag * (25. + 300. * pud);
+  spec = pud * 300. + path * 8.;
   N = bumpN(N, vW, hgt * (1. - pud), 1.);
   N = normalize(mix(N, vec3(0., 1., 0.), pud));
   // contact darkening round the cabin
@@ -1834,20 +1824,23 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
   mist.frustumCulled = false; mist.renderOrder = 4;
   scene.add(mist);
 
-  // ---- input: the mouse looks round (the window's width is a full turn, following the movement; its height tilts the
-  // view up into the crowns or down to the floor). ←/→ or A/D walk round the cabin; ↑/↓, +/−, the wheel or a pinch
-  // come closer or step back. On a touch screen one finger walks round and tilts, two fingers pinch.
-  let yawT = 0, yaw = 0, pitchT = 0, pitch = 0, keyOrb = 0, keyZoom = 0, hx = null;
+  // ---- input: drag with the mouse to look round (up into the crowns, down to the floor); ←/→ or A/D walk round the
+  // cabin; ↑/↓, +/−, the wheel or a pinch come closer or step back. On a touch screen one finger walks round and tilts,
+  // two fingers pinch.
+  let yawT = 0, yaw = 0, pitchT = 0, pitch = 0, keyOrb = 0, keyZoom = 0;
   let orbT = 0, orb = 0, distT = DIST0, dist = DIST0, stepPh = 0;
   const camXZ = [START[0], START[1]];
+  let mdrag = null;                                   // the mouse looks round only while a button is held on the scene
+  canvasEl.style.cursor = "grab";
+  canvasEl.addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse" || e.button !== 0) return; mdrag = [e.clientX, e.clientY]; canvasEl.style.cursor = "grabbing"; canvasEl.setPointerCapture?.(e.pointerId); });
+  const endMouse = (e) => { if (e.pointerType === "mouse") { mdrag = null; canvasEl.style.cursor = "grab"; } };
+  addEventListener("pointerup", endMouse); addEventListener("pointercancel", endMouse);
   addEventListener("pointermove", (e) => {
-    if (e.pointerType !== "mouse") return;
-    const x = e.clientX / innerWidth * TAU;
-    if (hx !== null) yawT += x - hx;
-    hx = x;
-    pitchT = -(e.clientY / innerHeight - 0.5) * 0.7;
+    if (!mdrag || e.pointerType !== "mouse") return;
+    yawT -= (e.clientX - mdrag[0]) * 0.0045;
+    pitchT = clamp(pitchT + (e.clientY - mdrag[1]) * 0.003, -0.45, 0.45);
+    mdrag = [e.clientX, e.clientY];
   }, { passive: true });
-  document.addEventListener("mouseout", (e) => { if (!e.relatedTarget) hx = null; });
   const touches = new Map();
   let pinch = 0;
   const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a[0] - b[0], a[1] - b[1]); };
@@ -1859,7 +1852,7 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
     if (!p) return;
     const dx = e.clientX - p[0], dy = e.clientY - p[1];
     p[0] = e.clientX; p[1] = e.clientY;
-    if (touches.size === 1) { orbT -= dx * 0.004 * 30 / Math.max(dist, 10); pitchT = clamp(pitchT + dy * 0.003, -0.35, 0.35); }
+    if (touches.size === 1) { orbT -= dx * 0.006; pitchT = clamp(pitchT + dy * 0.003, -0.35, 0.35); }
     else if (touches.size === 2) { const s = spread(); if (pinch > 0) distT = clamp(distT * pinch / Math.max(s, 1), DMIN, DMAX); pinch = s; }
   }, { passive: true });
   addEventListener("wheel", (e) => { distT = clamp(distT * Math.exp(e.deltaY * 0.0012), DMIN, DMAX); }, { passive: true });
@@ -1904,9 +1897,9 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
     post.U.uExposure.value = 1.2 + night * 0.4;
 
     // walking round the cabin: the circle you are on, then stepped round anything in the way
-    const k = dt > 0 ? 1 - Math.exp(-dt * 4) : 1, kWalk = dt > 0 ? 1 - Math.exp(-dt * 1.8) : 1;
-    orbT += keyOrb * dt * 1.6 / dist;                                 // about 1.6 m/s
-    distT = clamp(distT + keyZoom * dt * 4, DMIN, DMAX);
+    const k = dt > 0 ? 1 - Math.exp(-dt * 12) : 1, kWalk = dt > 0 ? 1 - Math.exp(-dt * 7) : 1;
+    orbT += keyOrb * dt * 0.45;                                       // about 26° a second: once round in 14 s
+    distT = clamp(distT + keyZoom * dt * 12, DMIN, DMAX);
     const orb0 = orb, dist0 = dist;
     orb += (orbT - orb) * kWalk; dist += (distT - dist) * kWalk;
     const ang = ORBIT0 + orb;
@@ -1917,10 +1910,10 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
     }
     camXZ[0] += (cx - camXZ[0]) * k; camXZ[1] += (cz - camXZ[1]) * k;
     const [px, pz] = camXZ;
-    const moving = dt > 0 ? Math.min(1, (Math.abs(orb - orb0) * dist + Math.abs(dist - dist0)) / dt / 1.2) : 0;
+    const moving = dt > 0 ? Math.min(1, (Math.abs(orb - orb0) * dist + Math.abs(dist - dist0)) / dt / 3) : 0;
     stepPh += dt * 5.5 * moving;
     camPos.set(px, ground(px, pz) + EYE + Math.sin(stepPh) * 0.018 * moving, pz);
-    yaw += (yawT - yaw) * k; pitch += (pitchT - pitch) * k * 0.6;
+    yaw += (yawT - yaw) * k; pitch += (pitchT - pitch) * k;
     const base = Math.atan2(CABIN.x - px, -(CABIN.z - pz));          // toward the cabin
     const ay = base + yaw, el = Math.atan2(CAB_Y + 3 - camPos.y, Math.hypot(CABIN.x - px, CABIN.z - pz)) * 0.6 + 0.04 + pitch + Math.sin(t * 0.23) * 0.004;
     camera.position.copy(camPos).add(v3.set(Math.sin(t * 0.17) * 0.03, Math.sin(t * 0.29) * 0.02, 0));

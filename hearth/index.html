@@ -29,7 +29,7 @@
 </head>
 <body>
   <canvas id="hearth" aria-label="A spruce forest at dusk, mist between the trunks; in a clearing an A-frame cabin with lit windows, smoke rising from its stovepipe and firewood stacked outside"></canvas>
-  <p class="hint" id="hint">Move the mouse to look around · ← → walk round the house · scroll to come closer</p>
+  <p class="hint" id="hint">Drag to look around · ← → walk round the house · scroll to come closer</p>
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
@@ -83,9 +83,8 @@
     const hint = document.getElementById("hint");
     const wake = () => { ui.classList.remove("idle"); hint.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => { ui.classList.add("idle"); hint.classList.add("idle"); }, 3000); };
     if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag to walk round the house · pinch to come closer";
-    let moved = 0;                                       // the hint goes once it has been tried
-    addEventListener("pointermove", (e) => { if (e.pointerType === "mouse" && (moved += Math.abs(e.movementX)) > innerWidth * 0.25) hint.hidden = true; }, { passive: true });
-    addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") hint.hidden = true; });
+    // the hint goes once it has been tried
+    document.getElementById("hearth").addEventListener("pointerdown", () => { hint.hidden = true; });
     addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) hint.hidden = true; });
     addEventListener("wheel", () => { hint.hidden = true; }, { once: true, passive: true });
     ["pointermove", "pointerdown", "keydown"].forEach((ev) => addEventListener(ev, wake, { passive: true }));
