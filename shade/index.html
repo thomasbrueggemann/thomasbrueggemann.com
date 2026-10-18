@@ -15,9 +15,8 @@
     html, body { margin: 0; height: 100%; background: #0a0c10; overflow: hidden; }
     canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
     .ui { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
-      display: flex; gap: 8px; font: 500 14px/1 "Inter Tight", system-ui, sans-serif; transition: opacity .6s; }
+      display: flex; flex-wrap: wrap; gap: 8px; right: max(16px, env(safe-area-inset-right)); font: 500 14px/1 "Inter Tight", system-ui, sans-serif; transition: opacity .6s; }
     .ui.idle { opacity: 0; }
-    .ui .hint { align-self: center; color: rgba(232,230,225,.7); padding: 0 6px; }
     .ui a, .ui button { color: #e8e6e1; background: rgba(10,12,16,.55); border: 1px solid rgba(232,230,225,.25);
       padding: 10px 14px; border-radius: 999px; text-decoration: none; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
     .ui a:hover, .ui button:hover, .ui a:focus-visible, .ui button:focus-visible { border-color: #e0a96d; color: #e0a96d; outline: none; }
@@ -29,19 +28,50 @@
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
-    <span class="hint">Move down to descend</span>
+    <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
+    <button id="gust" type="button" title="Send a gust over the city (G)">Gust</button>
+    <button id="down" type="button" aria-pressed="false" title="Down to the river and back (D), or move the pointer into the lower half">Descend</button>
   </nav>
   <script type="module">
     import { startShade3D } from "../js/shade3d.js";
+    import { createShadeAudio } from "../js/shade-audio.js";
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    window.__shade = startShade3D(document.getElementById("shade"), { reduced });
+    const shade = window.__shade = startShade3D(document.getElementById("shade"), { reduced });
+    let audio = null;
+
+    const snd = document.getElementById("snd");
+    const setSound = async (v) => {
+      audio ||= createShadeAudio();
+      await audio.set(v);
+      snd.textContent = "Sound: " + (v ? "on" : "off");
+      snd.setAttribute("aria-pressed", String(v));
+    };
+    snd.onclick = () => setSound(!(audio && audio.on));
+
+    const gust = () => { shade.gust(); audio?.gust(); };
+    document.getElementById("gust").onclick = gust;
+    const down = document.getElementById("down");
+    const toggleDown = () => shade.toggleDescend();
+    down.onclick = toggleDown;
+    // follow the camera, however it got there: the button label, and the river coming closer in the sound
+    setInterval(() => {
+      const low = shade.drop > 0.5;
+      if (down.textContent !== (low ? "Rise" : "Descend")) { down.textContent = low ? "Rise" : "Descend"; down.setAttribute("aria-pressed", String(low)); }
+      if (audio?.on) audio.depth = shade.drop;
+    }, 250);
 
     const ui = document.getElementById("ui"), fs = document.getElementById("fs");
     if (!document.documentElement.requestFullscreen) fs.hidden = true;
     const toggleFs = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
     fs.onclick = toggleFs;
     document.addEventListener("fullscreenchange", () => { fs.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"; });
-    addEventListener("keydown", (e) => { if (e.key === "f" || e.key === "F") toggleFs(); });
+    addEventListener("keydown", (e) => {
+      const k = e.key.toLowerCase();
+      if (k === "f") toggleFs();
+      if (k === "m") snd.click();
+      if (k === "g") gust();
+      if (k === "d") toggleDown();
+    });
 
     // controls fade out after a few still seconds
     let t;

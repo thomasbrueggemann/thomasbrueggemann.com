@@ -44,7 +44,7 @@ const halfW = (z) => 70 + Math.max(0, CAM.z - z) * 1.2;       // wedge of the ci
 
 // ---------------------------------------------------------------- GLSL shared by every material
 const GLSL_COMMON = /* glsl */`
-uniform float uTime, uFogA, uFogH, uCloud;
+uniform float uTime, uFogA, uFogH, uCloud, uGustK, uGustF;
 uniform vec3 uSunDir, uSunCol;
 uniform vec2 uWind;
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -107,6 +107,7 @@ vec3 skyCol(vec3 d, float full){
 const SU = {
   uTime: { value: 0 }, uSunDir: { value: SUN_DIR.clone() }, uSunCol: { value: new THREE.Vector3(6.6, 4.4, 2.5) },
   uWind: { value: WIND.clone() }, uFogA: { value: 0.0007 }, uFogH: { value: 320 }, uCloud: { value: 0.42 },
+  uGustK: { value: 0 }, uGustF: { value: -1e4 },        // a called-up gust: strength, and where its front is along the wind
 };
 const LIGHTS_BEGIN = (() => {
   const c = THREE.ShaderChunk.lights_fragment_begin, i = c.indexOf("#if ( NUM_DIR_LIGHTS > 0 )");
@@ -228,6 +229,7 @@ const FOLIAGE = {
   vec3 wo = (modelMatrix * instanceMatrix * vec4(0., 0., 0., 1.)).xyz;
   float sc = length(instanceMatrix[0].xyz);
   float gust = smoothstep(0.42, 0.85, vnoise(wo.xz * 0.0105 - uWind * uTime * 0.05));
+  gust = max(gust, uGustK * exp(-pow((dot(wo.xz, uWind) - uGustF) / 55., 2.)) * (0.7 + 0.6 * vnoise(wo.xz * 0.03)));
   float hgt = clamp(position.y * 0.5 + 0.5, 0., 1.);
   vec3 sway = vec3(uWind.x, 0., uWind.y) * (0.2 + 1.3 * gust) + vec3(sin(uTime * 1.1 + wo.x * 0.21), 0., cos(uTime * 0.9 + wo.z * 0.23)) * 0.22;
   wPos.xyz += sway * hgt * sc * 0.075;
@@ -279,6 +281,7 @@ const VINE = {
   vec3 wo = (modelMatrix * instanceMatrix * vec4(0., 0., 0., 1.)).xyz;
   float L = length(instanceMatrix[1].xyz), hg = clamp(-position.y, 0., 1.);
   float gust = smoothstep(0.42, 0.85, vnoise(wo.xz * 0.0105 - uWind * uTime * 0.05));
+  gust = max(gust, uGustK * exp(-pow((dot(wo.xz, uWind) - uGustF) / 55., 2.)) * (0.7 + 0.6 * vnoise(wo.xz * 0.03)));
   vec2 sw = uWind * (0.1 + gust * 0.8) + vec2(sin(uTime * 0.8 + wo.x * 0.37 + wo.z), cos(uTime * 0.65 + wo.z * 0.41)) * 0.22;
   wPos.xz += sw * hg * hg * min(L, 14.) * 0.14;
   vH = hg;`,
@@ -1051,14 +1054,20 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   };
   addEventListener("resize", resize); resize();
 
-  let last = performance.now(), raf = 0, visible = true, slow = 0, tNow = reduced ? 40 : 0, drop = 0;
+  let last = performance.now(), raf = 0, visible = true, slow = 0, tNow = reduced ? 40 : 0, drop = 0, descend = null, gustT = -1;
   function frame(dt) {
     tNow += dt;
     const t = tNow;
     SU.uTime.value = t;
+    if (gustT >= 0) {                                    // the front runs downwind at ~40 m/s, past the camera and on
+      gustT += dt;
+      SU.uGustF.value = -420 + gustT * 40;
+      SU.uGustK.value = Math.min(1, gustT / 2) * (1 - smooth(14, 20, gustT)) * 1.6;
+      if (gustT > 20) gustT = -1;
+    }
     mouse.x += (mouse.tx - mouse.x) * 0.03; mouse.y += (mouse.ty - mouse.y) * 0.03;
     // the lower half of the screen lowers the camera: at the bottom edge you stand by the canal, looking up into the vault
-    const dt0 = clamp(-mouse.ty / 0.85, 0, 1);
+    const dt0 = descend ?? clamp(-mouse.ty / 0.85, 0, 1);
     drop += (dt0 * dt0 * (3 - 2 * dt0) - drop) * 0.022;
     const camY = CAM.y + (STREET.y - CAM.y) * drop, camX = CAM.x + (STREET.x - CAM.x) * drop;
     // a tripod in a light breeze: the frame barely moves
@@ -1102,7 +1111,15 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   if (reduced) { frame(0.016); frame(0); }            // twice, so the river has a previous frame to mirror
   else raf = requestAnimationFrame((n) => { last = n; loop(n); });
   const setDrop = (v) => { drop = v; mouse.ty = mouse.y = -0.85 * v; };   // for screenshots: jump to a height without the easing
-  return { renderer, frame, setDrop, scene, camera, SU, stats: { boxes: boxes.length, trees: trees.length, blobs: nBlobs, shrubs: nShrubs, arches: archGeos.length, vines: vines.length } };
+  // the page's buttons: send a gust rolling over the city; go down to the river and back up without the pointer
+  const gust = () => { gustT = 0; };
+  let px = 0, py = 0, lockX = 0, lockY = 0;
+  const toggleDescend = () => { descend = drop > 0.5 ? 0 : 1; lockX = px; lockY = py; return descend === 1; };
+  addEventListener("pointermove", (e) => {                     // the pointer takes over again once it really moves
+    px = e.clientX; py = e.clientY;
+    if (descend !== null && Math.hypot(px - lockX, py - lockY) > 160) descend = null;
+  }, { passive: true });
+  return { renderer, frame, setDrop, gust, toggleDescend, get drop() { return drop; }, scene, camera, SU, stats: { boxes: boxes.length, trees: trees.length, blobs: nBlobs, shrubs: nShrubs, arches: archGeos.length, vines: vines.length } };
 }
 
 // ---------------------------------------------------------------- composite: heat shimmer, ACES, warm grade, lens
