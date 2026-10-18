@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Thomas Brüggemann — tiny worlds in the browser</title>
-  <meta name="description" content="Thomas Brüggemann builds tiny worlds that run in a browser tab: a lighthouse in a gale, a city swallowed by trees, a 399 m container ship, a failing space habitat. Playable 3D games, all in the browser.">
+  <title>Thomas Brüggemann — real-time scenes in the browser</title>
+  <meta name="description" content="Thomas Brüggemann makes real-time 3D scenes that run in a browser tab: a lighthouse in a gale, a city swallowed by trees. Everything is generated in code, with three.js.">
   <meta name="theme-color" content="#0a0c10">
   <link rel="canonical" href="https://thomasbrueggemann.com/">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Thomas Brüggemann — tiny worlds in the browser">
-  <meta property="og:description" content="Playable 3D worlds that run in the browser. Everything is a link away.">
+  <meta property="og:title" content="Thomas Brüggemann — real-time scenes in the browser">
+  <meta property="og:description" content="A portfolio of real-time 3D scenes: a lighthouse in a storm, an overgrown megacity. Generated in code, running in the browser.">
   <meta property="og:url" content="https://thomasbrueggemann.com/">
   <meta property="og:image" content="https://thomasbrueggemann.com/assets/og.jpg">
   <meta name="twitter:card" content="summary_large_image">
@@ -26,7 +26,7 @@
   </script>
 </head>
 <body>
-  <a class="skip" href="#worlds">Skip to the worlds</a>
+  <a class="skip" href="#scenes">Skip to the scenes</a>
 
   <header class="nav" id="nav">
     <a class="brand" href="#top" aria-label="Thomas Brüggemann, top of page">TB</a>
@@ -39,9 +39,9 @@
       <div class="hero-shade" aria-hidden="true"></div>
       <div class="wrap hero-inner">
         <h1 class="hero-title">Thomas<br>Brüggemann</h1>
-        <p class="hero-lede">In my spare time I build tiny worlds that run in your browser.</p>
+        <p class="hero-lede">I make real-time 3D scenes that run in your browser. Everything is generated in code.</p>
         <p class="hero-cta">
-          <a class="btn btn-solid" href="#worlds">See the work ↓</a>
+          <a class="btn btn-solid" href="#scenes">See the scenes ↓</a>
           <a class="btn" href="storm/">Enter the storm →</a>
           <a class="btn" href="shade/">Enter the shade →</a>
           <a class="btn" href="https://github.com/thomasbrueggemann" target="_blank" rel="me noopener">GitHub ↗</a>
@@ -49,12 +49,12 @@
       </div>
     </section>
 
-    <section class="section" id="worlds" aria-labelledby="worlds-h">
+    <section class="section" id="scenes" aria-labelledby="scenes-h">
       <div class="wrap section-head">
-        <h2 id="worlds-h">Worlds</h2>
-        <p class="section-sub">Click a screenshot to look closer.</p>
+        <h2 id="scenes-h">Scenes</h2>
+        <p class="section-sub">Two pictures that move. Click a screenshot to look closer, or step inside.</p>
       </div>
-      <div id="world-list"></div>
+      <div id="scene-list"></div>
     </section>
   </main>
 
@@ -65,14 +65,14 @@
     </div>
   </footer>
 
-  <dialog class="viewer" id="viewer" aria-label="Project details">
+  <dialog class="viewer" id="viewer" aria-label="Scene details">
     <button class="viewer-close" id="viewer-close" aria-label="Close">×</button>
     <div class="viewer-body" id="viewer-body"></div>
   </dialog>
 
   <noscript>
     <div class="wrap noscript">
-      <p>This page lists my projects from JavaScript data. Without it, find everything on <a href="https://github.com/thomasbrueggemann">github.com/thomasbrueggemann</a>.</p>
+      <p>This page needs JavaScript and WebGL. The scenes are at <a href="storm/">/storm/</a> and <a href="shade/">/shade/</a>; my code is on <a href="https://github.com/thomasbrueggemann">github.com/thomasbrueggemann</a>.</p>
     </div>
   </noscript>
 

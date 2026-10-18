@@ -1,5 +1,5 @@
 // Pure string renderers: data in, HTML out. No DOM access here.
-import { worlds } from "./data.js";
+import { scenes } from "./data.js";
 
 export const SHOT_DIR = "assets/shots/";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -17,22 +17,22 @@ const shotUrl = (s) => SHOT_DIR + s.src;
 
 function actions(p) {
   return `<div class="actions">
-    ${p.play ? `<a class="btn btn-solid" href="${esc(p.play)}" target="_blank" rel="noopener">Play ${arrow}</a>` : `<span class="btn btn-disabled" title="Needs a server and Claude credentials">Run it yourself</span>`}
-    <a class="btn" href="${esc(p.repo)}" target="_blank" rel="noopener">Source ${arrow}</a>
+    <a class="btn btn-solid" href="${esc(p.href)}">Enter the scene <span aria-hidden="true">→</span></a>
+    <a class="btn" href="${esc(p.source)}" target="_blank" rel="noopener">Source ${arrow}</a>
   </div>`;
 }
 
-export function renderWorld(p, i) {
+export function renderScene(p, i) {
   const first = p.shots[0];
-  return `<article class="world ${i % 2 ? "flip" : ""}" id="w-${p.slug}" data-slug="${p.slug}">
-    <div class="wrap world-grid">
-      <div class="world-visual reveal">
+  return `<article class="scene ${i % 2 ? "flip" : ""}" id="s-${p.slug}" data-slug="${p.slug}">
+    <div class="wrap scene-grid">
+      <div class="scene-visual reveal">
         <button class="frame-shot" type="button" data-open="${p.slug}" data-i="0" aria-label="Open screenshots of ${esc(p.title)}">
-          <img src="${shotUrl(first)}" alt="${esc(first.alt)}" width="1440" height="900" loading="lazy" decoding="async">
+          <img src="${shotUrl(first)}" alt="${esc(first.alt)}" width="1600" height="1000" loading="lazy" decoding="async">
         </button>
       </div>
-      <div class="world-copy reveal">
-        <p class="meta">${esc(p.genre)} · ${fmtDate(p.date)}</p>
+      <div class="scene-copy reveal">
+        <p class="meta">${esc(p.meta)}</p>
         <h3>${esc(p.title)}</h3>
         <p class="tagline">${esc(p.tagline)}</p>
         <p class="desc">${esc(p.description)}</p>
@@ -65,16 +65,16 @@ export function renderViewer(p, index = 0) {
       }
     </div>
     <div class="viewer-info">
-      <p class="meta">${esc(p.genre || p.kicker)} · ${fmtDate(p.date)}</p>
+      <p class="meta">${esc(p.meta)} · ${fmtDate(p.date)}</p>
       <h3>${esc(p.title)}</h3>
       <p class="tagline">${esc(p.tagline)}</p>
       <p class="desc">${esc(p.description)}</p>
-      ${p.highlights ? `<ul class="hl">${p.highlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>` : ""}
+      <ul class="hl">${p.highlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>
       <p class="stack">${p.tags.map(esc).join(" · ")}</p>
       ${actions(p)}
     </div>
   </div>`;
 }
 
-export const lookup = (slug) => worlds.find((p) => p.slug === slug);
-export { worlds };
+export const lookup = (slug) => scenes.find((p) => p.slug === slug);
+export { scenes };

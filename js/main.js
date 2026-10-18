@@ -1,4 +1,4 @@
-import { worlds, renderWorld, renderViewer, lookup, SHOT_DIR } from "./render.js";
+import { scenes, renderScene, renderViewer, lookup, SHOT_DIR } from "./render.js";
 import { startHero } from "./hero.js";
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -6,7 +6,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ---- render ---------------------------------------------------------------
-$("#world-list").innerHTML = worlds.map(renderWorld).join("");
+$("#scene-list").innerHTML = scenes.map(renderScene).join("");
 $("#year").textContent = new Date().getFullYear();
 
 // ---- hero -----------------------------------------------------------------

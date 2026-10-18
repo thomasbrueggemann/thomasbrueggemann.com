@@ -1,201 +1,57 @@
 // Single source of truth for everything the page shows.
-// See AGENTS.md for the schema and the "add a project" procedure.
+// See AGENTS.md for the schema and the "add a scene" procedure.
 
-const GH = "https://github.com/thomasbrueggemann/";
-const PAGES = "https://thomasbrueggemann.github.io/";
+const SRC = "https://github.com/thomasbrueggemann/thomasbrueggemann.com/blob/master/js/";
 
 // ---------------------------------------------------------------------------
-// WORLDS — flagship projects, rendered as full "chapters" with screenshots.
-// Order here = order on the page.
-// shots: files in assets/shots/ (webp, 1600w max). First one is the hero image.
-// play: live URL or null.
+// SCENES — real-time 3D pictures that run in the browser, rendered as full
+// "chapters" with screenshots. Order here = order on the page.
+// shots: files in assets/shots/ (webp, 1600w max). First one is the chapter image.
+// href: the fullscreen page of the scene, relative to the site root.
 // ---------------------------------------------------------------------------
-export const worlds = [
+export const scenes = [
   {
-    slug: "windward",
-    title: "Windward",
-    kicker: "A long walk into the wind",
-    tagline: "Walk, sing and glide through sand, ruins, depths and snow.",
+    slug: "storm",
+    title: "Skerryhead Storm",
+    meta: "Night · open sea",
+    tagline: "A lighthouse holds on in a gale.",
     description:
-      "A long walk into the wind, built from scratch with three.js. Cross golden dunes, a ruined city at dusk, the blue depths and a final snowy ascent toward a glowing split in the mountain. Terrain, textures, models and the music are all procedural, so there are no assets at all.",
+      "A granite rock in the Atlantic, one lit tower and a storm that never lets up. The sea, the sky, the rain and the lightning are all computed live in three.js, and the beam keeps turning through the weather. There are no models, textures or sound files: everything is generated in code.",
     date: "2026-10",
-    genre: "Adventure",
-    tags: ["three.js", "Vite", "procedural", "synthesised score"],
+    tags: ["three.js", "GLSL", "procedural", "WebAudio"],
     highlights: [
-      "Four chapters driven by one colour script: golden dunes, amber ruins at dusk, the blue depths, then snow and white-out",
-      "Sand-surf down steep dunes, then flutter, glide, dive, loop and barrel-roll on a scarf that charges from the symbols you find",
-      "A companion who follows you, buildings you can enter, and a score synthesised live in the browser",
+      "A Gerstner-wave sea with crest, trail and surf foam, and white water breaking over the rocks",
+      "Storm sky lit by a hidden moon, rain streaks, branching lightning and a rotating beam through the weather",
+      "HDR rendering with bloom and a light grade; wind, rain, surf and thunder synthesised live (key M for sound, L for lightning)",
     ],
-    play: PAGES + "windward/",
-    repo: GH + "windward",
+    href: "storm/",
+    source: SRC + "hero3d.js",
     shots: [
-      { src: "windward-1.webp", alt: "A red-robed traveler on golden dunes with a glowing mountain and light pillars ahead", caption: "The first dunes, with the mountain on the horizon" },
-      { src: "windward-2.webp", alt: "A traveler sand-surfing a sunlit dune groove in the sunken city chapter", caption: "Chapter two: the sunken city" },
-      { src: "windward-3.webp", alt: "A traveler in a blue canyon in front of rock arches and shafts of light", caption: "Chapter three: the depths" },
-      { src: "windward-4.webp", alt: "A traveler in a white-out snowfield near a small stone hut", caption: "Chapter four: the ascent" },
+      { src: "storm-1.webp", alt: "A striped lighthouse on a rock in a stormy sea at night, the beam sweeping across the clouds below a hazy moon", caption: "The tower, with the beam crossing the clouds" },
+      { src: "storm-2.webp", alt: "A lightning bolt over the dark sea, lighting up the clouds behind the lighthouse", caption: "A bolt lights up the whole sky" },
+      { src: "storm-3.webp", alt: "The lighthouse seen from a low angle above the breaking surf", caption: "From the water's edge" },
     ],
   },
   {
-    slug: "lighthouse",
-    title: "Skerryhead Light",
-    kicker: "A keeper's night",
-    tagline: "Keep the light burning through a full gale.",
+    slug: "shade",
+    title: "Shade",
+    meta: "Late afternoon · a megacity",
+    tagline: "A city that grew its own shade.",
     description:
-      "A first-person lighthouse-keeper game. You are alone on a granite rock in the Atlantic on the night of a full gale. Keep the lamp lit, make repairs, guide a lost steamer past the reef and find out what the old keeper hid inside the tower. Every texture, every sound and every polygon is generated in code: there are no asset files at all.",
+      "A megacity swallowed by its own vegetation, seen against a low sun at the end of the avenue. Towers wear vines, trees burst from the facades and a vault of arches and lianas closes over the street. It is a still frame with small things moving in it: gusts in the canopy, swaying vines, a flock of swifts, pods and buses on a highway viaduct. Everything is generated in code.",
     date: "2026-10",
-    genre: "First-person",
-    tags: ["three.js", "procedural", "WebAudio", "no assets"],
+    tags: ["three.js", "GLSL", "procedural", "WebAudio"],
     highlights: [
-      "Nine low-ceilinged storeys wound by one spiral stair, topped by a rotating Fresnel optic at 34 m",
-      "Wind, rain, surf, thunder, foghorn and even the cat purring are synthesised live",
-      "Quality tiers with shadows, SSAO and bloom that step themselves down when the frame rate drops",
+      "Towers, hedges, banyan megatrees, a canopy roof and a web of lianas, laid out from a seeded generator so the composition is the same on every load",
+      "A river that mirrors the frame before it, screen-space god rays, and a highway on piers carrying instanced traffic",
+      "The city exists all round you: drag or use the arrow keys to turn 360°, or move the pointer down to stand at street level (keys G for a gust, M for sound)",
     ],
-    play: PAGES + "lighthouse/",
-    repo: GH + "lighthouse",
+    href: "shade/",
+    source: SRC + "shade3d.js",
     shots: [
-      { src: "lighthouse-1.webp", alt: "The lighthouse on its rock at night, beam sweeping the clouds past a hazy moon", caption: "Skerryhead Light from the jetty" },
-      { src: "lighthouse-2.webp", alt: "The tower on its granite rock above a stormy sea, beam sweeping the sky", caption: "The rock, the oil store and the sea stacks" },
-      { src: "lighthouse-3.webp", alt: "Looking up at the lit tower, windows glowing, beam crossing the sky", caption: "Every window is lit by the keeper's lamps" },
-    ],
-  },
-  {
-    slug: "containership",
-    title: "Triple-E Bridge Command",
-    kicker: "Ship-handling simulator",
-    tagline: "Dock a 399 m container ship from the bridge.",
-    description:
-      "Take the Triple-E class MAJESTIC MAERSK (399 m, 18,270 TEU) from the sea buoy into the fictional port of Westerhaven and put her alongside Berth 4. The wheelhouse, the crew, the VHF chatter and the hydrodynamics are all simulated in the browser.",
-    date: "2026-09",
-    genre: "Simulator",
-    tags: ["three.js", "WebGPU", "physics", "speech synthesis"],
-    highlights: [
-      "A 3-DOF manoeuvring model: Clarke hull derivatives, twin rudders in prop wash, bow thrusters, tugs, wind, current and squat",
-      "Crew voices synthesised in the browser by Kokoro-82M on WebGPU, routed through a VHF radio chain",
-      "Authored as 30+ modules and concatenated into one file; every time of day, sea state and quality level is regression-tested",
-    ],
-    play: PAGES + "containership/",
-    repo: GH + "containership",
-    shots: [
-      { src: "containership-1.webp", alt: "Ship bridge wheelhouse in daylight with gauges, consoles, an officer and a briefing panel", caption: "Morning on the bridge: engines on stand-by" },
-      { src: "containership-2.webp", alt: "The same bridge at night with illuminated gauges", caption: "Same bridge, 23:20 local time" },
-    ],
-  },
-  {
-    slug: "canopy",
-    title: "CANOPY",
-    kicker: "The overgrown city, 2087",
-    tagline: "Glide across a megacity swallowed by trees.",
-    description:
-      "The Warming moved civilisation into the shade. Engineered megaflora swallowed the cities, and people now live in cool green street-canyons beneath the leaves. Above the canopy the sun burns at 54 °C: you can climb out any time, you just cannot stay. An infinite, procedural, first-person city in one HTML file and one script.",
-    date: "2026-07",
-    genre: "Exploration",
-    tags: ["three.js", "procedural", "climbing", "gliding"],
-    highlights: [
-      "Infinite city built from deterministic chunks: row-house blocks, towers, plazas, groves and abandoned overgrown cars",
-      "Climb vine-covered facades, mantle onto rooftops, then unfurl the leaf-sail and glide from bough to bough",
-      "Heat and a day/night cycle, errands from citizens, collectable glowseeds and a trial journal",
-    ],
-    play: PAGES + "canopy/",
-    repo: GH + "canopy",
-    shots: [
-      { src: "canopy-1.webp", alt: "Street canyon between glass towers draped in vines and moss", caption: "Moss Court, in the shade of the deep green" },
-      { src: "canopy-2.webp", alt: "A street at dusk, giant trunks rising between buildings", caption: "Trunks like towers" },
-      { src: "canopy-3.webp", alt: "Canopy title screen with story intro", caption: "Intro" },
-    ],
-  },
-  {
-    slug: "halcyon-ring",
-    title: "Halcyon Ring",
-    kicker: "Stanford torus, 1.9 km across",
-    tagline: "Gravity fails every few minutes. Fix the ring.",
-    description:
-      "You are the duty engineer aboard a Stanford torus cruising through space. The flywheel is failing: every few minutes the ring stops spinning, gravity dies and everything, you included, floats. Walk, run and drift the full 5.9 km circumference of the ring city to repair five systems before someone else's shift starts.",
-    date: "2026-07",
-    genre: "First-person",
-    tags: ["three.js", "PBR", "procedural", "zero-g"],
-    highlights: [
-      "Every session generates a different ring from one world seed (?seed=12345 replays it): river, hills, waterfall, roads, buildings",
-      "Full PBR materials built from a single height field: flagstones, clapboard, slate roofs, riveted and rusting steel",
-      "Real zero-g thruster controls, swimming, trains with live countdown boards, and procedural audio",
-    ],
-    play: PAGES + "halcyon-ring/",
-    repo: GH + "halcyon-ring",
-    shots: [
-      { src: "halcyon-ring-1.webp", alt: "Plaza with a stone fountain and apartment blocks inside a space habitat, hills curving up overhead", caption: "The inside of the torus: the ground curves up into the sky" },
-      { src: "halcyon-ring-2.webp", alt: "A fountain close up in the ring city plaza", caption: "A fountain on the plaza" },
-      { src: "halcyon-ring-3.webp", alt: "Halcyon Ring title screen", caption: "Begin shift" },
-    ],
-  },
-  {
-    slug: "wildfire-response",
-    title: "Wildfire Response",
-    kicker: "One HTML file, offline",
-    tagline: "Hold the line. Embers are what kill the town.",
-    description:
-      "Drive a fire appliance, work the roof monitor and hold a wind-driven fire back from three mountain towns. Terrain, textures, truck models, sound and icons are generated at runtime, so the entire game builds down to a single 785 KB HTML file that plays straight off the disk.",
-    date: "2026-08",
-    genre: "Action / strategy",
-    tags: ["three.js", "PWA", "single file", "simulation"],
-    highlights: [
-      "Fire runs uphill and downwind, spots ahead of itself with lofted embers, and crawls through clearings",
-      "Roads and water are firebreaks; wet ground resists ignition, so you can lay a line ahead of the front",
-      "Installable, fully offline PWA; the published site is always rebuilt from source by a GitHub Action",
-    ],
-    play: PAGES + "wildfire-response/",
-    repo: GH + "wildfire-response",
-    shots: [
-      { src: "wildfire-response-1.webp", alt: "A red fire appliance driving toward a building in a mountain valley, with a minimap and gauges", caption: "Ranger Pumper on the road to Ashford" },
-      { src: "wildfire-response-2.webp", alt: "Appliance selection screen with four trucks and their stats", caption: "Pick your appliance" },
-    ],
-  },
-  {
-    slug: "one-more-lane",
-    title: "One More Lane",
-    kicker: "Gridless traffic puzzle",
-    tagline: "Draw roads at any angle. Fix the jams. Keep the city moving.",
-    description:
-      "A tiny, top-down, road-building traffic game. Draw smooth roads at any angle, fix jams with roundabouts, traffic lights and overpasses, and keep a growing city moving. It plays with a mouse on desktop and with fingers on a tablet, and installs as an offline PWA.",
-    date: "2026-10",
-    genre: "City builder",
-    tags: ["three.js", "PWA", "touch", "traffic simulation"],
-    highlights: [
-      "Gridless roads that bend smoothly, snap to junctions and guides, and rise into overpasses and ramps",
-      "Actuated traffic lights with a phase editor and protected left turns; routes adapt to live traffic",
-      "Congestion heat-map, street/area removal with undo, dark theme",
-    ],
-    play: PAGES + "one-more-lane/",
-    repo: GH + "one-more-lane",
-    shots: [
-      { src: "one-more-lane-1.webp", alt: "Curvy neighbourhood of roads and houses in the game", caption: "A curvy neighbourhood" },
-      { src: "one-more-lane-2.webp", alt: "Traffic light editor beside a roundabout", caption: "Traffic-light phases next to a roundabout" },
-      { src: "one-more-lane-3.webp", alt: "A big city with many roads", caption: "A big city" },
-      { src: "one-more-lane-4.webp", alt: "The game in dark theme", caption: "Dark theme" },
-      { src: "one-more-lane-5.webp", alt: "Start menu over the map", caption: "Start menu" },
-    ],
-  },
-  {
-    slug: "gemify",
-    title: "Gemify",
-    kicker: "Claude, the game designer",
-    tagline: "Photograph a board game. Play it in 3D.",
-    description:
-      "Scan a QR code with your phone and photograph every rulebook page and every component. Claude works out the rules and writes a three.js game module; bots then playtest it headless, and if it breaks Claude gets the report and fixes it. Play the result against bots, on one screen, or online with friends. It needs a server and Claude credentials, so there is no public demo: run it yourself.",
-    date: "2026-10",
-    genre: "AI tool",
-    tags: ["Claude", "three.js", "WebSocket", "multiplayer", "Playwright"],
-    highlights: [
-      "Phone-to-computer photo pipeline paired by QR code; each upload is confirmed on the phone",
-      "Generated rules are played out by headless bots before anyone sees them, with up to two self-repair rounds",
-      "Lobby with seats for same-screen, bot or online players, joined by invite link",
-    ],
-    play: null,
-    repo: GH + "gemify",
-    shots: [
-      { src: "gemify-1.webp", alt: "Gemify home screen", caption: "Home: scan a new game" },
-      { src: "gemify-2.webp", alt: "Host screen with QR code and received photos", caption: "Photos arrive from the phone" },
-      { src: "gemify-3.webp", alt: "Build progress with rules test results", caption: "Claude builds; bots test the rules" },
-      { src: "gemify-4.webp", alt: "Lobby with host and online player seats", caption: "Lobby" },
-      { src: "gemify-5.webp", alt: "A 3D Connect Four board being played", caption: "Playing the built-in Connect Four demo" },
+      { src: "shade-1.webp", alt: "A sun low behind a vault of vines and tree crowns above a viaduct with pods and buses, towers on both sides", caption: "The avenue, with the sun at the far end" },
+      { src: "shade-2.webp", alt: "A river at street level reflecting the sun, with vines hanging from a canopy overhead", caption: "Descend: street level over the river" },
+      { src: "shade-3.webp", alt: "A banyan trunk lit by the low sun beside a vine-covered tower with lit windows, with buses on the highway below", caption: "Turned 40°: sunlit trunk, towers and the highway" },
     ],
   },
 ];
