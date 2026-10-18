@@ -117,11 +117,12 @@ const LIGHTS_BEGIN = (() => {
   const dir = c.slice(i).replace("RE_Direct( directLight", "directLight.color *= cloudShade(vW);\n\t\tsunLit = directLight.color;\n\t\tRE_Direct( directLight");
   return "vec3 sunLit = vec3(0.);\n" + c.slice(0, i) + dir;
 })();
-function patch(mat, key, { vert = "", wind = "", frag = "", color = "", normal = "", after = "", uniforms = {}, strip = [] } = {}) {
+function patch(mat, key, { vert = "", pre = "", wind = "", frag = "", color = "", normal = "", after = "", uniforms = {}, strip = [] } = {}) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, SU, uniforms);
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", `#include <common>\n${GLSL_COMMON}\nvarying vec3 vW, vWN;\n${vert}`)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>\n${pre}`)
       .replace("#include <project_vertex>", `
         vec4 wPos = vec4(transformed, 1.0);
         vec3 wN = objectNormal;
@@ -218,7 +219,7 @@ float figure(vec2 p, float pose, float w, float t, out float part){
 }
 vec3 roomCol(vec2 f, vec2 c, float bay, float fl, vec3 d, float seed, float lit, float pxm){
   float h0 = hash12(c + seed * 17.), h1 = hash12(c + 5.3), h2 = hash12(c + 11.7);
-  float depth = bay * (1.3 + 1.2 * h0);
+  float depth = 4. + 4. * h0;
   vec3 p0 = vec3(f.x * bay, f.y * fl, 0.);
   d += vec3(1e-5) * step(abs(d), vec3(1e-5));
   vec3 tm = max((vec3(bay, fl, depth) - p0) / d, -p0 / d);
@@ -234,7 +235,10 @@ vec3 roomCol(vec2 f, vec2 c, float bay, float fl, vec3 d, float seed, float lit,
     col = d.y < 0. ? mix(vec3(0.15, 0.09, 0.05), vec3(0.3, 0.28, 0.25), step(0.6, h0)) * (0.85 + 0.15 * step(0.5, fract(hp.x * 2.5))) : vec3(0.6, 0.58, 0.54);
   }
   float day = mix(1., 0.28, hn.z) * (t == tm.y && d.y > 0. ? 0.6 : 1.);
-  vec3 lamp = vec3(1.0, 0.66, 0.36) * (0.45 + 0.3 * day);
+  // a lamp hangs under the middle of the ceiling: surfaces near it and facing it are brighter, the corners fall off
+  vec3 toL = vec3(bay * 0.5, fl - 0.3, depth * 0.45) - hp, nrm = t == tm.z ? vec3(0., 0., -1.) : t == tm.y ? vec3(0., -sign(d.y), 0.) : vec3(-sign(d.x), 0., 0.);
+  float dl = length(toL), lk = (0.3 + 0.7 * max(dot(nrm, toL / dl), 0.)) * 2.4 / (1. + dl * dl * 0.16);
+  vec3 lamp = vec3(1.0, 0.66, 0.36) * lk;
   if (lit > 0.5) {
     // someone at home: pacing to and fro, standing at the window, at a desk, or dancing; in some rooms the TV is on
     float hp = hash12(c + 91.), hq = hash12(c + 37.);
@@ -307,10 +311,15 @@ vec3 roomCol(vec2 f, vec2 c, float bay, float fl, vec3 d, float seed, float lit,
     glassCol = mix(glassCol, mix(vec3(0.30, 0.27, 0.21), vec3(0.48, 0.42, 0.31), hash12(c + 41.)) * (0.8 + 0.4 * vnoise(vec2(f.x * 30., f.y * 3.))), blind);
     float room = step(0.82, hash12(c + 63.)) * step(hash12(c + 63.), 0.9);
     glassCol = mix(glassCol, vec3(0.025, 0.07, 0.02) * (0.6 + 0.8 * vnoise(f * 9. + c)), room * 0.8 * lodk * (1. - blind));
-    litW = step(0.94, hash12(c + 55.)) * lodk * (0.35 + 0.65 * smoothstep(0.25, 0.95, f.y)) * (0.6 + 0.4 * hash12(c + 71.));
+    // an apartment runs behind two or three windows (a whole stretch of the ribbon and glass-wall styles), so the rooms seen
+    // through neighbouring panes are one room, lit or dark together
+    float rk = style > 0.5 && style < 2.5 ? 3. : 2. + step(0.5, fract(seed * 5.7)), rx = floor(c.x / rk);
+    vec2 rid = vec2(rx, c.y), rf = vec2((c.x - rx * rk + f.x) / rk, f.y);
+    float lit = step(0.94, hash12(rid + 55.));
+    litW = lit * lodk * (0.35 + 0.65 * smoothstep(0.25, 0.95, f.y)) * (0.6 + 0.4 * hash12(rid + 71.));
     if (lodk > 0.02) {                                                      // and the room behind the glass
       vec3 Tu = abs(N0.x) > 0.5 ? vec3(0., 0., 1.) : vec3(1., 0., 0.), rd = -V;
-      inner = roomCol(f, c, bay, fl, vec3(dot(rd, Tu), rd.y, dot(rd, -N0)), seed, step(0.94, hash12(c + 55.)), max(fw.x * bay, fw.y * fl));
+      inner = roomCol(rf, rid, bay * rk, fl, vec3(dot(rd, Tu), rd.y, dot(rd, -N0)), seed, lit, max(fw.x * bay, fw.y * fl));
       innerK = lodk * (1. - blind) * (1. - frame) * (1. - room * 0.8);
       glassCol = mix(glassCol, vec3(0.008, 0.009, 0.01), innerK);
     }
@@ -553,6 +562,57 @@ const GRASS = {
   after: `
   reflectedLight.directDiffuse += diffuseColor.rgb * vec3(1.05, 1.25, 0.5) * uSunCol * sunVis * (0.04 + pow(max(dot(-V, uSunDir), 0.), 4.) * 0.9) * vH;
   reflectedLight.indirectDiffuse *= mix(0.35, 1., vH);`,
+};
+
+// animals of the forest floor: one rig per species, posed in the vertex shader. Every vertex knows its bone (aBn: 0 body,
+// 1 neck and head, 2-5 the legs, 6 the tail), the joint it turns about (aPv) and how far down the limb it sits (aLt);
+// aAn carries the gait's phase, how much the animal is walking, how far its head is down grazing, and a seed.
+const ANIMAL = {
+  vert: `attribute float aBn, aLt; attribute vec3 aPv; attribute vec4 aAn; uniform float uKind; varying vec3 vA; varying float vBn;
+vec2 rot2(vec2 v, float a){ float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }`,
+  pre: `
+  {
+    float g = aAn.x, wk = aAn.y, gz = aAn.z, sd = aAn.w;
+    vec3 pv = aPv;
+    if (aBn > 1.5 && aBn < 5.5) {
+      // a four-beat walk: each leg swings from its hip or shoulder, the lower leg folding as it comes forward
+      float ph = aBn < 2.5 ? 0. : aBn < 3.5 ? 3.14159 : aBn < 4.5 ? 1.5708 : 4.7124, front = aBn < 3.5 ? -1. : 1.;
+      float sw = sin(g + ph) * 0.45 * wk, fold = max(0., cos(g + ph)) * 0.75 * wk * front;
+      vec2 knee = vec2(pv.x, pv.y * 0.5);
+      if (aLt > 0.5) { transformed.xy = knee + rot2(transformed.xy - knee, fold); objectNormal.xy = rot2(objectNormal.xy, fold); }
+      transformed.xy = pv.xy + rot2(transformed.xy - pv.xy, sw); objectNormal.xy = rot2(objectNormal.xy, sw);
+    } else if (aBn > 0.5 && aBn < 1.5) {
+      // the head: down to graze, nodding as it walks, looking about while it stands
+      float a = -gz * (uKind > 0.5 ? 0.45 : 1.05) + sin(g * 2.) * 0.06 * wk + sin(uTime * 0.37 + sd * 20.) * 0.12 * (1. - gz);
+      transformed.xy = pv.xy + rot2(transformed.xy - pv.xy, a); objectNormal.xy = rot2(objectNormal.xy, a);
+      float y = sin(uTime * 0.29 + sd * 9.) * 0.35 * (1. - gz) * (1. - wk);
+      transformed.xz = pv.xz + rot2(transformed.xz - pv.xz, y); objectNormal.xz = rot2(objectNormal.xz, y);
+    } else if (aBn > 5.5) {
+      float a = sin(uTime * 3.1 + sd * 30.) * 0.3;                      // the tail swishes
+      transformed.xz = pv.xz + rot2(transformed.xz - pv.xz, a); objectNormal.xz = rot2(objectNormal.xz, a);
+    }
+    if (aBn < 1.5) transformed.y += abs(sin(g)) * 0.025 * wk;          // the body rises and falls with the steps
+  }`,
+  wind: "vA = position; vBn = aBn;",
+  frag: "uniform float uKind; varying vec3 vA; varying float vBn;",
+  color: `
+  vec3 c = diffuseColor.rgb, p = vA;
+  if (uKind < 0.5) {
+    // spotted deer: a pale belly, rows of white spots along the flanks, a dark line down the back
+    float belly = smoothstep(0.78, 0.68, p.y) * step(vBn, 0.5);
+    vec2 sp = vec2(p.x * 9., p.y * 11.), ci = floor(sp), cf = fract(sp) - 0.5 - (vec2(hash12(ci), hash12(ci + 3.)) - 0.5) * 0.4;
+    float spot = (1. - smoothstep(0.16, 0.22, length(cf))) * step(vBn, 0.5) * smoothstep(0.72, 0.8, p.y) * smoothstep(1.06, 0.98, p.y);
+    c = mix(c, vec3(0.5, 0.45, 0.38), max(belly * 0.8, spot * 0.75));
+    c *= 1. - 0.45 * smoothstep(1.06, 1.09, p.y) * step(vBn, 0.5);
+    c = mix(c, vec3(0.03, 0.025, 0.02), smoothstep(0.3, 0.12, p.y) * step(1.5, vBn) * step(vBn, 5.5));   // dark lower legs
+  } else if (uKind < 1.5) {
+    c *= 0.85 + 0.3 * vnoise(p.xz * 14.);                              // capybara: coarse, uneven fur
+  } else {
+    c = mix(c, vec3(0.38, 0.22, 0.18), smoothstep(0.3, 0.38, p.x) * step(0.5, vBn) * step(vBn, 1.5));   // monkey: a pink face
+  }
+  diffuseColor.rgb = c * (0.85 + 0.3 * vnoise(p.xy * 30.));
+  rough = 0.85;`,
+  normal: "nW = normalize(vWN);",
 };
 
 // ---------------------------------------------------------------- the highway: road, concrete, steel
@@ -1044,6 +1104,36 @@ function cardShell(n, size, seed) {
   g.setAttribute("uv", new THREE.Float32BufferAttribute(UV, 2)); g.setAttribute("aCT", new THREE.Float32BufferAttribute(CT, 3));
   g.setAttribute("aCB", new THREE.Float32BufferAttribute(CB, 3)); g.setAttribute("aCC", new THREE.Float32BufferAttribute(CC, 3));
   g.setIndex(I);
+  return g;
+}
+
+// a quadruped in metres for the ANIMAL rig, x forward, feet at y = 0. o: body [length, height, width, centre height],
+// neck [x0, y0, x1, y1, r0, r1], head [x, y, length, height, width, pitch], ear, legs [front x, hind x, half track, radius],
+// tail [x, y, length, angle, radius] or null
+function quadruped(o) {
+  const P = [], N = [], B = [], PV = [], LT = [], I = [];
+  const add = (g, bone, pv, lt = () => 0) => {
+    const o0 = P.length / 3, p = g.attributes.position, n = g.attributes.normal;
+    for (let i = 0; i < p.count; i++) {
+      P.push(p.getX(i), p.getY(i), p.getZ(i)); N.push(n.getX(i), n.getY(i), n.getZ(i)); B.push(bone); PV.push(...pv); LT.push(lt(p.getY(i)));
+    }
+    for (const k of g.index.array) I.push(k + o0);
+  };
+  const limb = (x0, y0, x1, y1, z, r0, r1, seg = 6) => new THREE.CylinderGeometry(r1, r0, Math.hypot(x1 - x0, y1 - y0), seg, 3)
+    .rotateZ(-Math.atan2(x1 - x0, y1 - y0)).translate((x0 + x1) / 2, (y0 + y1) / 2, z);
+  const [bl, bh, bw, by] = o.body, [nx0, ny0, nx1, ny1, nr0, nr1] = o.neck, [hx, hy, hl, hh, hw, hp] = o.head, [fx, kx, lz, lr] = o.legs;
+  add(new THREE.SphereGeometry(1, 14, 10).scale(bl / 2, bh / 2, bw / 2).translate(0, by, 0), 0, [0, 0, 0]);
+  const neckPv = [nx0, ny0, 0];
+  add(limb(nx0, ny0, nx1, ny1, 0, nr0, nr1), 1, neckPv);
+  add(new THREE.SphereGeometry(1, 10, 8).scale(hl / 2, hh / 2, hw / 2).rotateZ(hp).translate(hx, hy, 0), 1, neckPv);
+  for (const z of [-1, 1]) add(new THREE.ConeGeometry(o.ear * 0.4, o.ear, 5).rotateX(z * 0.7).translate(hx - hl * 0.3, hy + hh * 0.45 + o.ear * 0.3, z * hw * 0.4), 1, neckPv);
+  const top = by - bh * 0.15;
+  [[fx, lz, 2], [fx, -lz, 3], [kx, lz, 4], [kx, -lz, 5]].forEach(([x, z, bone]) => add(limb(x, top, x, 0, z, lr, lr * 0.55, 5), bone, [x, top, z], (y) => 1 - y / top));
+  if (o.tail) { const [tx, ty, tl, ta, tr] = o.tail; add(limb(tx, ty, tx + Math.cos(ta) * tl, ty + Math.sin(ta) * tl, 0, tr, tr * 0.5, 5), 6, [tx, ty, 0]); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
+  g.setAttribute("aBn", new THREE.Float32BufferAttribute(B, 1)); g.setAttribute("aPv", new THREE.Float32BufferAttribute(PV, 3));
+  g.setAttribute("aLt", new THREE.Float32BufferAttribute(LT, 1)); g.setIndex(I);
   return g;
 }
 
@@ -2098,6 +2188,65 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     nGround = grass.length + plants.length;
   }
 
+  // ---- animals on the forest floor: spotted deer grazing along the banks, capybaras at the waterline (now and then one
+  // swims), troops of monkeys. Each wanders a loop round its herd's patch: a few steps, then it stops to graze and look about.
+  const animals = (() => {
+    const A = rng(4242);
+    const SPECIES = [
+      { body: [1.15, 0.5, 0.36, 0.85], neck: [0.45, 0.95, 0.68, 1.32, 0.11, 0.08], head: [0.84, 1.36, 0.32, 0.15, 0.13, -0.5], ear: 0.13, legs: [0.42, -0.4, 0.12, 0.045], tail: [-0.57, 0.95, 0.16, -1.2, 0.035], col: [0.26, 0.12, 0.045], stride: 1.1, speed: 1.0 },
+      { body: [1.0, 0.5, 0.48, 0.4], neck: [0.38, 0.46, 0.48, 0.56, 0.17, 0.15], head: [0.62, 0.56, 0.36, 0.22, 0.2, -0.25], ear: 0.05, legs: [0.32, -0.32, 0.16, 0.075], tail: null, col: [0.11, 0.075, 0.05], stride: 0.6, speed: 0.6 },
+      { body: [0.5, 0.27, 0.24, 0.44], neck: [0.2, 0.48, 0.27, 0.58, 0.06, 0.05], head: [0.33, 0.62, 0.15, 0.14, 0.13, -0.1], ear: 0.04, legs: [0.17, -0.17, 0.09, 0.03], tail: [-0.24, 0.47, 0.5, 1.0, 0.025], col: [0.075, 0.06, 0.045], stride: 0.45, speed: 1.1 },
+    ];
+    // [species, bank, z, distance out from the river's middle in half widths, how many]
+    const HERDS = [[0, 1, CAM.z - 62, 1.35, 5], [0, -1, CAM.z - 165, 2.1, 5], [1, -1, CAM.z - 40, 0.9, 6], [1, 1, CAM.z - 120, 1.1, 5],
+      [2, 1, CAM.z - 24, 1.5, 7], [2, -1, CAM.z - 95, 2.0, 6], [0, -1, CAM.z - 30, 1.3, 4], [0, -1, CAM.z + 60, 2.2, 4], [1, 1, CAM.z + 40, 1.15, 4]];
+    const list = [];
+    for (const [kind, side, z, dn, n] of HERDS) for (let i = 0; i < n; i++)
+      list.push({ kind, side, cz: z + (A() - 0.5) * 12, dn: dn + (A() - 0.5) * 0.4, R: 2 + A() * 5, th0: A() * TAU, T: 8 + A() * 12, wf: 0.25 + A() * 0.35,
+        D: SPECIES[kind].speed * (3 + A() * 3), ph: A(), sd: A(), sc: 0.85 + A() * 0.3 });
+    const pathAt = (a, u) => {
+      const th = u / a.R + a.th0, z = a.cz + Math.sin(th) * a.R * 1.3;
+      let x = riverX(z) + a.side * riverW(z) * a.dn + Math.cos(th) * a.R * 0.8 + Math.sin(th * 2.3 + a.sd * 9) * a.R * 0.25;
+      const edge = riverW(z) * (a.kind === 1 ? 0.6 : 1.2);              // capybaras may swim; the others keep to the bank
+      if (a.side * (x - riverX(z)) < edge) x = riverX(z) + a.side * edge;
+      return [clamp(x, -AVE + 2.5, AVE - 2.5), z];
+    };
+    const meshes = SPECIES.map((sp, k) => {
+      const sel = list.filter((a) => a.kind === k), g = quadruped(sp), AN = new THREE.InstancedBufferAttribute(new Float32Array(sel.length * 4), 4);
+      AN.setUsage(THREE.DynamicDrawUsage); g.setAttribute("aAn", AN);
+      const im = new THREE.InstancedMesh(g, patch(new THREE.MeshStandardMaterial({ roughness: 0.85 }), "shade-animal", { ...ANIMAL, uniforms: { uKind: { value: k } } }), sel.length);
+      const c = new THREE.Color();
+      sel.forEach((a, i) => { a.slot = i; const v = 0.8 + A() * 0.4; im.setColorAt(i, c.setRGB(sp.col[0] * v, sp.col[1] * v, sp.col[2] * v, THREE.LinearSRGBColorSpace)); });
+      im.frustumCulled = false; im.receiveShadow = true; scene.add(im);
+      return { im, AN, sp };
+    });
+    // soft contact shadows under them
+    const shade = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.); }",
+      fragmentShader: "varying vec2 vUv; void main(){ gl_FragColor = vec4(0.004, 0.004, 0.003, 0.5 * (1. - smoothstep(0.25, 1., length(vUv - 0.5) * 2.))); }",
+    }), list.length);
+    shade.frustumCulled = false; shade.renderOrder = 2; scene.add(shade);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), ps = new THREE.Vector3(), sc = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    return (t) => {
+      list.forEach((a, i) => {
+        // each period: a few steps along the loop (eased in and out), then a stop to graze
+        const k = t / a.T + a.ph, n = Math.floor(k), f = k - n, s = clamp(f / a.wf, 0, 1);
+        const u = (n + s * s * (3 - 2 * s)) * a.D, walk = f < a.wf ? 4 * s * (1 - s) : 0;
+        const [x, z] = pathAt(a, u), [x2, z2] = pathAt(a, u + 0.3), sp = SPECIES[a.kind];
+        const yg = groundY(x, z), swim = a.kind === 1 && yg < WATER_Y - 0.3;
+        q.setFromAxisAngle(up, Math.atan2(-(z2 - z), x2 - x));
+        const M = meshes[a.kind];
+        M.im.setMatrixAt(a.slot, m.compose(ps.set(x, swim ? WATER_Y - 0.36 * a.sc : yg, z), q, sc.setScalar(a.sc)));
+        const graze = swim ? 0 : (1 - walk) * smooth(-0.3, 0.3, Math.sin(t * 0.45 + a.sd * 20));
+        M.AN.setXYZW(a.slot, u / (sp.stride * a.sc) * TAU, swim ? 0.6 : walk, graze, a.sd);
+        shade.setMatrixAt(i, m.compose(ps.set(x, yg + 0.04, z), q, sc.set(swim ? 0 : sp.body[0] * 1.5 * a.sc, 1, swim ? 0 : sp.body[2] * 2.6 * a.sc)));
+      });
+      for (const M of meshes) { M.im.instanceMatrix.needsUpdate = true; M.AN.needsUpdate = true; }
+      shade.instanceMatrix.needsUpdate = true;
+    };
+  })();
+
   // ---- gondolas: two cables across the avenue, cabins gliding between the station towers
   const cables = [];
   {
@@ -2366,6 +2515,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
       });
     }
     traffic(t);
+    animals(t);
     updateBirds(t);
 
     camera.updateMatrixWorld();
