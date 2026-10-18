@@ -19,16 +19,21 @@
     .ui.idle { opacity: 0; }
     .ui a, .ui button { color: #e8e6e1; background: rgba(10,12,16,.55); border: 1px solid rgba(232,230,225,.25);
       padding: 10px 14px; border-radius: 999px; text-decoration: none; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
+    .hint { position: fixed; top: max(16px, env(safe-area-inset-top)); left: 0; right: 0; margin: 0; text-align: center; pointer-events: none;
+      font: 500 13px/1.3 "Inter Tight", system-ui, sans-serif; letter-spacing: .04em; color: rgba(232,230,225,.75); text-shadow: 0 1px 8px rgba(0,0,0,.6); transition: opacity .6s; }
+    .hint.idle { opacity: 0; }
     .ui a:hover, .ui button:hover, .ui a:focus-visible, .ui button:focus-visible { border-color: #e0a96d; color: #e0a96d; outline: none; }
   </style>
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
 </head>
 <body>
   <canvas id="shade" aria-label="An overgrown megacity in the afternoon heat: towers crowned with trees above a forested avenue and a canal"></canvas>
+  <p class="hint" id="hint">Drag to look around · ← →</p>
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
     <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
+    <button id="pan" type="button" aria-pressed="false" title="Turn slowly through 360° (P). Drag the picture or use the arrow keys to look around.">Pan 360°</button>
     <button id="gust" type="button" title="Send a gust over the city (G)">Gust</button>
     <button id="down" type="button" aria-pressed="false" title="Down to the river and back (D), or move the pointer into the lower half">Descend</button>
   </nav>
@@ -50,12 +55,16 @@
 
     const gust = () => { shade.gust(); audio?.gust(); };
     document.getElementById("gust").onclick = gust;
+    const panBtn = document.getElementById("pan");
+    const setPan = (v) => { const on = shade.pan(v); panBtn.textContent = on ? "Panning…" : "Pan 360°"; panBtn.setAttribute("aria-pressed", String(on)); };
+    panBtn.onclick = () => setPan();
     const down = document.getElementById("down");
     const toggleDown = () => shade.toggleDescend();
     down.onclick = toggleDown;
     // follow the camera, however it got there: the button label, and the river coming closer in the sound
     setInterval(() => {
       const low = shade.drop > 0.5;
+      if (!shade.panning && panBtn.getAttribute("aria-pressed") === "true") setPan(false);     // a drag or an arrow key ends the pan
       if (down.textContent !== (low ? "Rise" : "Descend")) { down.textContent = low ? "Rise" : "Descend"; down.setAttribute("aria-pressed", String(low)); }
       if (audio?.on) audio.depth = shade.drop;
     }, 250);
@@ -71,11 +80,15 @@
       if (k === "m") snd.click();
       if (k === "g") gust();
       if (k === "d") toggleDown();
+      if (k === "p") panBtn.click();
     });
 
     // controls fade out after a few still seconds
     let t;
-    const wake = () => { ui.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => ui.classList.add("idle"), 3000); };
+    const hint = document.getElementById("hint");
+    const wake = () => { ui.classList.remove("idle"); hint.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => { ui.classList.add("idle"); hint.classList.add("idle"); }, 3000); };
+    addEventListener("pointerdown", () => { hint.hidden = true; }, { once: true });
+    addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) hint.hidden = true; });
     ["pointermove", "pointerdown", "keydown"].forEach((ev) => addEventListener(ev, wake, { passive: true }));
     ui.addEventListener("focusin", wake);
     wake();
