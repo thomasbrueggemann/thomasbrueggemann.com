@@ -12,6 +12,30 @@ const PAGES = "https://thomasbrueggemann.github.io/";
 // ---------------------------------------------------------------------------
 export const worlds = [
   {
+    slug: "windward",
+    title: "Windward",
+    kicker: "A long walk into the wind",
+    tagline: "Walk, sing and glide through sand, ruins, depths and snow.",
+    description:
+      "A long walk into the wind, built from scratch with three.js. Cross golden dunes, a ruined city at dusk, the blue depths and a final snowy ascent toward a glowing split in the mountain. Terrain, textures, models and the music are all procedural, so there are no assets at all.",
+    date: "2026-10",
+    genre: "Adventure",
+    tags: ["three.js", "Vite", "procedural", "synthesised score"],
+    highlights: [
+      "Four chapters driven by one colour script: golden dunes, amber ruins at dusk, the blue depths, then snow and white-out",
+      "Sand-surf down steep dunes, then flutter, glide, dive, loop and barrel-roll on a scarf that charges from the symbols you find",
+      "A companion who follows you, buildings you can enter, and a score synthesised live in the browser",
+    ],
+    play: PAGES + "windward/",
+    repo: GH + "windward",
+    shots: [
+      { src: "windward-1.webp", alt: "A red-robed traveler on golden dunes with a glowing mountain and light pillars ahead", caption: "The first dunes, with the mountain on the horizon" },
+      { src: "windward-2.webp", alt: "A traveler sand-surfing a sunlit dune groove in the sunken city chapter", caption: "Chapter two: the sunken city" },
+      { src: "windward-3.webp", alt: "A traveler in a blue canyon in front of rock arches and shafts of light", caption: "Chapter three: the depths" },
+      { src: "windward-4.webp", alt: "A traveler in a white-out snowfield near a small stone hut", caption: "Chapter four: the ascent" },
+    ],
+  },
+  {
     slug: "lighthouse",
     title: "Skerryhead Light",
     kicker: "A keeper's night",
