@@ -20,7 +20,6 @@ const ext = (url) => /^https?:/.test(url) ? ` target="_blank" rel="noopener"` : 
 function actions(p) {
   return `<div class="actions">
     ${p.play ? `<a class="btn btn-solid" href="${esc(p.play)}"${ext(p.play)}>${esc(p.label || "Play")} ${/^https?:/.test(p.play) ? arrow : "→"}</a>` : `<span class="btn btn-disabled" title="Needs a server and Claude credentials">Run it yourself</span>`}
-    <a class="btn" href="${esc(p.repo)}" target="_blank" rel="noopener">Source ${arrow}</a>
   </div>`;
 }
 

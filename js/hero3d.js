@@ -15,6 +15,7 @@ const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const PLATEAU = 7, TOWER_TOP = 34, R_BASE = 5.6, R_TOP = 4.5, R_GALLERY = 5.9;
 const LANTERN_Y = TOWER_TOP, LENS_Y = LANTERN_Y + 1.85, GLASS_TOP = LANTERN_Y + 3.8;
 const GLASS_Y0 = LANTERN_Y + 0.9, GLASS_H = GLASS_TOP - GLASS_Y0;
+const FLUE = new THREE.Vector3(Math.cos(2.55) * 4.1, 0, Math.sin(2.55) * 4.1), FLUE_TOP = TOWER_TOP + 3.4;
 const MOON_DIR = new THREE.Vector3(-0.2, 0.3, -0.92).normalize();
 const NAV_MAX = 16;              // navigation lights reflected in the sea at once
 
@@ -375,8 +376,8 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   }
 
   // ---- tower
-  const lampMats = [];
-  let glassU = null;
+  const hearths = [];            // lit windows: material, halo, flicker state
+  let glassU = null, spillU = null;
   {
     // ashlar courses: colour with per-block tone, and a height map for relief (mortar recessed, block faces slightly domed)
     const TW = 512, rowH = 32, blockW = 128;
@@ -411,12 +412,25 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     const ntex = new THREE.CanvasTexture(normalFromHeight(hx, TW, TW, 3.0));
     ntex.wrapS = ntex.wrapT = THREE.RepeatWrapping; ntex.anisotropy = 4;
 
-    // rain-streaked, weathered paint: grime and rust bleeding from the gallery, green-black algae at the foot, wet sheen
+    const radius = (y) => THREE.MathUtils.lerp(R_BASE, R_TOP, (y - PLATEAU) / (TOWER_TOP - PLATEAU));
+    // windows spiralling up the tower; the lit ones are the keeper's rooms: fires in the hearth low down, lamps higher up
+    // (fire: how hard the light flickers, 1 = an open fire)
+    const WINS = [];
+    for (let k = 0; k < 11; k++) {
+      const y = 11 + k * 2.15, a = 1.5 + k * 1.15;
+      WINS.push({ y, a, lit: [1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1][k], fire: [1, 1, 0, 0.4, 0, 0.6, 0, 0.4, 0.4, 0, 0.4][k] });
+    }
+    const NW = WINS.filter((w) => w.lit).length + 1;            // + the glazed panel in the door
+    spillU = { uWin: { value: Array.from({ length: NW }, () => new THREE.Vector4()) } };
+
+    // rain-streaked, weathered paint: grime and rust bleeding from the gallery, green-black algae at the foot, wet sheen;
+    // firelight from the lit windows warms the stone round them
     const weathered = (m) => {
       m.onBeforeCompile = (sh) => {
+        sh.uniforms.uWin = spillU.uWin;
         sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWP;")
           .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.)).xyz;");
-        sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec3 vWP;\n${GLSL_NOISE}`)
+        sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec3 vWP;\nuniform vec4 uWin[${NW}];\n${GLSL_NOISE}`)
           .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
             float th = atan(vWP.z, vWP.x);
             float sN = fbm3(vec2(th * 8.0, vWP.y * 0.05));
@@ -427,11 +441,15 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
             diffuseColor.rgb *= 1.0 - 0.30 * streak - 0.06 * sF;
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.30, 0.15, 0.07) * (0.6 + 0.4 * sF), topK * streak * 0.55);
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.045, 0.055, 0.032), footK * 0.8);
-            roughnessFactor = clamp(roughnessFactor - 0.28 * streak - 0.25 * footK, 0.18, 1.0);`);
+            roughnessFactor = clamp(roughnessFactor - 0.28 * streak - 0.25 * footK, 0.18, 1.0);`)
+          .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+            for (int i = 0; i < ${NW}; i++) {
+              vec3 d = vWP - uWin[i].xyz; d.y *= d.y > 0. ? 1.5 : 0.75;
+              totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.46, 0.16) * uWin[i].w * exp(-dot(d, d) * 1.3);
+            }`);
       };
       return m;
     };
-    const radius = (y) => THREE.MathUtils.lerp(R_BASE, R_TOP, (y - PLATEAU) / (TOWER_TOP - PLATEAU));
     const lathe = (y0, y1, color) => {
       const pts = []; for (let i = 0; i <= 6; i++) { const y = y0 + (y1 - y0) * i / 6; pts.push(new THREE.Vector2(radius(y), y)); }
       const g = new THREE.LatheGeometry(pts, 96);
@@ -443,26 +461,62 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     };
     scene.add(lathe(PLATEAU - 1.2, 19, 0xe2e3df), lathe(19, 25, 0x9b2b25), lathe(25, TOWER_TOP, 0xe2e3df));
 
-    // windows spiralling up the tower: recessed dark frame, sill, glowing or dark glass
+    // windows: recessed dark frame, sill, and either dark wet glass or a warm room behind it
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 0.5 });
     const darkGlass = new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.06, metalness: 0.2, envMap: envTex, envMapIntensity: 1.6 });
     wetMats.push([darkGlass, 1.6]);
     const sillMat = new THREE.MeshStandardMaterial({ color: 0xbdbcb6, roughness: 0.5, envMap: envTex, envMapIntensity: 0.5 });
+    const winSill = weathered(sillMat.clone());
+    // a lit room seen through the glass: the back wall glowing orange over the fire and darker up toward the ceiling,
+    // shadows of the flames moving on it, curtains half drawn and lit through, glazing bars, rain running down the panes
+    const hearthMat = (seed, w, h, curtain, barY) => new THREE.ShaderMaterial({
+      fog: true,
+      uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uTime: U.uTime, uSeed: { value: seed }, uFlick: { value: 1 }, uCurt: { value: curtain } },
+      vertexShader: `#include <fog_pars_vertex>
+        varying vec2 vUv; void main(){ vUv = uv; vec4 mvPosition = modelViewMatrix * vec4(position, 1.); gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+        }`,
+      fragmentShader: `#include <fog_pars_fragment>
+        ${GLSL_NOISE} uniform float uTime, uSeed, uFlick, uCurt; varying vec2 vUv;
+        void main(){
+          vec2 uv = vUv, m = uv * vec2(${w.toFixed(2)}, ${h.toFixed(2)});
+          float fx = 0.25 + 0.5 * fract(uSeed * 7.13);
+          vec2 fd = (uv - vec2(fx, -0.1)) * vec2(${w.toFixed(2)}, ${h.toFixed(2)});
+          float fire = exp(-dot(fd, fd) * 3.0);
+          float dance = 0.78 + 0.22 * vnoise(vec2(uv.x * 3.0 - uTime * 1.3 + uSeed * 17.0, uTime * 2.3));
+          vec3 room = mix(vec3(0.3, 0.075, 0.02), vec3(1.0, 0.42, 0.11), smoothstep(1.0, 0.1, uv.y)) * (0.4 + 1.5 * fire) * dance;
+          float cw = uCurt * (0.8 + 0.4 * fract(uSeed * 3.71)), sag = 0.04 * smoothstep(0.6, 0.0, uv.y);
+          float cur = max(1.0 - smoothstep(cw - sag - 0.02, cw - sag, uv.x), smoothstep(1.0 - cw + sag, 1.0 - cw + sag + 0.02, uv.x)) * step(0.001, uCurt);
+          float folds = 0.6 + 0.4 * sin(m.x * 95.0 + sin(m.y * 4.0 + uSeed * 9.0) * 1.5);
+          vec3 cloth = mix(vec3(0.42, 0.05, 0.025), vec3(0.42, 0.22, 0.04), step(0.6, fract(uSeed * 5.17))) * folds * (0.5 + 0.9 * fire);
+          vec3 col = mix(room, cloth, cur) * uFlick;
+          vec2 e = min(m, vec2(${w.toFixed(2)}, ${h.toFixed(2)}) - m);
+          float bar = min(min(e.x, e.y), min(abs(m.x - ${(w / 2).toFixed(3)}), abs(uv.y - ${barY.toFixed(2)}) * ${h.toFixed(2)}));
+          col *= 0.06 + 0.94 * smoothstep(0.018, 0.03, bar);
+          float rn = vnoise(vec2(m.x * 34.0, m.y * 2.5 + uTime * 1.6 + uSeed * 20.0));
+          col *= 0.8 + 0.35 * smoothstep(0.55, 0.9, rn);
+          gl_FragColor = vec4(col * 2.6, 1.);
+          #include <fog_fragment>
+        }`,
+    });
     const winGeo = new THREE.PlaneGeometry(0.7, 1.3), frameGeo = new THREE.PlaneGeometry(0.98, 1.62), sillGeo = new THREE.BoxGeometry(1.1, 0.14, 0.32);
     const place = (mesh, a, r, y) => { mesh.position.set(Math.cos(a) * r, y, Math.sin(a) * r); mesh.rotation.y = Math.PI / 2 - a; scene.add(mesh); };
-    for (let k = 0; k < 11; k++) {
-      const y = 11 + k * 2.15, a = 1.5 + k * 1.15, r = radius(y);
-      const lit = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1][k];
-      const m = lit ? new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 1.3, 0.55) }) : darkGlass;
-      if (lit) lampMats.push(m);
+    const hearth = (mat, a, r, y, fire, glow) => hearths.push({ mat, fire, glow, f: 1, target: 1, next: 0, seed: Math.random() * 10,
+      at: new THREE.Vector3(Math.cos(a) * (r + 0.35), y, Math.sin(a) * (r + 0.35)), win: spillU.uWin.value[hearths.length].set(Math.cos(a) * (r + 0.3), y - 0.2, Math.sin(a) * (r + 0.3), 1) });
+    for (const [k, { y, a, lit, fire }] of WINS.entries()) {
+      const r = radius(y), m = lit ? hearthMat(k * 0.618 + 0.1, 0.7, 1.3, 0.28, 0.6) : darkGlass;
+      if (lit) hearth(m, a, r, y, fire, 1);
       place(new THREE.Mesh(frameGeo, frameMat), a, r + 0.02, y);
       place(new THREE.Mesh(winGeo, m), a, r + 0.035, y);
-      place(new THREE.Mesh(sillGeo, sillMat), a, r + 0.1, y - 0.78);
+      place(new THREE.Mesh(sillGeo, lit ? winSill : sillMat), a, r + 0.1, y - 0.78);
     }
-    // the keeper's door, its step and lamp
+    // the keeper's door with a glazed panel onto the warm hall, its step and lamp
     const rd = radius(PLATEAU);
     place(new THREE.Mesh(new THREE.PlaneGeometry(1.75, 3.0), frameMat), doorA, rd + 0.02, PLATEAU + 1.3);
     place(new THREE.Mesh(new THREE.PlaneGeometry(1.35, 2.6), new THREE.MeshStandardMaterial({ color: 0x0f2a22, roughness: 0.35, envMap: envTex, envMapIntensity: 0.8 })), doorA, rd + 0.04, PLATEAU + 1.2);
+    const doorGlass = hearthMat(4.2, 0.8, 0.6, 0, 0.5);
+    place(new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.6), doorGlass), doorA, rd + 0.05, PLATEAU + 1.95);
+    hearth(doorGlass, doorA, rd, PLATEAU + 1.95, 1, 0.5);
     place(new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.6), sillMat), doorA, rd + 0.55, PLATEAU - 0.3);
     const doorLamp = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 5.5, 2.2) }));
     place(doorLamp, doorA, rd + 0.3, PLATEAU + 3.1);
@@ -522,6 +576,11 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     roof.position.y = GLASS_TOP + 1.2; scene.add(roof);
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 10), dark); ball.position.y = GLASS_TOP + 2.55; scene.add(ball);
     const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 2.2, 6), dark); rod.position.y = GLASS_TOP + 3.6; scene.add(rod);
+    // the flue of the keepers' stove, up through the gallery deck beside the lantern
+    const flue = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, FLUE_TOP - TOWER_TOP, 10), dark);
+    flue.position.set(FLUE.x, (TOWER_TOP + FLUE_TOP) / 2, FLUE.z);
+    const cowl = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.3, 10), dark); cowl.position.set(FLUE.x, FLUE_TOP + 0.25, FLUE.z);
+    scene.add(flue, cowl);
   }
 
   // ---- soft round texture for glows
@@ -572,6 +631,8 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   const lampCore = sprite(glowTex, new THREE.Color(2.2, 1.7, 1.1), 7, { depthTest: false });
   const lampStar = sprite(starTex, new THREE.Color(1.2, 0.95, 0.65), 40, { depthTest: false });
   lampCore.renderOrder = lampStar.renderOrder = 20;
+  // firelight from the windows: a soft halo in the rain outside each
+  for (const h of hearths) { h.halo = sprite(glowTex, new THREE.Color(), 3.2 * h.glow); h.halo.position.copy(h.at); }
 
   // ---- beam: two soft ribbons from the lens, always facing the camera, turning
   const BEAM_L = 330;
@@ -840,7 +901,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   makeRain(2600, [34, 22, 34], -13, [1.3, 0.9], 0.02, 0.0045, [1.6, 4.5, 11, 17], 0.03, 0.2);
 
   // ---- spray: clumpy white water thrown up where swells hit the rocks, and a slow mist layer that rolls off it downwind
-  const makeParticles = (N, alpha, grow, order) => {
+  const makeParticles = (N, alpha, grow, order, tone = [0.16, 0.18, 0.20]) => {
     const S = { N, pos: new Float32Array(N * 3), vel: new Float32Array(N * 3), life: new Float32Array(N), max: new Float32Array(N), size: new Float32Array(N), next: 0 };
     const lifeA = new THREE.BufferAttribute(new Float32Array(N), 1), posA = new THREE.BufferAttribute(S.pos, 3), sizeA = new THREE.BufferAttribute(S.size, 1);
     const seed = new Float32Array(N); for (let i = 0; i < N; i++) seed[i] = Math.random();
@@ -865,7 +926,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
           float cell = floor(fract(vSeed * 13.7) * 4.0);
           vec2 uv = (pc + vec2(mod(cell, 2.0), floor(cell * 0.5))) * 0.5;
           float a = texture2D(uTex, uv).a * min(1.0, vL * 2.5) * vL * ${alpha.toFixed(3)} * exp(-vD * 0.003);
-          vec3 c = vec3(0.16, 0.18, 0.20) * (1.0 + vBack * 1.6 + uFlash * 9.0) + vec3(1.0, 0.68, 0.38) * vLamp * 0.25 * uLampI;
+          vec3 c = vec3(${tone.map((v) => v.toFixed(3))}) * (1.0 + vBack * 1.6 + uFlash * 9.0) + vec3(1.0, 0.68, 0.38) * vLamp * 0.25 * uLampI;
           gl_FragColor = vec4(c, a); }`,
     }));
     pts.frustumCulled = false; pts.renderOrder = order; scene.add(pts);
@@ -886,6 +947,19 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   };
   const SP = makeParticles(9000, 0.85, 2.0, 7);
   const MI = makeParticles(1800, 0.2, 2.6, 6);
+  // wood smoke from the stove, torn off downwind and lit from below by the lamp
+  const SM = makeParticles(400, 0.32, 5.0, 6, [0.085, 0.077, 0.07]);
+  let smokeAcc = 0;
+  const smoke = (dt, wx) => {
+    for (smokeAcc += dt * 50; smokeAcc >= 1; smokeAcc--) {
+      const k = SM.next; SM.next = (SM.next + 1) % SM.N;
+      SM.pos[k * 3] = FLUE.x + (Math.random() - 0.5) * 0.2; SM.pos[k * 3 + 1] = FLUE_TOP + 0.35; SM.pos[k * 3 + 2] = FLUE.z + (Math.random() - 0.5) * 0.2;
+      SM.vel[k * 3] = Math.random() * 1.5; SM.vel[k * 3 + 1] = 1.4 + Math.random() * 1.2; SM.vel[k * 3 + 2] = (Math.random() - 0.5) * 1.2;
+      SM.max[k] = 5 + Math.random() * 3; SM.life[k] = SM.max[k]; SM.size[k] = 1.6 + Math.random() * 1.4;
+    }
+    SM.update(dt, wx, 0.5, 0, 0.25);
+  };
+  for (let i = 0; i < 160; i++) smoke(0.05, 6);       // already drawing when the page opens
   const burst = (x, y, z, n, power, nx, nz) => {
     for (let i = 0; i < n; i++) {
       const k = SP.next; SP.next = (SP.next + 1) % SP.N;
@@ -1221,7 +1295,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     target.x = camera.aspect < 1 ? -6 : -18;
     camera.updateProjectionMatrix();
     const sc = renderer.domElement.height * 0.5 * Math.tan(THREE.MathUtils.degToRad(23)) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));   // same apparent size at either lens
-    SP.u.uScale.value = sc; MI.u.uScale.value = sc;
+    SP.u.uScale.value = sc; MI.u.uScale.value = sc; SM.u.uScale.value = sc;
     post.setSize();
   };
   addEventListener("resize", resize); resize();
@@ -1273,7 +1347,16 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     lampLight.intensity = 6 + facing * 6;
     glassU.uFacing.value = facing; glassU.uFlick.value = flick;
     OU.uLampI.value = 1 + facing * 2.5;
-    lampMats.forEach((m, i) => m.color.setRGB(2.2 * flick, 1.3 * flick, 0.55 * flick * (0.9 + 0.1 * Math.sin(t * 0.7 + i))));
+    // the keepers' fires: each room's light jumps to a new level every few hundredths of a second and eases toward it
+    for (const h of hearths) {
+      if ((h.next -= dt) <= 0) { h.target = 1 + (Math.random() - 0.5) * 0.6 * h.fire; h.next = 0.04 + Math.random() * 0.1; }
+      h.f += (h.target - h.f) * Math.min(1, dt * 12);
+      const fl = h.f * (1 + 0.1 * h.fire * Math.sin(t * 0.45 + h.seed));
+      h.mat.uniforms.uFlick.value = fl;
+      h.win.w = fl * h.glow;
+      h.halo.material.color.setRGB(1, 0.48, 0.18).multiplyScalar(0.3 * fl);
+    }
+    doorLight.intensity = 9 * (0.85 + 0.15 * hearths[hearths.length - 1].f);
     hemi.intensity = 1.5 + f * 2.4;
 
     // rain
@@ -1303,6 +1386,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     const wx = 3 + gust * 5;
     SP.update(dt, wx, 0.8, 9.0, 0);
     MI.update(dt, wx * 0.9, 0.6, 0.6, 0.9);
+    smoke(dt, wx * 0.8);
     if (crafts.length) traffic(dt, t, ang);
 
     post.U.uTime.value = t;
