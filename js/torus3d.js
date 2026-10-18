@@ -5,12 +5,17 @@
 // climbing the sides of the valley to the glass. The station orbits Earth some 8,000 km up, in an orbit that never
 // enters Earth's shadow: every four minutes the planet rolls through the background, a quarter of the sky across and
 // always half lit, day on one side of the terminator and city lights on the other; the Moon is a small disc at its
-// true size that Earth swallows as it passes. A shuttle comes in to the hub now and then. Drag to orbit, scroll or pinch to zoom: from afar you watch the whole
-// wheel turn; close in, the camera rides along with the spin, so the city holds still and the stars wheel past.
+// true size that Earth swallows as it passes. A shuttle comes in to the hub now and then. Drag to orbit, scroll or
+// pinch to zoom: from afar you watch the whole wheel turn; close in, the camera rides along with the spin, so the city
+// holds still and the stars wheel past. The vehicles live in ./vehicles/.
 // Everything is procedural and seeded, the same on every load. Only dependency: three.js.
 
 import * as THREE from "three";
 import { makePost } from "./post.js";
+import * as CAR from "./vehicles/car.js";
+import * as TRAIN from "./vehicles/train.js";
+import * as BOAT from "./vehicles/boat.js";
+import { buildSpace } from "./vehicles/space.js";
 
 const TAU = Math.PI * 2;
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -285,47 +290,52 @@ void main(){
 }`;
 const SHADOW_DIR = [-0.5, 0.786];         // ground offset per metre of height, along the ring and across, opposite the light
 
-// ---------------------------------------------------------------- things that move round the ring: monorail (and its track), boats
-// Geometry is given in ring coordinates (x along the ring in metres, y across from the river's line, z up); the
-// vertex shader bends it round the ring, so a train follows the river's curves.
+// ---------------------------------------------------------------- ring vehicles: the monorail and its track, boats, cars
+// Each vehicle type lives in its own module in ./vehicles/ (train.js, boat.js, car.js). A module's build(api) adds
+// geometry in vehicle coordinates (x along the ring in metres, y across, z up) with an attribute
+// aV = (start angle, speed along the ring in m/s, lateral, kind) per vertex: lateral |z| < 1.5 is a fraction of the
+// river's width from its centre line, otherwise metres from the river's edge + 2, signed by bank. kind's integer
+// part picks the shader (0 track, 1 train, 2 boat, 3 car), its fraction is free (a per-vehicle seed). An optional
+// aU (vec4) per vertex is passed through for the module's own use (part ids, local coordinates). The vertex shader
+// below bends everything round the ring, so a train follows the river's curves. The module's GLSL fills in a Veh:
+// albedo, emission, specular strength and gloss, ambient occlusion; it may bend the normal. Lighting is shared.
 const MOVER_VERT = /* glsl */`
 ${GLSL_COMMON}
-attribute vec4 aV;           // start angle, speed along the ring (m/s), offset across (|z| < 1.5: a fraction of the river's width; else metres from the bank + 2, signed by side), kind
-varying vec3 vP, vN; varying vec4 vM; varying float vHide;
+attribute vec4 aV, aU;
+varying vec3 vP, vN; varying vec4 vM, vU; varying float vHide;
 void main(){
   float th = aV.x + (aV.y * uTime + position.x) / RF;
   float s0 = riverS(th) + (abs(aV.z) < 1.5 ? aV.z * riverW(th) : sign(aV.z) * (riverW(th) + abs(aV.z) - 2.));
   float s = s0 + position.y;
-  vHide = step(64., abs(s0)) * step(2.5, aV.w);          // cars keep to the boulevards inside the quarters
+  vHide = step(64., abs(s0)) * step(3., aV.w);          // cars keep to the boulevards inside the quarters
   float c = cos(th), sn = sin(th);
   vec3 up = vec3(-c, 0., -sn), fw = vec3(-sn, 0., c);
   vec3 p = (RR + floorF(s)) * vec3(c, 0., sn) + vec3(0., s, 0.) + up * position.z;
   vP = p; vN = fw * normal.x + vec3(0., normal.y, 0.) + up * normal.z;
-  vM = vec4(position, aV.w);
+  vM = vec4(position, aV.w); vU = aU;
   gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(p, 1.);
 }`;
 const MOVER_FRAG = /* glsl */`
 ${GLSL_COMMON}
-varying vec3 vP, vN; varying vec4 vM; varying float vHide;
+struct Veh { vec3 alb; vec3 emis; float spec; float gloss; float ao; };
+${TRAIN.GLSL}
+${BOAT.GLSL}
+${CAR.GLSL}
+varying vec3 vP, vN; varying vec4 vM, vU; varying float vHide;
 void main(){
   if (vHide > .5) discard;
-  vec3 p = vP, n = normalize(vN);
-  float kind = vM.w; vec3 col = vec3(.55, .54, .52), emis = vec3(0.);
-  if (kind > .5 && kind < 1.5) {           // monorail car: white, a band of windows
-    float x = fract(vM.x / 17.) * 17.;
-    float win = step(14.1, vM.z) * step(vM.z, 15.4) * step(.6, fract(x / 1.6)) * step(.6, x) * step(x, 15.4);
-    col = mix(vec3(.80, .80, .78), vec3(.04, .06, .08), win);
-    col = mix(col, vec3(.75, .45, .15), step(abs(vM.z - 13.6), .18));
-    emis = vec3(1., .85, .6) * win * .2;
-  } else if (kind > 2.5) {                 // cars: painted bodies, dark glass on the cabin
-    float sd = fract(kind * 37.1);
-    vec3 paint = sd < .25 ? vec3(.75, .74, .72) : sd < .4 ? vec3(.06, .06, .07) : sd < .55 ? vec3(.5, .08, .06) : sd < .7 ? vec3(.08, .2, .45) : sd < .85 ? vec3(.12, .3, .2) : vec3(.8, .6, .1);
-    col = vM.z > 1.02 && abs(dot(n, upAt(p))) < .5 ? vec3(.03, .04, .05) : paint;
-  } else if (kind > 1.5) {                 // boats: painted hulls, white cabins
-    float sd = fract(sin(floor(vM.w * 100.) * 7.1) * 43758.);
-    col = vM.z < .6 ? (sd < .5 ? vec3(.45, .12, .08) : vec3(.10, .18, .30)) : vec3(.80, .78, .72);
-  }
-  vec3 c = shadeIn(col, n, p, 1.) + emis;
+  vec3 p = vP, n = normalize(vN), V = normalize(uCamL - p);
+  Veh v = Veh(vec3(.55), vec3(0.), 0., 30., 1.);
+  float kind = vM.w;
+  if (kind < 1.) vehTrack(v, n, p, V, vM, vU);
+  else if (kind < 2.) vehTrain(v, n, p, V, vM, vU);
+  else if (kind < 3.) vehBoat(v, n, p, V, vM, vU);
+  else vehCar(v, n, p, V, vM, vU);
+  n = normalize(n);
+  vec3 L = lightAt(p);
+  float fr = .04 + .96 * pow(1. - max(dot(n, V), 0.), 5.);
+  vec3 c = shadeIn(v.alb, n, p, v.ao) + v.emis
+    + v.spec * (LCOL * pow(max(dot(reflect(-L, n), V), 0.), v.gloss) * (v.gloss + 2.) / 8. * max(dot(n, L), 0.) + mix(SKYC, AIR, .5) * fr * v.ao);
   gl_FragColor = vec4(inAir(c, p), 1.);
 }`;
 
@@ -851,40 +861,40 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     add(geo, mat(ST_VERT(), TERRAIN_FRAG, { side: THREE.DoubleSide }));
   }
 
-  // monorail track, pillars, trains, boats: all in ring coordinates
-  const M = builder("aV");
-  const rbox = (u, du, l, dl, h0, h1, v) => {
-    const P = [[u - du, l - dl], [u + du, l - dl], [u + du, l + dl], [u - du, l + dl]];
-    const f = (a, b, n, h) => { const i0 = M.pos.length / 3; [a, b].forEach(([x, y]) => M.vert(x, y, h[0], ...n, ...v)); [b, a].forEach(([x, y]) => M.vert(x, y, h[1], ...n, ...v)); M.quad(i0, i0 + 1, i0 + 2, i0 + 3); };
-    f(P[0], P[1], [0, -1, 0], [h0, h1]); f(P[1], P[2], [1, 0, 0], [h0, h1]); f(P[2], P[3], [0, 1, 0], [h0, h1]); f(P[3], P[0], [-1, 0, 0], [h0, h1]);
-    const i0 = M.pos.length / 3; P.forEach(([x, y]) => M.vert(x, y, h1, 0, 0, 1, ...v)); M.quad(i0, i0 + 1, i0 + 2, i0 + 3);
-    const i1 = M.pos.length / 3; P.forEach(([x, y]) => M.vert(x, y, h0, 0, 0, -1, ...v)); M.quad(i1, i1 + 1, i1 + 2, i1 + 3);
+  // ring vehicles (see "ring vehicles" above and ./vehicles/)
+  const MV = { pos: [], nrm: [], av: [], au: [], idx: [] };
+  const vapi = {
+    THREE, rng, TAU, R, RT, RF, CIRC: TAU * RF, BLVD, MARKETS, riverS, riverW, urban, inMarket, floorF, landF,
+    // append a BufferGeometry given in vehicle coordinates; v = [start angle, speed, lateral, kind]
+    add(geo, v) {
+      if (!geo.attributes.normal) geo.computeVertexNormals();
+      const P = geo.attributes.position, N = geo.attributes.normal, U = geo.attributes.aU, i0 = MV.pos.length / 3;
+      for (let i = 0; i < P.count; i++) {
+        MV.pos.push(P.getX(i), P.getY(i), P.getZ(i)); MV.nrm.push(N.getX(i), N.getY(i), N.getZ(i)); MV.av.push(v[0], v[1], v[2], v[3]);
+        if (U) MV.au.push(U.getX(i), U.getY(i), U.getZ(i), U.getW(i)); else MV.au.push(0, 0, 0, 0);
+      }
+      if (geo.index) for (let i = 0; i < geo.index.count; i++) MV.idx.push(i0 + geo.index.getX(i));
+      else for (let i = 0; i < P.count; i++) MV.idx.push(i0 + i);
+    },
+    // an axis-aligned box: centre u along, half length du, centre l across, half width dl, from h0 to h1; part goes to aU
+    box(u, du, l, dl, h0, h1, v, part = [0, 0, 0, 0]) {
+      const g = new THREE.BoxGeometry(2 * du, 2 * dl, h1 - h0).translate(u, l, (h0 + h1) / 2);
+      const n = g.attributes.position.count;
+      g.setAttribute("aU", new THREE.Float32BufferAttribute(Array.from({ length: n }, () => part).flat(), 4));
+      vapi.add(g, v);
+    },
   };
-  const CIRC = TAU * RF;
-  for (let u = 0; u < CIRC; u += 6) for (const k of [-1, 1]) rbox(u + 3, 3.05, k * 2.4, 0.7, 12.2, 13, [0, 0, 0, 0]);
-  for (let u = 0; u < CIRC; u += 40) { rbox(u, 0.9, 0, 0.9, -1.5, 12, [0, 0, 0, 0]); rbox(u, 1.1, 0, 3.4, 11.4, 12.2, [0, 0, 0, 0]); }
-  for (const k of [-1, 1]) for (let t = 0; t < 5; t++) {
-    const th0 = (t / 5 + (k > 0 ? 0.1 : 0.27)) * TAU;
-    for (let car = 0; car < 7; car++) rbox(car * 17 + 8, 8, k * 2.4, 1.45, 13.1, 16.3, [th0, k * 23, 0, 1]);
+  const vehicles = { trains: TRAIN.build(vapi).count, boats: BOAT.build(vapi).count, cars: CAR.build(vapi).count };
+  {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(MV.pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(MV.nrm, 3));
+    geo.setAttribute("aV", new THREE.Float32BufferAttribute(MV.av, 4));
+    geo.setAttribute("aU", new THREE.Float32BufferAttribute(MV.au, 4));
+    geo.setIndex(new THREE.Uint32BufferAttribute(MV.idx, 1));
+    add(geo, mat(MOVER_VERT, MOVER_FRAG, { side: THREE.DoubleSide }));
+    vehicles.triangles = MV.idx.length / 3;
   }
-  // cars: a lane each way on both boulevards
-  let nCars = 0;
-  const Cr = rng(4242);
-  for (const side of [-1, 1]) for (const [e, dir] of [[BLVD - 1.6, 1], [BLVD + 1.6, -1]]) {
-    for (let u = Cr() * 30; u < CIRC; u += 14 + Cr() * 60) {
-      const sp = dir * (8 + Cr() * 5), kind = 3 + Cr() * 0.99, len = 4 + Cr() * 1.2;
-      const v = [u / RF, sp, side * (e + 2), kind];
-      rbox(0, len / 2, 0, 0.9, 0.15, 1.0, v);
-      rbox(-len * 0.08, len * 0.3, 0, 0.78, 1.0, 1.5, v);
-      nCars++;
-    }
-  }
-  for (let b = 0; b < 70; b++) {
-    const th0 = L() * TAU, sp = (L() < 0.5 ? -1 : 1) * (1.2 + L() * 2.6), fr = (L() - 0.5) * 0.9, len = 5 + L() * 8, kind = 2 + L() * 0.9;
-    rbox(0, len / 2, 0, 1.3, -0.4, 0.55, [th0, sp, fr, kind]);
-    rbox(-len * 0.1, len * 0.22, 0, 0.9, 0.55, 2.1, [th0, sp, fr, kind]);
-  }
-  add(M.geometry(), mat(MOVER_VERT, MOVER_FRAG, { side: THREE.DoubleSide }));
 
   // life: people on the promenades, sidewalks and cross streets, crowds at the markets, dogs, herds in the fields,
   // ducks on the river and birds in the air
@@ -939,21 +949,14 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
   part(new THREE.CylinderGeometry(17, 17, 400, 24, 1), metal, () => {});                  // the axle and docking spine
   for (const y of [-210, 210]) part(new THREE.CylinderGeometry(32, 32, 10, 32, 1), dark, (g) => g.translate(0, y, 0));
   for (const y of [-160, 160]) part(new THREE.BoxGeometry(150, 3, 26), dark, (g) => g.translate(0, y, 0));   // radiator vanes on the spine
-  for (let k = 0; k < 6; k++) {
-    const a = k / 6 * TAU + 0.26, len = R - RT - HUB_R + 6;
+  const SPOKES = Array.from({ length: 6 }, (_, k) => k / 6 * TAU + 0.26);
+  for (const a of SPOKES) {
+    const len = R - RT - HUB_R + 6;
     const f = (g) => g.rotateZ(-Math.PI / 2).translate(HUB_R + len / 2 - 2, 0, 0).rotateY(-a);
     part(new THREE.CylinderGeometry(7.5, 7.5, len, 20, 1), metal, f);
     for (const t of [0.2, 0.5, 0.8]) part(new THREE.CylinderGeometry(9.5, 9.5, 4, 20, 1), dark, (g) => g.rotateZ(-Math.PI / 2).translate(HUB_R + len * t, 0, 0).rotateY(-a));
     part(new THREE.CylinderGeometry(15, 18, 16, 24, 1), metal, (g) => g.rotateZ(-Math.PI / 2).translate(R - RT - 4, 0, 0).rotateY(-a));
   }
-  // elevator cars running up and down the spokes
-  const pods = [];
-  for (let k = 0; k < 6; k++) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 5), dark);
-    m.frustumCulled = false; station.add(m);
-    pods.push({ m, a: k / 6 * TAU + 0.26, ph: k * 0.37 });
-  }
-
   // navigation lights
   const navU = { uTime: SU.uTime, uPx: { value: pr } };
   {
@@ -969,21 +972,18 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     geo.setAttribute("aL", new THREE.Float32BufferAttribute(l, 4));
     add(new THREE.Points(geo, new THREE.ShaderMaterial({ vertexShader: NAV_VERT, fragmentShader: NAV_FRAG, uniforms: navU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })), null, 3);
   }
+  // lights for other things: positions (flat xyz) and aL (flat, 4 per light: colour kind, phase, 0, 0)
+  const navPoints = (pos, aL) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("aL", new THREE.Float32BufferAttribute(aL, 4));
+    const pts = new THREE.Points(g, new THREE.ShaderMaterial({ vertexShader: NAV_VERT, fragmentShader: NAV_FRAG, uniforms: navU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    pts.frustumCulled = false; pts.renderOrder = 3;
+    return pts;
+  };
 
-  // a shuttle that comes in along the axis to the dock and leaves again
-  const shuttle = new THREE.Group();
-  {
-    const sm = hullMat([0.62, 0.62, 0.64]);
-    const parts = [new THREE.CylinderGeometry(5, 6.5, 34, 16).translate(0, 0, 0), new THREE.ConeGeometry(5, 9, 16).rotateX(Math.PI).translate(0, -21.5, 0),
-      new THREE.BoxGeometry(30, 1.2, 8).translate(0, 8, 0), new THREE.CylinderGeometry(3, 4, 4, 12).translate(-8, 19, 0), new THREE.CylinderGeometry(3, 4, 4, 12).translate(8, 19, 0)];
-    parts.forEach((g) => { const m = new THREE.Mesh(g, sm); m.frustumCulled = false; shuttle.add(m); });
-    const glowGeo = new THREE.BufferGeometry();
-    glowGeo.setAttribute("position", new THREE.Float32BufferAttribute([-8, 22, 0, 8, 22, 0, 0, -26, 0], 3));
-    glowGeo.setAttribute("aL", new THREE.Float32BufferAttribute([3, 0, 0, 0, 3, 0, 0, 0, 0, 0.3, 0, 0], 4));
-    const glow = new THREE.Points(glowGeo, new THREE.ShaderMaterial({ vertexShader: NAV_VERT, fragmentShader: NAV_FRAG, uniforms: navU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-    glow.frustumCulled = false; shuttle.add(glow);
-    station.add(shuttle);
-  }
+  // the shuttle and the spoke elevators (./vehicles/space.js)
+  const space = buildSpace({ THREE, station, hullMat, mat, ST_VERT, GLSL_COMMON, navPoints, R, RT, TAU, HUB_R, HUB_H, SPOKES, smooth, rng });
 
   // ---- space
   const SKY = { uSunW: { value: SUN.clone() }, uPx: { value: 1 } };
@@ -1010,6 +1010,7 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
   const LN_FAR = Math.log(7000), LN_NEAR = Math.log(70);
   const AZ0 = VIEW0.az, EL0 = VIEW0.el, Z0 = 0.25;
   let az = AZ0, el = EL0, zoom = Z0, azT = az, elT = el, zoomT = zoom;
+  let dbg = null;                      // a parked camera for close-ups (see look())
   const target = new THREE.Vector3(), dir = new THREE.Vector3(), tmp = new THREE.Vector3(), inv = new THREE.Matrix4();
   function place(dt) {
     const k = dt > 0 ? 1 - Math.exp(-dt * 6) : 1;
@@ -1031,8 +1032,15 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     }
     if (rho < 120 && Math.abs(p.y) < 300) { const nr = 120; p.x *= nr / Math.max(rho, 1); p.z *= nr / Math.max(rho, 1); }
     camera.near = clamp(d * 0.04, 1, 120);
-    camera.updateProjectionMatrix();
     camera.lookAt(target);
+    if (dbg) {                                   // a parked camera, given in the station's frame
+      camera.position.copy(dbg[0]).applyMatrix4(station.matrixWorld);
+      camera.near = 0.3;
+      camera.up.copy(dbg[2]).transformDirection(station.matrixWorld);
+      camera.lookAt(tmp.copy(dbg[1]).applyMatrix4(station.matrixWorld));
+      camera.up.set(0, 1, 0);
+    }
+    camera.updateProjectionMatrix();
   }
   // drag to orbit; wheel, pinch, keys and buttons to zoom
   const ptrs = new Map();
@@ -1088,26 +1096,14 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     if (keys.has("ArrowRight")) azT -= dt * 0.9;
     if (keys.has("ArrowUp")) elT = clamp(elT + dt * 0.7, -1.35, 1.35);
     if (keys.has("ArrowDown")) elT = clamp(elT - dt * 0.7, -1.35, 1.35);
-    place(dt);
     station.updateMatrixWorld();
+    place(dt);
     inv.copy(station.matrixWorld).invert();
     SU.uInvSt.value.copy(inv);
     SU.uCamL.value.copy(camera.position).applyMatrix4(inv);
     SU.uSunL.value.copy(SUN).transformDirection(inv);
 
-    // elevator cars and the shuttle
-    for (const p of pods) {
-      const u = 0.5 - 0.5 * Math.cos((t / 40 + p.ph) * TAU), r = 80 + u * (R - RT - 110);
-      p.m.position.set(Math.cos(p.a) * r, 10.5, Math.sin(p.a) * r);
-      p.m.rotation.y = -p.a;
-    }
-    {
-      const c = (t + 20) % 120;                       // in over 50 s, docked 30 s, out over 40 s
-      const y = c < 50 ? 2600 - 2378 * smooth(0, 50, c) : c < 80 ? 222 : 222 + 2600 * smooth(80, 120, c) ** 2;
-      shuttle.position.set(0, -(y + 22), 0);                // it docks on the underside, facing the opening view
-      shuttle.rotation.x = Math.PI;
-      shuttle.visible = y < 2500;
-    }
+    space.update(t);
 
     sky.position.copy(camera.position);
     earthDir(t, tmp); earth.position.copy(camera.position).addScaledVector(tmp, E_D); earth.scale.setScalar(E_R);
@@ -1147,10 +1143,17 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     still();
   };
   const setTime = (t) => { tNow = t; spin = (OMEGA * t) % TAU; still(); };
+  // for close-ups: park the camera at pos looking at target, both [x, y, z] in the station's frame (null to release);
+  // up defaults to the local up (toward the axis) at the target. ringPoint(θ, s, h) is a point h metres above the land.
+  const ringPoint = (th, s, h = 0) => { const r = R + landF(s) - h; return [r * Math.cos(th), s, r * Math.sin(th)]; };
+  const look = (pos, tgt, upv) => {
+    dbg = pos ? [new THREE.Vector3(...pos), new THREE.Vector3(...tgt), upv ? new THREE.Vector3(...upv) : new THREE.Vector3(-tgt[0], 0, -tgt[2]).normalize()] : null;
+    still();
+  };
   return {
-    renderer, frame, zoomBy, setView, setTime, scene, camera,
+    renderer, frame, zoomBy, setView, setTime, look, ringPoint, riverS, riverW, BLVD, RF, scene, camera,
     get zoom() { return zoom; }, get view() { return { az: THREE.MathUtils.radToDeg(az), el: THREE.MathUtils.radToDeg(el), zoom }; },
-    stats: { buildings: nBuild, trees: nTrees, people: lives.people, animals: lives.animals, cars: nCars, markets: MARKETS.length },
+    stats: { buildings: nBuild, trees: nTrees, people: lives.people, animals: lives.animals, markets: MARKETS.length, ...vehicles },
   };
 }
 
