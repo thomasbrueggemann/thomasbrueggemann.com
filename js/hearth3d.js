@@ -554,16 +554,19 @@ const MUSHROOM = {
     wrap = 0.3;
   }`,
 };
-// pumpkins on the steps: ribbed, glossy, a dry stem; and spruce cones on the floor
+// pumpkins on the steps: ribbed, glossy, a dry stalk; and spruce cones on the floor
 const PUMPKIN = {
   inst: true,
   body: `
-  float a = atan(vO.z, vO.x);
-  float rib = cos(a * 9. + vI.y * 3.);
-  if (vO.y > 0.82) { alb = vec3(0.12, 0.10, 0.05); }
-  else {
-    alb = mix(vec3(0.55, 0.16, 0.02), vec3(0.75, 0.38, 0.05), vI.x) * (0.75 + 0.25 * rib) * (0.85 + 0.3 * n3(vO * 6.));
-    N = bumpN(N, vW, rib * 0.01, 1.);
+  float a = atan(vO.z, vO.x), rib = cos(a * 9.), r = length(vO.xz);
+  if (vO.y > 0.86 && r < 0.2) {                          // the stalk: green at the root, dry and ridged above
+    alb = mix(vec3(0.11, 0.12, 0.04), vec3(0.32, 0.23, 0.1), smoothstep(0.9, 1.3, vO.y)) * (0.7 + 0.6 * n3(vec3(a * 3., vO.y * 30., 1.)));
+    N = bumpN(N, vW, sin(a * 5.) * 0.004, 1.);
+  } else {
+    alb = mix(vec3(0.55, 0.16, 0.02), vec3(0.75, 0.38, 0.05), vI.x) * (0.72 + 0.28 * (rib * 0.5 + 0.5)) * (0.85 + 0.3 * n3(vO * 6.));
+    alb = mix(alb, vec3(0.2, 0.17, 0.04), smoothstep(0.84, 0.96, vO.y) * 0.6);       // dull and greenish round the stalk
+    N = bumpN(N, vW, rib * 0.01 + n3(vO * 40.) * 0.002, 1.);
+    ao = mix(1., 0.55, smoothstep(0.8, 0.95, vO.y));
     spec = 40.;
   }
   wrap = 0.2;`,
@@ -607,11 +610,24 @@ const BOARDS = {
   vec3 ad = cross(nl, uDir); if (dot(ad, ad) < 0.01) ad = cross(nl, vec3(1., 0., 0.)); ad = normalize(ad);
   float a = dot(cl, ad) / uW, al = dot(cl, uDir);
   float id = floor(a), f = fract(a);
-  float gap = smoothstep(0.0, 0.05, f) * smoothstep(1., 0.95, f);
+  float fw = fwidth(a), gw = min(0.05 + fw, 0.45);                  // seen from afar the gaps widen to a pixel and the bump fades
+  float gap = smoothstep(0.0, gw, f) * smoothstep(1., 1. - gw, f);
   float grain = vnoise(vec2(al * 3. + id * 7.3, f * 9.)) * 0.6 + vnoise(vec2(al * 21., f * 30. + id)) * 0.4;
   alb = uCol * (0.75 + 0.45 * hash12(vec2(id, 3.7))) * (0.75 + 0.45 * grain) * mix(0.35, 1., gap);
   alb *= 1. - 0.25 * smoothstep(0.6, 0.9, n3(cl * vec3(1.5, 4., 1.5)));
-  N = bumpN(N, vW, gap * 0.004 + grain * 0.0015, 1.);
+  // knots with a darker ring, in 30 x 80 cm cells along the board
+  vec2 kg = vec2(dot(cl, ad) * 3.2, al * 1.2), kid = floor(kg), kf = fract(kg);
+  float kd = length((kf - (vec2(hash12(kid + 2.1), hash12(kid + 7.7)) * 0.6 + 0.2)) * vec2(0.31, 0.83)), kh = step(0.74, hash12(kid));
+  alb *= 1. - kh * (0.55 * smoothstep(0.04, 0.012, kd) + 0.14 * smoothstep(0.1, 0.03, kd) * (0.6 + 0.4 * sin(kd * 150.)));
+  float top = smoothstep(0.6, 0.95, nl.y);
+  alb = mix(alb, vec3(0.34, 0.32, 0.29) * (0.75 + 0.5 * grain), top * 0.4 * smoothstep(0.3, 0.7, n3(cl * vec3(2., 9., 2.))));       // sun and rain silver the tops
+  alb *= 1. + 0.18 * top * smoothstep(0.55, 0.15, abs(cl.x)) * step(${ZG.toFixed(2)}, cl.z);                                       // worn pale from the door to the steps
+  // fallen leaves on anything flat: 60 cm cells, some with a leaf, turned at random
+  vec2 lg = cl.xz * 1.7, lid = floor(lg), lf = fract(lg) - 0.5; float la = hash12(lid + 4.4) * 6.2832;
+  vec2 lq = mat2(cos(la), sin(la), -sin(la), cos(la)) * (lf - (vec2(hash12(lid), hash12(lid + 1.9)) - 0.5) * 0.4);
+  float leaf = top * step(0.68, hash12(lid + 8.8)) * smoothstep(0.1, 0.07, length(lq * vec2(1., 2.2)));
+  alb = mix(alb, mix(vec3(0.5, 0.2, 0.04), vec3(0.62, 0.38, 0.06), hash12(lid + 3.3)) * (0.8 + 0.4 * abs(lq.y * 8.)), leaf);
+  N = bumpN(N, vW, (gap * 0.004 + grain * 0.0015) * smoothstep(0.5, 0.12, fw) + leaf * 0.003, 1.);
   spec = 8.;`,
 };
 // the roof slabs: weathered cedar shingles, moss, a drift of needles, and on the side you see a roof window
@@ -633,8 +649,16 @@ const ROOF = {
     alb = mix(alb, vec3(0.06, 0.10, 0.025) * (0.6 + 0.8 * n3(cl * 20.)), moss);
     float ndl = smoothstep(0.45, 0.8, n3(vec3(cl.z * 2., s * 2., 4.)) + smoothstep(1.5, 0., s) * 0.4) * (1. - moss);
     alb = mix(alb, vec3(0.22, 0.10, 0.04) * (0.6 + 0.8 * vnoise(cl.zy * 60.)), ndl * 0.7);
-    N = bumpN(N, vW, (1. - rf) * 0.012 + moss * 0.02, 1.);
+    float lichen = smoothstep(0.74, 0.82, n3(cl * 11. + 2.) * 0.7 + n3(cl * 31.) * 0.3) * (1. - moss) * smoothstep(0.45, 0.7, th);        // pale grey-green crusts on the odd old shingle
+    alb = mix(alb, vec3(0.30, 0.33, 0.25) * (0.8 + 0.4 * vnoise(cl.zy * 90.)), lichen * 0.4);
+    N = bumpN(N, vW, (1. - rf) * 0.012 + moss * 0.02 + lichen * 0.004, 1.);
     spec = (1. - moss) * 20.;
+    // a galvanised drip edge along the eave and up both gable edges
+    float de = max(0.17 - s, max(cl.z - ${(ZG + 0.81).toFixed(2)}, -4.71 - cl.z));
+    if (de > 0.) {
+      alb = vec3(0.17, 0.185, 0.2) * (0.75 + 0.5 * vnoise(vec2(cl.z * 40., s * 40.))) * mix(0.5, 1., smoothstep(0., 0.02, de));
+      spec = 70.;
+    }
     // a roof window on each side, between s 2.9 and 4.35 and z -0.4 and 1.0
     if (s > 2.9 && s < 4.35 && cl.z > -0.4 && cl.z < 1.0) {
       float fr = min(min(s - 2.9, 4.35 - s), min(cl.z + 0.4, 1.0 - cl.z));
@@ -680,10 +704,11 @@ const STONEWALL = {
   vec3 sc = mix(vec3(0.16, 0.155, 0.145), vec3(0.34, 0.31, 0.27), st.y);
   sc = mix(sc, vec3(0.29, 0.22, 0.15), step(0.8, fract(st.y * 7.)) * 0.6);           // a few rusty ones
   sc *= 0.75 + 0.5 * tex;
-  alb = mix(vec3(0.11, 0.105, 0.095) * (0.8 + 0.4 * tex), sc, stone);
+  sc *= mix(vec3(1.06, 0.98, 0.9), vec3(0.92, 0.98, 1.06), fract(st.y * 13.));                                         // some stones warm, some cold
+  alb = mix(vec3(0.19, 0.18, 0.16) * (0.7 + 0.6 * tex), sc, stone);                                                   // lime mortar between
   float moss = smoothstep(0.55, 0.8, n3(cl * 1.3) + smoothstep(1.4, 0., cl.y) * 0.45);
   alb = mix(alb, vec3(0.06, 0.10, 0.025) * (0.7 + 0.6 * tex), moss * mix(0.85, 0.3, stone));
-  alb = mix(alb, vec3(0.36, 0.38, 0.32), smoothstep(0.7, 0.8, n3(cl * 4. + 3.)) * stone * 0.5);
+  alb = mix(alb, vec3(0.38, 0.4, 0.33), smoothstep(0.72, 0.8, n3(cl * 15. + 3.) * 0.6 + n3(cl * 41.) * 0.4) * stone * 0.55);       // lichen speckle
   N = bumpN(N, vW, stone * smoothstep(0.03, 0.3, st.x) * 0.03 + tex * 0.004, 1.);
   ao = mix(0.6, 1., stone);
   spec = 12.;
@@ -745,6 +770,21 @@ vec3 roomLight(vec3 P, vec3 n){
   c += vec3(1.0, 0.6, 0.3) * 1.8 * max(dot(n, normalize(L3)), 0.) / (d3 + 0.2);
   return c + vec3(0.30, 0.17, 0.09) * (0.8 + 0.2 * uFlick);
 }
+vec3 plaid(vec2 q, vec3 c1, vec3 c2){                // a woollen check: two tones crossing, a pale line, the weave
+  vec3 c = mix(c1, c2, 0.5 * (step(0.5, fract(q.x)) + step(0.5, fract(q.y))));
+  c = mix(c, vec3(0.7, 0.62, 0.45), 0.45 * min(1., step(0.92, fract(q.x * 0.5)) + step(0.92, fract(q.y * 0.5))));
+  return c * (0.8 + 0.4 * vnoise(q * 40.));
+}
+void ellipsoid(vec3 ro, vec3 rd, vec3 c, vec3 r, float id){        // leafy: a ray may pass through the gaps
+  vec3 oc = (ro - c) / r, d = rd / r; float a = dot(d, d), b = dot(oc, d), h = b * b - a * (dot(oc, oc) - 1.);
+  if (h < 0.) return;
+  for (int k = 0; k < 2; k++) {
+    float t = (-b + (k == 0 ? -1. : 1.) * sqrt(h)) / a; if (t <= 0. || t >= tHit) continue;
+    vec3 p = ro + rd * t;
+    if (vnoise(p.xy * 11. + p.z * 5.) * 0.6 + vnoise(p.xy * 27. - p.z * 9.) * 0.4 > 0.4 + 0.2 * (p.y - c.y) / r.y) continue;
+    tHit = t; idHit = 20.; nHit = normalize((oc + d * t) / r) * (k == 0 ? 1. : -1.); return;
+  }
+}
 vec3 boards(vec2 q, float w, vec3 col){
   float id = floor(q.x / w), f = fract(q.x / w);
   return col * (0.8 + 0.35 * hash12(vec2(id, 1.3))) * (0.85 + 0.25 * vnoise(vec2(q.y * 4. + id * 5., f * 6.))) * mix(0.45, 1., smoothstep(0., 0.06, f) * smoothstep(1., 0.94, f));
@@ -768,7 +808,26 @@ vec3 room(vec3 ro, vec3 rd){
   box(ro, rd, vec3(0.3, Y0 + 0.5, -0.68), vec3(1.05, 0.5, 0.1), 10.);
   box(ro, rd, vec3(0., Y0 + 1.1, -ZG + 0.33), vec3(0.95, 0.06, 0.1), 11.);        // the mantel
   box(ro, rd, vec3(0.6, Y0 + 0.22, 0.6), vec3(0.45, 0.04, 0.3), 11.);              // a low table
-  box(ro, rd, vec3(0.0, YL + 0.28, -2.6), vec3(0.85, 0.26, 1.05), 12.);           // the bed in the loft
+  box(ro, rd, vec3(0.0, YL + 0.2, -2.6), vec3(0.85, 0.2, 1.05), 12.);             // the bed in the loft: mattress, plaid blanket, two pillows, a headboard
+  box(ro, rd, vec3(0.0, YL + 0.43, -2.3), vec3(0.87, 0.04, 0.78), 16.);
+  box(ro, rd, vec3(-0.38, YL + 0.5, -3.45), vec3(0.3, 0.09, 0.17), 17.);
+  box(ro, rd, vec3(0.38, YL + 0.5, -3.45), vec3(0.3, 0.09, 0.17), 17.);
+  box(ro, rd, vec3(0.0, YL + 0.6, -3.68), vec3(0.9, 0.35, 0.03), 11.);
+  box(ro, rd, vec3(-1.05, YL + 0.8, ZL + 0.03), vec3(0.38, 0.17, 0.02), 16.);     // a throw over the loft rail
+  box(ro, rd, vec3(0.85, Y0 + 1.02, -0.68), vec3(0.42, 0.022, 0.14), 16.);        // a plaid blanket over the sofa's back, a cushion behind it
+  box(ro, rd, vec3(0.85, Y0 + 0.8, -0.558), vec3(0.42, 0.22, 0.018), 16.);
+  box(ro, rd, vec3(-0.45, Y0 + 0.82, -0.88), vec3(0.22, 0.34, 0.08), 17.);
+  box(ro, rd, vec3(0.78, Y0 + 0.31, 0.58), vec3(0.04, 0.05, 0.04), 18.);          // a mug and a stack of books on the low table
+  box(ro, rd, vec3(0.38, Y0 + 0.3, 0.7), vec3(0.14, 0.04, 0.1), 19.);
+  ellipsoid(ro, rd, vec3(-2.5, Y0 + 0.95, -ZG + 0.62), vec3(0.45, 0.55, 0.42), 20.);    // a plant in the corner, in its pot
+  box(ro, rd, vec3(-2.5, Y0 + 0.2, -ZG + 0.62), vec3(0.17, 0.2, 0.17), 21.);
+  box(ro, rd, vec3(-0.55, Y0 + 1.24, -ZG + 0.33), vec3(0.022, 0.08, 0.022), 22.);   // on the mantel: two candles, a picture, a jar
+  box(ro, rd, vec3(-0.42, Y0 + 1.21, -ZG + 0.33), vec3(0.022, 0.05, 0.022), 22.);
+  box(ro, rd, vec3(0.3, Y0 + 1.33, -ZG + 0.4), vec3(0.15, 0.17, 0.012), 23.);
+  box(ro, rd, vec3(0.74, Y0 + 1.25, -ZG + 0.33), vec3(0.05, 0.09, 0.05), 24.);
+  box(ro, rd, vec3(-1.5, Y0 + 0.28, -ZG + 0.62), vec3(0.4, 0.28, 0.3), 25.);       // logs stacked beside the hearth
+  { float t = (-2. - ro.z) / rd.z; vec3 p = ro + rd * t;                          // a garland swagged between the roof planes
+    if (rd.z < 0. && t > 0. && t < tHit && abs(p.x) < 1.4 && abs(p.y - (Y0 + 4.25 + 0.255 * p.x * p.x)) < 0.05 + 0.03 * vnoise(vec2(p.x * 30., 1.))) { tHit = t; idHit = 26.; nHit = vec3(0., 0., 1.); } }
   // the pendant lamp and its cord
   vec3 lp = lampP();
   { vec3 oc = ro - lp; float b = dot(oc, rd), c = dot(oc, oc) - 0.16 * 0.16, h = b * b - c;
@@ -790,19 +849,38 @@ vec3 room(vec3 ro, vec3 rd){
   vec3 P = ro + rd * tHit, n = nHit, alb = vec3(0.5), e = vec3(0.);
   if (idHit < 1.5) {
     alb = boards(P.xz * vec2(1., 0.25), 0.14, vec3(0.42, 0.25, 0.12));
-    vec2 rq = vec2(P.x - 0.5, P.z + 0.1);
-    if (abs(rq.x) < 1.3 && abs(rq.y) < 1.6) alb = mix(vec3(0.42, 0.06, 0.04), vec3(0.62, 0.42, 0.18), step(0.5, fract(rq.y * 3.5 + step(1.1, abs(rq.x)) * 0.5))) * 0.8;
+    vec2 rq = vec2(P.x - 0.5, P.z + 0.1), ra = abs(rq) / vec2(1.3, 1.6);
+    float rb = max(ra.x, ra.y);
+    if (rb < 1.) {                                                                     // a rug: a dark border with cream dots, a lattice of diamonds
+      vec2 d = abs(fract(rq * vec2(1.6, 1.3)) - 0.5);
+      vec3 red = vec3(0.40, 0.07, 0.04), cream = vec3(0.62, 0.45, 0.22), ink = vec3(0.12, 0.06, 0.05);
+      alb = mix(red, cream, step(d.x + d.y, 0.22)) * mix(1., 0.8, step(d.x + d.y, 0.1));
+      if (rb > 0.9) alb = mix(ink, cream, step(0.7, fract(rq.x * 9. + rq.y * 9.)) * step(rb, 0.97));
+      else if (rb > 0.86) alb = cream;
+      alb *= (0.85 + 0.3 * vnoise(rq * 45.)) * 0.85;
+    } else if (abs(rq.x) < 1.3 && abs(rq.y) < 1.7) alb = vec3(0.6, 0.5, 0.35) * step(0.4, fract(rq.x * 40.)) * 0.8 + 0.05;       // the fringe
+    else if (P.z < -${ZG.toFixed(2)} + 1.05 && abs(P.x) < 1.15) alb = vec3(0.22, 0.2, 0.18) * (0.8 + 0.4 * hash12(floor(P.xz * vec2(2.4, 3.)))) * (0.8 + 0.3 * vnoise(P.xz * 30.));   // slate in front of the hearth
   } else if (idHit < 2.5) {
     // the inside of the stone wall: the open hearth in the middle, a bookshelf to the right
     vec3 st = stoneCell(P.xy * vec2(1.4, 2.2) + 0.5);
     alb = mix(vec3(0.15, 0.12, 0.10), mix(vec3(0.30, 0.26, 0.22), vec3(0.46, 0.40, 0.33), st.y), smoothstep(0.03, 0.1, st.x));
     if (abs(P.x) < 0.62 && P.y < Y0 + 0.95) {
-      alb = vec3(0.015);
+      // the open fire: two logs on an ember bed, tongues of flame leaning in the draught, glowing cracks in the bark
       vec2 fq = vec2(P.x * 1.6, (P.y - Y0) / 0.95);
-      float fl = vnoise(vec2(fq.x * 6., fq.y * 3. - uTime * 2.5)) * 0.7 + vnoise(vec2(fq.x * 13., fq.y * 6. - uTime * 4.)) * 0.3;
-      float flame = smoothstep(0.75, 0.0, fq.y + abs(fq.x) * 0.9 - fl * 0.55);
-      e = mix(vec3(0.6, 0.12, 0.02), vec3(1.7, 0.95, 0.35), flame) * flame * 4. * uFlick + vec3(0.5, 0.12, 0.02) * smoothstep(0.25, 0., fq.y) * 1.5;
-    } else if (P.x > 1.05 && P.x < 2.5 && P.y < Y0 + 2.3) {
+      float sway = 0.12 * sin(fq.y * 5. - uTime * 3. + fq.x * 3.) * fq.y, xq = fq.x + sway;
+      float fl = vnoise(vec2(xq * 6., fq.y * 3. - uTime * 2.5)) * 0.7 + vnoise(vec2(xq * 13., fq.y * 6. - uTime * 4.)) * 0.3;
+      float tall = 0.75 + 0.3 * vnoise(vec2(xq * 3. + 5., uTime * 1.2));
+      float flame = smoothstep(0.75, 0.0, fq.y / tall + abs(xq) * 0.9 - fl * 0.55);
+      float lg = max(smoothstep(0.075, 0.05, abs(fq.y - 0.11 - 0.05 * fq.x)) * step(abs(fq.x), 0.85), smoothstep(0.065, 0.04, abs(fq.y - 0.25 + 0.05 * fq.x - 0.02 * sin(fq.x * 5.))) * step(abs(fq.x + 0.05), 0.6));
+      float crack = smoothstep(0.58, 0.8, vnoise(vec2(fq.x * 14., fq.y * 38.) + vnoise(vec2(fq.x * 5., fq.y * 9.)) * 3.));
+      alb = mix(vec3(0.015), vec3(0.05, 0.032, 0.02) * (0.5 + vnoise(vec2(fq.x * 30., fq.y * 6.))), lg);
+      e = mix(vec3(0.6, 0.12, 0.02), vec3(1.7, 0.95, 0.35), flame) * flame * 4. * uFlick * (1. - 0.6 * lg);
+      e += vec3(1.6, 0.4, 0.07) * lg * crack * (1.2 + 0.8 * uFlick);
+      e += vec3(1.2, 0.3, 0.05) * smoothstep(0.1, 0., fq.y) * (0.6 + 1.6 * vnoise(vec2(fq.x * 25., fq.y * 20. + uTime * 0.4))) * uFlick;     // embers
+      e += vec3(0.5, 0.12, 0.02) * smoothstep(0.25, 0., fq.y) * 1.2;
+    } else if (abs(P.x) < 0.72 && P.y > Y0 + 0.95 && P.y < Y0 + 1.04) alb = vec3(0.025);        // an iron lintel
+    else if (abs(P.x) < 0.9 && P.y < Y0 + 1.04) alb *= 0.45 + 0.55 * smoothstep(0., 0.28, abs(P.x) - 0.62);      // soot round the opening
+    else if (P.x > 1.05 && P.x < 2.5 && P.y < Y0 + 2.3) {
       float sh = fract((P.y - Y0) / 0.38);
       float bk = floor((P.x + floor((P.y - Y0) / 0.38) * 0.37) / 0.045);
       vec3 bc = vec3(hash12(vec2(bk, 1.)), hash12(vec2(bk, 2.)), hash12(vec2(bk, 3.)));
@@ -828,13 +906,35 @@ vec3 room(vec3 ro, vec3 rd){
       e = mix(vec3(0.9, 0.2, 0.03), vec3(1.6, 0.9, 0.3), fl) * (2.5 + 2. * fl) * uFlick;
     }
   } else if (idHit < 9.75) alb = vec3(0.03);
-  else if (idHit < 10.5) alb = vec3(0.30, 0.20, 0.05) * (0.85 + 0.3 * vnoise(P.xy * 30.));
-  else if (idHit < 11.5) alb = vec3(0.3, 0.17, 0.08);
-  else if (idHit < 12.5) alb = mix(vec3(0.5, 0.06, 0.05), vec3(0.75, 0.68, 0.55), step(0.5, fract(P.x * 4.)) * step(0.5, fract(P.z * 4.)) + 0.3 * step(0.5, fract(P.x * 4.)));
+  else if (idHit < 10.5) {                                                                      // the sofa: rust wool, cushion seams on the back
+    alb = vec3(0.34, 0.15, 0.06) * (0.8 + 0.4 * vnoise(P.xy * 50. + P.z * 30.));
+    if (n.z > 0.5) alb *= 1. - 0.45 * smoothstep(0.02, 0., (0.5 - abs(fract((P.x - 0.3) / 0.7 + 0.5) - 0.5)) * 0.7);
+  }
+  else if (idHit < 11.5) alb = vec3(0.3, 0.17, 0.08) * (0.8 + 0.4 * vnoise(vec2(P.x * 3. + P.z * 40., P.y * 40.)));
+  else if (idHit < 12.5) alb = vec3(0.62, 0.56, 0.44) * (0.85 + 0.3 * vnoise(P.xz * 40.));                  // linen
   else if (idHit < 13.5) { alb = vec3(0.); e = vec3(1.0, 0.7, 0.4) * 9.; }
   else if (idHit < 14.5) alb = vec3(0.02);
   else if (idHit < 15.5) alb = fpart < 0.5 ? vec3(0.55, 0.36, 0.26) : fpart < 1.5 ? vec3(0.10, 0.22, 0.20) : vec3(0.06, 0.06, 0.08);
-  else { alb = vec3(0.4, 0.25, 0.12); }
+  else if (idHit < 16.5) alb = plaid(idHit < 16.5 && n.y > 0.5 ? P.xz * 2.5 : P.xy * 2.5, vec3(0.55, 0.36, 0.08), vec3(0.13, 0.22, 0.17));
+  else if (idHit < 17.5) alb = mix(vec3(0.68, 0.6, 0.47), vec3(0.5, 0.3, 0.12), step(0.8, fract(P.x * 7.))) * (0.85 + 0.3 * vnoise(P.xz * 50. + P.y * 40.));     // cream wool, a rust stripe
+  else if (idHit < 18.5) alb = vec3(0.55, 0.52, 0.45);                                            // the mug (cream glaze)
+  else if (idHit < 19.5) alb = n.y > 0.5 ? vec3(0.4, 0.3, 0.2) : mix(vec3(0.5, 0.15, 0.1), vec3(0.15, 0.3, 0.3), step(0.5, fract(P.y * 14.)));
+  else if (idHit < 20.5) alb = mix(vec3(0.07, 0.17, 0.04), vec3(0.2, 0.32, 0.07), vnoise(P.xy * 12. + P.z * 4.)) * (0.7 + 0.5 * (P.y - Y0 - 0.9));
+  else if (idHit < 21.5) alb = vec3(0.45, 0.2, 0.1) * (0.8 + 0.4 * vnoise(P.xy * 30.));        // terracotta
+  else if (idHit < 22.5) { alb = vec3(0.7, 0.62, 0.45); if (n.y > 0.5) e = vec3(1.0, 0.55, 0.2) * 6.; }  // candles, the flame a warm dot
+  else if (idHit < 23.5) {                                                                        // a picture: night, pines, a pale moon
+    vec2 g = (P.xy - vec2(0.3, Y0 + 1.33)) / vec2(0.15, 0.17);
+    alb = vec3(0.3, 0.2, 0.1);
+    if (n.z > 0.5 && abs(g.x) < 0.8 && abs(g.y) < 0.82) { alb = mix(vec3(0.05, 0.07, 0.11), vec3(0.14, 0.14, 0.2), g.y * 0.5 + 0.5); alb = mix(alb, vec3(0.7, 0.68, 0.55), smoothstep(0.13, 0.1, length(g - vec2(0.4, 0.4)))); float gx = fract(g.x * 2.2 + 0.3) - 0.5; alb = mix(alb, vec3(0.015, 0.025, 0.02), step(g.y, (0.5 - abs(gx)) * 1.6 - 0.8 + 0.5 * hash12(vec2(floor(g.x * 2.2 + 0.3), 1.)))); }
+  }
+  else if (idHit < 24.5) { alb = vec3(0.5, 0.3, 0.1); if (n.z > 0.5) e = vec3(1.0, 0.7, 0.3) * (0.3 + 0.3 * vnoise(vec2(P.y * 20., 3.))); }   // a jar of dried flowers, catching the light
+  else if (idHit < 25.5) {                                                                        // end grain of stacked logs
+    vec2 q = P.xy * 11. + vec2(floor(P.y * 11.) * 0.5, 0.), id = floor(q), f = fract(q) - 0.5;
+    float r = length(f * 1.05);
+    alb = n.z > 0.5 ? mix(vec3(0.1, 0.07, 0.05), mix(vec3(0.62, 0.46, 0.27), vec3(0.46, 0.3, 0.15), 0.5 + 0.5 * sin(r * 34.)), smoothstep(0.58, 0.48, r)) * (0.75 + 0.5 * hash12(id)) : vec3(0.15, 0.1, 0.07);
+  }
+  else { alb = vec3(0.25, 0.08, 0.04); float lf = floor(P.x * 9.); alb = mix(alb, vec3(0.7, 0.45, 0.08), step(0.33, hash12(vec2(lf, 2.)))); alb = mix(alb, vec3(0.45, 0.14, 0.04), step(0.66, hash12(vec2(lf, 2.)))); alb *= 0.8 + 0.5 * hash12(vec2(lf, 7.));
+    vec2 sp = vec2((fract(P.x / 0.35) - 0.5) * 0.35, P.y - (Y0 + 4.2 + 0.255 * P.x * P.x)); e += vec3(1.0, 0.7, 0.35) * 6. * smoothstep(0.03, 0.008, length(sp)); }                // dried leaves, a tiny bulb between them
   return alb * roomLight(P, n) + e;
 }`,
   body: `
@@ -845,6 +945,14 @@ vec3 room(vec3 ro, vec3 rd){
   float glass = 0.;
   vec3 frameCol = vec3(0.40, 0.25, 0.13);
   alb = boards(vec2(x, y), 0.15, vec3(0.30, 0.25, 0.20)) * (0.7 + 0.4 * vnoise(vec2(x * 2., y * 0.7)));
+  {                                                                                     // weathering: knots, rain streaks, damp and splash at the foot, the shadow under the eaves
+    float bi = floor(x / 0.15), kc = y * 0.9 + hash12(vec2(bi, 9.)) * 7.;
+    float kd = length(vec2((fract(x / 0.15) - 0.5) * 0.15 * 1.3, (fract(kc) - 0.5) / 0.9 * 0.55)), kh = step(0.8, hash12(vec2(bi, floor(kc))));
+    alb *= 1. - kh * (0.5 * smoothstep(0.03, 0.008, kd) + 0.14 * smoothstep(0.07, 0.02, kd) * (0.6 + 0.4 * sin(kd * 260.)));
+    alb *= 1. - 0.25 * smoothstep(0.55, 0.9, vnoise(vec2(x * 6.3 + bi * 3.1, y * 0.3 + bi)));
+    alb *= mix(0.6, 1., smoothstep(0., 0.4, y - Y0)) * mix(0.75, 1., smoothstep(0.1, 0.9, edge));
+    alb *= 1. - 0.3 * smoothstep(0.55, 0., Y0 + 0.8 - y) * step(abs(abs(ax - 1.85) - 0.3), 0.36) * step(y, Y0 + 0.8);        // run-off below the sills
+  }
   float curtain = 0.;
   if (edge < 0.2) alb = vec3(0.06, 0.045, 0.035) * (0.8 + 0.4 * vnoise(vec2(x, y) * 10.));                 // the trim under the roof
   else if (y < Y0 + 2.55) {
@@ -861,7 +969,7 @@ vec3 room(vec3 ro, vec3 rd){
     if (ax < 0.035 || abs(ax - 1.35) < 0.035 || abs(y - Y0 - 5.3) < 0.035 || edge < 0.3) alb = frameCol;
     else glass = 1.;
   }
-  N = bumpN(N, vW, (1. - glass) * smoothstep(0.92, 1., fract(x / 0.15)) * 0.004, 1.);
+  N = bumpN(N, vW, (1. - glass) * smoothstep(0.6, 1., abs(fract(x / 0.15) - 0.5) * 2.) * 0.004, 1.);
   wrap = 0.1;
   if (glass > 0.5) {
     vec3 ro = (uCabInv * vec4(cameraPosition, 1.)).xyz, rd = normalize(cl - ro);
@@ -896,11 +1004,15 @@ const LOG = {
   } else if (r > 0.9) {                  // bark
     float b = n3(vec3(vO.xy * 3., vO.z * 8.) + seed * 20.);
     alb = vI.x > 0.5 ? mix(vec3(0.62, 0.6, 0.56), vec3(0.06, 0.05, 0.05), smoothstep(0.62, 0.7, n3(vec3(vO.xy * 4., vO.z * 30.) + seed * 9.))) : mix(vec3(0.08, 0.06, 0.05), vec3(0.24, 0.18, 0.14), b);
+    alb = mix(alb, vec3(0.07, 0.12, 0.03) * (0.7 + 0.6 * n3(vW * 40.)), vI.x < 0.5 ? smoothstep(0.55, 0.75, n3(vec3(vO.xy * 2.5, vO.z * 3.) + seed * 13.)) * vI.y * 1.6 : 0.);     // moss on the old ones
     N = bumpN(N, vW, b * 0.003, 1.);
   } else {                               // a split face: pale, fibrous along the grain
     float f = vnoise(vec2(vO.z * 3., (vO.x + vO.y) * 60.)) * 0.6 + vnoise(vec2(vO.z * 12., (vO.x - vO.y) * 150.)) * 0.4;
     alb = mix(vec3(0.42, 0.30, 0.17), vec3(0.6, 0.45, 0.28), f);
     alb = mix(alb, vec3(0.32, 0.31, 0.28), vI.y * 0.5);
+    alb *= 1. - 0.4 * smoothstep(0.8, 0.9, vnoise(vec2(vO.z * 2.5 + seed * 5., (vO.x - vO.y) * 25.))) * (0.4 + vI.y);          // drying checks along the grain
+    float kd = length(vec2((vO.z - hash12(vec2(seed, 1.))) * 1.2, (vO.x + vO.y) * 0.5 - hash12(vec2(seed, 2.)) * 0.4 + 0.2));     // a knot, now and then
+    alb *= 1. - step(0.7, hash12(vec2(seed, 3.))) * (0.5 * smoothstep(0.07, 0.02, kd) + 0.15 * smoothstep(0.15, 0.05, kd) * sin(kd * 120.));
   }
   alb *= 0.85 + 0.3 * hash12(vec2(seed, 5.));
   wrap = 0.15;`,
@@ -1609,7 +1721,13 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
       const ux = -sx * Math.cos(ALPHA), uy = Math.sin(ALPHA);  // up the slope
       const nx = sx * Math.sin(ALPHA), ny = Math.cos(ALPHA);
       const cxm = ex + ux * len / 2 + nx * T / 2, cym = EAVE + uy * len / 2 + ny * T / 2;
-      add(new THREE.BoxGeometry(len, T, depth), roofMat, cxm, cym, 0.4, 0, 0, sx > 0 ? -ALPHA : ALPHA);
+      const slab = add(new THREE.BoxGeometry(len, T, depth), roofMat, cxm, cym, 0.4, 0, 0, sx > 0 ? -ALPHA : ALPHA);
+      // the roof window's frame stands proud of the shingles (in the slab's frame; the window is s 2.9 to 4.35 up the slope, z -0.4 to 1.0)
+      const xs = sx * (len / 2 + Math.cos(ALPHA) * T / Math.sin(ALPHA) - 3.625), fy = T / 2 + 0.022, wf = surf({ ...METAL, uniforms: { uCol: { value: new THREE.Vector3(0.05, 0.047, 0.042) } } });
+      const frame = (w, h, d, x, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wf); m.position.set(x, fy, z); slab.add(m); };
+      for (const z of [-0.76, 0.56]) frame(1.45, 0.044, 0.09, xs, z);
+      for (const o of [-0.7, 0.7]) frame(0.09, 0.044, 1.4, xs + o, -0.1);
+      frame(1.3, 0.03, 0.035, xs, -0.1); frame(0.035, 0.03, 1.3, xs, -0.1);
     }
     // ridge cap
     add(new THREE.BoxGeometry(0.34, 0.16, 2 * ZG + 1.02), surf({ ...METAL, uniforms: { uCol: { value: new THREE.Vector3(0.04, 0.04, 0.04) } } }), 0, Y0 + HR + T / Math.cos(ALPHA) - 0.02, 0.4);
@@ -1640,12 +1758,42 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
         dummy.position.set(x, y + r * sq, z); dummy.rotation.set(0, D() * TAU, 0); dummy.scale.set(r, r * sq, r); dummy.updateMatrix();
         pk.push([dummy.matrix.clone().premultiply(cabin.matrixWorld), [D(), D(), 0, 0], 0, 0]);
       }
-      const pg = new THREE.SphereGeometry(1, 24, 14), pp = pg.attributes.position;
-      for (let i = 0; i < pp.count; i++) { const y = pp.getY(i); if (y > 0.9) pp.setY(i, y + (y - 0.9) * 2.5); }   // the stem
+      // a lathe: the body to a dimple, then a short stalk that leans and flares; nine ribs pulled out of it
+      const prof = []; for (let k = 0; k <= 14; k++) { const th = k / 14 * Math.PI * 0.9; prof.push(new THREE.Vector2(Math.sin(th), -Math.cos(th))); }
+      for (const [r, y] of [[0.19, 0.9], [0.1, 0.84], [0.07, 0.88], [0.062, 1.05], [0.068, 1.25], [0.095, 1.33], [0.0, 1.33]]) prof.push(new THREE.Vector2(r, y));
+      const pg = new THREE.LatheGeometry(prof, 36), pp = pg.attributes.position;
+      for (let i = 0; i < pp.count; i++) {
+        const x = pp.getX(i), y = pp.getY(i), z = pp.getZ(i), r = Math.hypot(x, z), k = 1 + 0.07 * Math.cos(9 * Math.atan2(z, x)) * Math.min(1, r * 1.6) * (y < 0.95 ? 1 : 0);
+        pp.setXYZ(i, x * k + (y > 0.95 ? (y - 0.95) * (y - 0.95) * 0.9 : 0), y, z * k);
+      }
       pg.computeVertexNormals();
       instanced(pg, surf(PUMPKIN), pk, false);
     }
     for (const x of [-2.6, -1.4]) add(new THREE.BoxGeometry(0.06, 0.42, 0.34), post, x, Y0 + 0.21, ZG + 0.4);
+    // depth on the front: casings and sills round the windows, glazing bars, the door's casing and handle, the beam under the big glass
+    {
+      const wood = [0.36, 0.23, 0.12], tv = boards([0, 1, 0], wood, 10), th = boards([1, 0, 0], wood, 10);
+      const brass = surf({ ...METAL, uniforms: { uCol: { value: new THREE.Vector3(0.24, 0.16, 0.06) } } });
+      const bar = (w, h, d, mat, x, y, z) => add(new THREE.BoxGeometry(w, h, d), mat, x, y, z);
+      for (const sx of [-1, 1]) {
+        const wx = sx * 1.85, wy = Y0 + 1.46;
+        for (const o of [-0.525, 0.525]) { bar(0.075, 1.12, 0.07, tv, wx + o, wy, ZG + 0.035); bar(1.12, 0.075, 0.07, th, wx, wy + o, ZG + 0.035); }
+        bar(0.04, 0.98, 0.035, tv, wx, wy, ZG + 0.02); bar(0.98, 0.04, 0.035, th, wx, Y0 + 1.6, ZG + 0.02);
+        bar(1.32, 0.06, 0.2, th, wx, Y0 + 0.83, ZG + 0.09);                                  // the sill, standing out
+      }
+      for (const sx of [-1, 1]) bar(0.07, 2.14, 0.06, tv, sx * 0.535, Y0 + 1.07, ZG + 0.03);   // the door's casing, glazing bars, a brass lever
+      bar(1.14, 0.08, 0.06, th, 0, Y0 + 2.14, ZG + 0.03); bar(1.0, 0.04, 0.12, th, 0, Y0 + 0.02, ZG + 0.06);
+      bar(0.035, 0.8, 0.03, tv, 0, Y0 + 1.55, ZG + 0.015); bar(0.58, 0.035, 0.03, th, 0, Y0 + 1.55, ZG + 0.015);
+      bar(0.03, 0.16, 0.014, brass, 0.38, Y0 + 1.05, ZG + 0.008); bar(0.11, 0.022, 0.03, brass, 0.33, Y0 + 1.1, ZG + 0.03);
+      bar(4.9, 0.3, 0.1, th, 0, Y0 + 2.7, ZG + 0.05);
+      bar(0.07, 4.25, 0.07, tv, 0, Y0 + 4.975, ZG + 0.035); bar(1.83, 0.07, 0.07, th, 0, Y0 + 5.3, ZG + 0.035);      // bars across the big glass
+      for (const sx of [-1, 1]) bar(0.07, 1.58, 0.07, tv, sx * 1.35, Y0 + 3.64, ZG + 0.035);
+      // a coir mat before the door
+      add(new THREE.BoxGeometry(0.85, 0.025, 0.5), surf({ body: `
+        vec3 cl = (uCabInv * vec4(vW, 1.)).xyz; vec2 q = cl.xz - vec2(0., ${(ZG + 0.45).toFixed(2)});
+        float edge = smoothstep(0.03, 0.06, min(0.425 - abs(q.x), 0.25 - abs(q.y)));
+        alb = mix(vec3(0.06, 0.04, 0.025), vec3(0.2, 0.14, 0.08), edge) * (0.55 + 0.9 * n3(vec3(q * vec2(90., 20.), 1.))); wrap = 0.3;` }), 0, Y0 + 0.0125, ZG + 0.45, 0, 0.04, 0);
+    }
     // a string of lights over the deck: two poles at the front corners, a swag between them and strings back to the
     // gable under the eaves, a bulb every 40 cm hanging just below the cable
     {
@@ -1663,13 +1811,16 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
         for (let i = 1; i < n; i++) { const q = at(i / n); dummy.position.set(q.x, q.y - 0.07, q.z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1); dummy.updateMatrix(); bulbs.push(dummy.matrix.clone()); }
       }
       const bulb = (geo, mat) => { const m = new THREE.InstancedMesh(geo, mat, bulbs.length); bulbs.forEach((b, i) => m.setMatrixAt(i, b)); m.frustumCulled = false; cabin.add(m); };
-      bulb(new THREE.SphereGeometry(0.038, 10, 8), surf({ inst: true, body: "alb = vec3(0.); emis = vec3(1.0, 0.62, 0.28) * (5.5 + 1.5 * hash12(vW.xz * 13.));" }));
+      bulb(new THREE.SphereGeometry(0.038, 10, 8), surf({ inst: true, body: "float h = hash12(vW.xz * 13. + vW.y); alb = vec3(0.); emis = mix(vec3(1.0, 0.62, 0.28), vec3(1.0, 0.72, 0.4), h) * (5. + 1.8 * h + 0.5 * sin(uTime * (0.6 + h) + h * 40.));" }));
       bulb(new THREE.CylinderGeometry(0.014, 0.014, 0.05, 6).translate(0, 0.05, 0), cable);         // the sockets
     }
     // the lantern by the door
     const lp = [1.0, Y0 + 2.15, ZG + 0.12];
     add(new THREE.BoxGeometry(0.2, 0.3, 0.2), surf(GLOWMAT), ...lp);
     add(new THREE.BoxGeometry(0.26, 0.04, 0.26), surf(METAL), lp[0], lp[1] + 0.17, lp[2]);
+    add(new THREE.BoxGeometry(0.24, 0.03, 0.24), surf(METAL), lp[0], lp[1] - 0.165, lp[2]);
+    for (const dx of [-0.1, 0.1]) for (const dz of [-0.1, 0.1]) add(new THREE.BoxGeometry(0.024, 0.32, 0.024), surf(METAL), lp[0] + dx, lp[1], lp[2] + dz);
+    add(new THREE.TorusGeometry(0.05, 0.006, 6, 14), surf(METAL), lp[0], lp[1] + 0.24, lp[2]);
     add(new THREE.BoxGeometry(0.06, 0.06, 0.16), surf(METAL), lp[0], lp[1] + 0.05, lp[2] - 0.12);
     // the chimney: a stone stack built against the back wall, broad at the hearth, narrowing above it, clear of the ridge
     const ctop = Y0 + HR + 1.3;
@@ -1682,17 +1833,19 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
     }
     add(new THREE.BoxGeometry(1.15, ctop - (Y0 + 4.2), 0.6), stoneMat, 0, (ctop + Y0 + 4.2) / 2, -ZG - 0.5);
     add(new THREE.BoxGeometry(1.35, 0.1, 0.8), stoneMat, 0, ctop + 0.05, -ZG - 0.5);
-    add(new THREE.BoxGeometry(0.5, 0.22, 0.34), surf(METAL), 0, ctop + 0.21, -ZG - 0.5);
+    add(new THREE.CylinderGeometry(0.1, 0.11, 0.3, 12), surf(METAL), 0, ctop + 0.25, -ZG - 0.5);           // the stovepipe and its rain hat on three struts
+    add(new THREE.ConeGeometry(0.2, 0.1, 12), surf(METAL), 0, ctop + 0.5, -ZG - 0.5);
+    for (let i = 0; i < 3; i++) add(new THREE.BoxGeometry(0.014, 0.12, 0.014), surf(METAL), Math.cos(i * 2.094) * 0.1, ctop + 0.42, -ZG - 0.5 + Math.sin(i * 2.094) * 0.1);
     CHIMNEY = cw(0, ctop + 0.34, -ZG - 0.5);
 
     // the woodshed along your side of the cabin: four posts, a sloping roof, two rows of logs
     const shedX = -B * (1 + (Y0 - EAVE) / HR) - 1.35, shedZ0 = -3.6, shedZ1 = 2.6;
     for (const z of [shedZ0, shedZ1]) for (const dx of [-0.55, 0.55]) add(new THREE.BoxGeometry(0.1, 2.0 + dx * 0.35, 0.1), post, shedX + dx, 1.0 + dx * 0.17, z);
-    add(new THREE.BoxGeometry(1.7, 0.06, shedZ1 - shedZ0 + 0.7), roofMat, shedX, 2.12, (shedZ0 + shedZ1) / 2, 0, 0, 0.33);
+    add(new THREE.BoxGeometry(1.7, 0.06, shedZ1 - shedZ0 + 0.7), boards([Math.cos(0.33), Math.sin(0.33), 0], [0.2, 0.17, 0.13], 0.18), shedX, 2.12, (shedZ0 + shedZ1) / 2, 0, 0, 0.33);
     add(new THREE.BoxGeometry(1.3, 0.1, shedZ1 - shedZ0 + 0.2), post, shedX, 0.08, (shedZ0 + shedZ1) / 2);
     const logs = [[], [], []];          // round, half, quarter
-    const logItem = (x, y, z, ry, rx, rad, len, birch) => {
-      const k = D() < 0.45 ? 0 : D() < 0.5 ? 1 : 2;
+    const logItem = (x, y, z, ry, rx, rad, len, birch, round) => {
+      const k0 = D() < 0.45 ? 0 : D() < 0.5 ? 1 : 2, k = round ? 0 : k0;
       dummy.position.set(x, y, z); dummy.rotation.set(rx, ry, D() * TAU); dummy.scale.set(rad, rad, len); dummy.updateMatrix();
       const m = dummy.matrix.clone().premultiply(cabin.matrixWorld);
       logs[k].push([m, [birch, D() * 0.5, D(), rad], 0, 0]);
@@ -1719,14 +1872,28 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
         logItem(rs[0] + Math.cos(a) * (Rr - len / 2), y + rad, rs[2] + Math.sin(a) * (Rr - len / 2), Math.PI / 2 - a, (D() - 0.5) * 0.08 - 0.1, rad, len, D() < 0.15 ? 1 : 0);
       }
     }
-    add(new THREE.ConeGeometry(1.0, 0.7, 14), surf(DEADWOOD), rs[0], 2.05, rs[2]);
+    add(new THREE.ConeGeometry(1.0, 0.7, 14), surf({ body: `      // a roof of overlapping bark strips, mossy
+      float row = (vO.y + 0.35) * 11., ri = floor(row), rf = fract(row), cell = floor(atan(vO.z, vO.x) / 6.2832 * 18. + ri * 0.37), th = hash12(vec2(ri, cell));
+      alb = mix(vec3(0.06, 0.045, 0.035), vec3(0.2, 0.14, 0.1), th) * mix(0.35, 1., smoothstep(0., 0.18, rf)) * (0.8 + 0.4 * n3(vW * 25.));
+      float moss = smoothstep(0.45, 0.7, n3(vW * 3.5) + (rf - 0.5) * 0.1);
+      alb = mix(alb, vec3(0.06, 0.11, 0.025) * (0.7 + 0.6 * n3(vW * 22.)), moss * 0.85);
+      N = bumpN(N, vW, rf * 0.012, 1.); wrap = 0.2;` }), rs[0], 2.05, rs[2]);
     // chopping block with the axe in it, split pieces lying about
     const cb = [-2.6, 0, 8.4];
-    logItem(cb[0], 0.3, cb[2], 0, Math.PI / 2, 0.27, 0.6, 0);
+    logItem(cb[0], 0.3, cb[2], 0, Math.PI / 2, 0.27, 0.6, 0, true);
     for (let i = 0; i < 7; i++) { const a = D() * TAU, d = 0.5 + D() * 0.9; logItem(cb[0] + Math.cos(a) * d, 0.05, cb[2] + Math.sin(a) * d, D() * TAU, 0, 0.05 + D() * 0.03, 0.34, 0); }
-    const axe = new THREE.Group(); axe.position.set(cb[0] + 0.05, 0.62, cb[2]); axe.rotation.set(0.15, 0.6, -0.55); cabin.add(axe);
-    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.02, 0.72, 8), boards([0, 1, 0], [0.5, 0.33, 0.17], 0.05)); handle.position.y = 0.32; axe.add(handle);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.09, 0.03), surf(METAL)); head.position.set(-0.05, -0.02, 0); axe.add(head);
+    // the axe, sunk in the block and leaning back: a hickory haft swelling to a knob, a forged head (poll, eye, cheeks, a bit
+    // that flares to a curved edge) in the haft's frame, y along it, the edge toward -x
+    const axe = new THREE.Group(); axe.position.set(cb[0] + 0.05, 0.73, cb[2]); axe.rotation.set(0.05, 0.6, 1.0); cabin.add(axe);
+    const haftMat = surf({ body: "float a = atan(vO.z, vO.x); alb = mix(vec3(0.36, 0.23, 0.1), vec3(0.6, 0.42, 0.2), vnoise(vec2(a * 4., vO.y * 9.)) * 0.7 + vnoise(vec2(a * 9., vO.y * 40.)) * 0.3) * (0.85 + 0.3 * n3(vO * 60.)); wrap = 0.2; spec = 14.;" });
+    const haft = new THREE.Mesh(new THREE.LatheGeometry([[0.0, -0.04], [0.02, -0.04], [0.016, 0.06], [0.0135, 0.3], [0.016, 0.55], [0.024, 0.68], [0.03, 0.72], [0.0, 0.74]].map(([r, y]) => new THREE.Vector2(r, y)), 10), haftMat);
+    axe.add(haft);
+    const hs = new THREE.Shape(); hs.moveTo(0.05, -0.04); hs.lineTo(0.05, 0.04); hs.lineTo(-0.02, 0.05); hs.quadraticCurveTo(-0.08, 0.055, -0.13, 0.11);
+    hs.quadraticCurveTo(-0.2, 0, -0.13, -0.11); hs.quadraticCurveTo(-0.08, -0.055, -0.02, -0.05); hs.lineTo(0.05, -0.04);
+    const hg = new THREE.ExtrudeGeometry(hs, { depth: 0.04, bevelEnabled: false, curveSegments: 6 }).translate(0, 0, -0.02), hp = hg.attributes.position;
+    for (let i = 0; i < hp.count; i++) { const x = hp.getX(i); if (x < -0.02) hp.setZ(i, hp.getZ(i) * (1 - 0.88 * clamp((-0.02 - x) / 0.15, 0, 1))); }       // the cheeks taper to the edge
+    hg.computeVertexNormals();
+    axe.add(new THREE.Mesh(hg, surf({ body: "alb = vec3(0.16, 0.17, 0.18) * (0.8 + 0.4 * n3(vW * 50.)); alb = mix(alb, vec3(0.3, 0.3, 0.3), smoothstep(-0.09, -0.15, vO.x) * 0.5); spec = 110.;" })));
     const logGeo = [new THREE.CylinderGeometry(1, 1, 1, 10).rotateX(Math.PI / 2), wedgeGeo(Math.PI), wedgeGeo(Math.PI / 2)];
     const logMat = surf(LOG);
     logs.forEach((list, i) => instanced(logGeo[i], logMat, list, false));
@@ -1806,11 +1973,16 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
       void main(){
         vec2 c = vUv - 0.5;
         float d = length(c) * 2.;
+        float cs = cos(vQ.w), sn = sin(vQ.w);
+        float up = (mat2(cs, sn, -sn, cs) * c).y * 2.;                                    // which way is up on screen, however the puff is turned
         float n = fbm(vUv * 2.6 + vQ.z * 17. + vec2(0., -vQ.y * 0.8));
-        float a = smoothstep(1., 0.25, d + (n - 0.5) * 0.9) * vQ.x;
+        float n2 = vnoise(vUv * 9. + vQ.z * 31.);
+        float a = smoothstep(1., 0.25, d + (n - 0.5) * 0.9 + (n2 - 0.5) * 0.35 * smoothstep(0.1, 0.7, vQ.y)) * vQ.x;                  // older puffs fray into wisps
         if (a < 0.003) discard;
-        vec3 col = mix(vec3(0.16, 0.17, 0.19), vec3(0.42, 0.43, 0.46), n) * (uSkyA * 1.4 + uGlowCol * 0.5) + cabinLight(vW, vec3(0., -1., 0.), 1.) * 0.25;
+        float lit = smoothstep(-0.8, 0.8, up + (n - 0.5) * 0.8);                           // the top catches the sky, the belly is in shade
+        vec3 col = mix(vec3(0.15, 0.16, 0.19), vec3(0.46, 0.47, 0.5), n * (0.6 + 0.4 * lit)) * (0.65 + 0.6 * lit) * (uSkyA * 1.4 + uGlowCol * 0.5) + cabinLight(vW, vec3(0., -1., 0.), 1.) * 0.25;
         col = mix(col, vec3(0.6, 0.35, 0.2) * 0.3, smoothstep(0.15, 0., vQ.y) * 0.4);
+        col *= 1. - 0.25 * smoothstep(0.6, 0., d) * (1. - vQ.y);                         // a dense young core
         gl_FragColor = vec4(fogged(col, vW), a);
       }`,
   }));
