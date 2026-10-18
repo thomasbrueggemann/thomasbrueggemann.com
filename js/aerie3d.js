@@ -1174,17 +1174,26 @@ function city(b, sb, out) {
     bunting(b, V(A.x, A.y + A.top * 0.8, A.z), V(B.x, B.y + B.top * 0.8, B.z), 0.6, 1400 + i); n++;
   }
   // leafy branches growing out of the trunk between the houses, wherever there is room
-  for (let k = 0, made = 0; k < 400 && made < 46; k++) {
+  for (let k = 0, made = 0; k < 1500 && made < 110; k++) {
     const y = 10 + R() * 50, a = R() * TAU, [ax, az] = tAxis(T, y), d = V(Math.sin(a), 0, Math.cos(a)), len = 6 + R() * 6, rise = 2 + R() * 4, r0 = 0.28 + R() * 0.18;
     const P = (t) => V(ax, y, az).addScaledVector(d, tRad(T, y) * 0.8 + len * t).add(V(0, rise * t * t, 0)).add(V(-d.z, 0, d.x).multiplyScalar(Math.sin(t * 3 + k) * 0.8));
     let ok = true;
-    for (let t = 0.25; t <= 1 && ok; t += 0.125) { const p = P(t); ok = occ.every((o) => p.y < o.y0 - 0.5 || p.y > o.y1 + 0.5 || Math.hypot(p.x - o.x, p.z - o.z) > o.r + 0.4); }
+    for (let t = 0.25; t <= 0.8 && ok; t += 0.11) { const p = P(t); ok = occ.every((o) => p.y < o.y0 - 0.3 || p.y > o.y1 + 0.3 || Math.hypot(p.x - o.x, p.z - o.z) > o.r + 0.15); }
     if (!ok) continue;
     b.room(0, 0, 0); b.set(MAT.BARK, [1, 1, 1], 1600 + k, TAU * r0); b.tube(Array.from({ length: 7 }, (_, q) => P(q / 6)), (t) => r0 * (1 - 0.8 * t), 6);
     for (let q = 0; q < 5; q++) green({ p: P(0.45 + q * 0.14).add(V((R() - 0.5) * 2, 0.4 + R(), (R() - 0.5) * 2)), s: 1.8 + R() * 1.4, cell: R() < 0.2 ? 1 : 0 });
     if (R() < 0.6) green({ p: P(0.7), s: 1.6 + R(), drape: true, cell: R() < 0.5 ? 2 : 3 });
-    claim(P(0.7).x, P(0.7).z, 1.5, P(0.7).y - 1, P(0.7).y + 1.5, "leaf");
     made++;
+  }
+  // leaves crowding round every house: at its sides and back and over its roof, leaving the front and its windows clear
+  for (const h of houses) {
+    const n = 3 + Math.floor(R() * 3);
+    for (let q = 0; q < n; q++) {
+      const th = h.yaw + Math.PI + (R() < 0.5 ? -1 : 1) * (0.3 + R() * 1.9), rr = h.r * (0.75 + R() * 0.35) + 0.3;
+      const top = h.top ?? 3, y = h.y + (q === 0 ? top * (0.85 + R() * 0.3) : top * (0.35 + R() * 0.7));
+      green({ p: V(h.x + Math.sin(th) * rr, y, h.z + Math.cos(th) * rr), s: 1.4 + R() * 1.2, cell: R() < 0.15 ? 1 : 0 });
+    }
+    if (R() < 0.45) { const th = h.yaw + Math.PI + (R() - 0.5) * 2.5; green({ p: V(h.x + Math.sin(th) * h.r * 0.9, h.y - 0.2, h.z + Math.cos(th) * h.r * 0.9), s: 1.4 + R() * 1.4, drape: true, cell: R() < 0.5 ? 2 : 3 }); }
   }
   // ivy hanging in curtains from the platform edges
   for (const g of segs) for (let i = 1; i < g.O.length; i += 2) if (R() < 0.55) green({ p: g.O[i].clone().add(V(0, -0.15, 0)), s: 1.4 + R() * 1.6, drape: true, cell: 3 });

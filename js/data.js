@@ -14,7 +14,7 @@ export const worlds = [
     kicker: "A city in a tree",
     tagline: "A village of crooked houses stacked up one giant tree, above the mist at moonrise.",
     description:
-      "Some eighty houses crowd the trunk and the great limbs of a single tree: perched on brackets, stacked two and three high on each other's roofs at odd angles, a pod swinging on ropes, a barrel, an onion dome, a glass greenhouse, witch's-hat towers. Platforms ring the trunk in broken arcs, a spiral stair climbs inside them, rope bridges and strings of lights run between the houses, ivy hangs off the edges, and the mist lies far below. Fly round it on a circle, up and down, closer or further out.",
+      "Some eighty houses crowd the trunk and the great limbs of a single tree: perched on brackets, stacked two and three high on each other's roofs at odd angles, a pod swinging on ropes, a barrel, an onion dome, a glass greenhouse, witch's-hat towers. Platforms ring the trunk in broken arcs, a spiral stair climbs inside them, rope bridges and strings of lights run between the houses, leaves crowd round them and ivy hangs off the edges, and the mist lies far below. Fly round it on a circle, up and down, closer or further out.",
     date: "2026-10",
     genre: "Scene",
     tags: ["three.js", "GLSL", "procedural", "WebAudio"],
