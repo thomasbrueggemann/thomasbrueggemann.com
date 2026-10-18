@@ -9,6 +9,30 @@
 // ---------------------------------------------------------------------------
 export const worlds = [
   {
+    slug: "aerie",
+    title: "Aerie",
+    kicker: "A city in a tree",
+    tagline: "A village of crooked houses stacked up one giant tree, above the mist at moonrise.",
+    description:
+      "Some eighty houses crowd the trunk and the great limbs of a single tree: perched on brackets, stacked two and three high on each other's roofs at odd angles, a pod swinging on ropes, a barrel, an onion dome, a glass greenhouse, witch's-hat towers. Platforms ring the trunk in broken arcs, a spiral stair climbs inside them, rope bridges and strings of lights run between the houses, ivy hangs off the edges, and the mist lies far below. Fly round it on a circle, up and down, closer or further out.",
+    date: "2026-10",
+    genre: "Scene",
+    tags: ["three.js", "GLSL", "procedural", "WebAudio"],
+    highlights: [
+      "Every house is planned, checked against everything already built and placed: the city is generated, and the same on every load",
+      "Rooms behind the windows are traced in a shader: wallpaper, shelves of books, curtains, a lamp, a plant on the sill",
+      "Let paper lanterns go into the sky, let night fall; crickets, frogs, wind chimes and creaking ropes synthesised live",
+    ],
+    play: "aerie/",
+    label: "Enter",
+    shots: [
+      { src: "aerie-1.webp", alt: "A giant tree carrying dozens of lit treehouses on platforms and limbs, the moon behind it, mist below", caption: "Moonrise over the mist" },
+      { src: "aerie-2.webp", alt: "The tree city at night, paper lanterns rising into the sky past its lit windows", caption: "Lanterns let go at nightfall" },
+      { src: "aerie-3.webp", alt: "The whole tree from further out: its dense crown above, houses stacked up the trunk below", caption: "The whole tree, from out over the mist" },
+      { src: "aerie-4.webp", alt: "Close among the houses: shingled roofs, a stair between platforms, rooms stacked at angles, leaves all round", caption: "In among the houses" },
+    ],
+  },
+  {
     slug: "hearth",
     title: "Hearth",
     kicker: "A cabin in the spruces",

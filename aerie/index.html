@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Aerie — Thomas Brüggemann</title>
+  <meta name="description" content="A village of crooked treehouses high in four giant trees at moonrise: rooms stacked at odd angles, a pod on ropes, rope bridges, lanterns and fireflies over the mist. Fly round it. three.js.">
+  <meta name="theme-color" content="#0a0c10">
+  <link rel="canonical" href="https://thomasbrueggemann.com/aerie/">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    html, body { margin: 0; height: 100%; background: #0a0c10; overflow: hidden; }
+    canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+    .ui { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
+      display: flex; flex-wrap: wrap; gap: 8px; right: max(16px, env(safe-area-inset-right)); font: 500 14px/1 "Inter Tight", system-ui, sans-serif; transition: opacity .6s; }
+    .ui.idle { opacity: 0; }
+    .ui a, .ui button { color: #e8e6e1; background: rgba(10,12,16,.55); border: 1px solid rgba(232,230,225,.25);
+      padding: 10px 14px; border-radius: 999px; text-decoration: none; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
+    .hint { position: fixed; top: max(16px, env(safe-area-inset-top)); left: 0; right: 0; margin: 0; text-align: center; pointer-events: none;
+      font: 500 13px/1.3 "Inter Tight", system-ui, sans-serif; letter-spacing: .04em; color: rgba(232,230,225,.75); text-shadow: 0 1px 8px rgba(0,0,0,.6); transition: opacity .6s; }
+    .hint.idle { opacity: 0; }
+    .ui button.sq { min-width: 40px; }
+    .ui a:hover, .ui button:hover, .ui a:focus-visible, .ui button:focus-visible { border-color: #e0a96d; color: #e0a96d; outline: none; }
+  </style>
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+</head>
+<body>
+  <canvas id="aerie" aria-label="Crooked treehouses high in giant trees at moonrise, joined by rope bridges, lit by lanterns and strings of lights, fireflies over the mist far below"></canvas>
+  <p class="hint" id="hint">← → fly round · ↑ ↓ rise and sink · scroll to come closer · move the mouse to look</p>
+  <nav class="ui" id="ui">
+    <a href="../">← Back</a>
+    <button id="fs" type="button">Fullscreen</button>
+    <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
+    <button id="out" class="sq" type="button" title="Fly further out (−)" aria-label="Fly further out">−</button>
+    <button id="in" class="sq" type="button" title="Come closer (+)" aria-label="Come closer">+</button>
+    <button id="up" class="sq" type="button" title="Rise (↑)" aria-label="Rise">↑</button>
+    <button id="down" class="sq" type="button" title="Sink (↓)" aria-label="Sink">↓</button>
+    <button id="glide" type="button" aria-pressed="true" title="Glide round on your own, or hold still (G)">Gliding</button>
+    <button id="lant" type="button" title="Let lanterns go into the sky (L)">Lanterns</button>
+    <button id="night" type="button" aria-pressed="false" title="Let night fall, or go back to dusk (N)">Nightfall</button>
+  </nav>
+  <script type="module">
+    import { startAerie3D } from "../js/aerie3d.js";
+    import { createAerieAudio } from "../js/aerie-audio.js";
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const aerie = window.__aerie = startAerie3D(document.getElementById("aerie"), { reduced });
+    let audio = null;
+
+    const snd = document.getElementById("snd");
+    const setSound = async (v) => {
+      audio ||= createAerieAudio();
+      audio.night = aerie.night;
+      await audio.set(v);
+      snd.textContent = "Sound: " + (v ? "on" : "off");
+      snd.setAttribute("aria-pressed", String(v));
+    };
+    snd.onclick = () => setSound(!(audio && audio.on));
+
+    document.getElementById("in").onclick = () => aerie.zoomBy(-5);
+    document.getElementById("out").onclick = () => aerie.zoomBy(5);
+    document.getElementById("up").onclick = () => aerie.rise(4);
+    document.getElementById("down").onclick = () => aerie.rise(-4);
+    const glideBtn = document.getElementById("glide");
+    const glide = () => { const on = aerie.toggleGlide(); glideBtn.textContent = on ? "Gliding" : "Holding still"; glideBtn.setAttribute("aria-pressed", String(on)); };
+    glideBtn.onclick = glide;
+    if (!aerie.glide) { glideBtn.textContent = "Holding still"; glideBtn.setAttribute("aria-pressed", "false"); }
+    const lanterns = () => { aerie.release(); audio?.release(); };
+    document.getElementById("lant").onclick = lanterns;
+    const nightBtn = document.getElementById("night");
+    const night = () => { const on = aerie.toggleNight(); nightBtn.textContent = on ? "Back to dusk" : "Nightfall"; nightBtn.setAttribute("aria-pressed", String(on)); if (audio) audio.night = on; };
+    nightBtn.onclick = night;
+    setInterval(() => { if (audio?.on) audio.height = aerie.height; }, 250);     // higher up, more wind in the leaves
+
+    const ui = document.getElementById("ui"), fs = document.getElementById("fs");
+    if (!document.documentElement.requestFullscreen) fs.hidden = true;
+    const toggleFs = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    fs.onclick = toggleFs;
+    document.addEventListener("fullscreenchange", () => { fs.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"; });
+    addEventListener("keydown", (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "f") toggleFs();
+      if (k === "m") snd.click();
+      if (k === "g") glide();
+      if (k === "l") lanterns();
+      if (k === "n") night();
+    });
+
+    // controls fade out after a few still seconds
+    let t;
+    const hint = document.getElementById("hint");
+    const wake = () => { ui.classList.remove("idle"); hint.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => { ui.classList.add("idle"); hint.classList.add("idle"); }, 3000); };
+    if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag to fly round and up or down · pinch to come closer";
+    addEventListener("pointerdown", () => { hint.hidden = true; });
+    addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) hint.hidden = true; });
+    addEventListener("wheel", () => { hint.hidden = true; }, { once: true, passive: true });
+    ["pointermove", "pointerdown", "keydown"].forEach((ev) => addEventListener(ev, wake, { passive: true }));
+    ui.addEventListener("focusin", wake);
+    wake();
+  </script>
+</body>
+</html>
