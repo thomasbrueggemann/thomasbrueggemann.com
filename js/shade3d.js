@@ -634,6 +634,34 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     }
   }
 
+  // the canopy roof: from the tower tops on one side to the other, a ragged ceiling of leaves over the avenue, hung with
+  // vines. Torn open where the sun looks in, with smaller tears that let shafts of light down; it ends ~700 m out,
+  // so the far avenue glows like the end of a tunnel.
+  {
+    const topSm = (side, z) => { let sum = 0, n = 0; for (let o = -30; o <= 30; o += 10) { const t = topAt(side, z + o); if (t > 0) { sum += t; n++; } } return n ? sum / n : 0; };
+    const eyes = [CAM, new THREE.Vector3(STREET.x, STREET.y, CAM.z)], v = new THREE.Vector3();
+    const sunHole = (x, y, z, r) => eyes.some((c) => { v.set(x - c.x, y - c.y, z - c.z); const l = v.length(); return v.dot(SUN_DIR) / l > Math.cos(0.045 + 0.7 * r / l); });
+    for (let z = CAM.z + 30; z > -740; z -= 5.5 + D() * 3) {
+      const hl = clamp(topSm(-1, z) || 70, 50, 175), hr = clamp(topSm(1, z) || 70, 50, 175), sag = 6 + 12 * vn2(z * 0.01, 3);
+      const edge = smooth(-740, -520, z);                                // the far edge frays
+      for (let x = -AVE - 70; x < AVE + 70; x += 5.5 + D() * 3) {
+        // over the avenue it hangs from tower top to tower top; beyond the facades it rides on the roofs
+        const t = clamp((x + AVE + 8) / (2 * AVE + 16), 0, 1), roof = Math.abs(x) > AVE + 8;
+        let y = roof ? (x < 0 ? hl : hr) + 4 : hl + (hr - hl) * t - Math.sin(Math.PI * t) * sag;
+        y += (vn2(x * 0.05, z * 0.05) - 0.5) * 14;
+        if (z > CAM.z - 140) y = Math.max(y, 88 + (z - (CAM.z - 140)) * 0.2);   // keep it off the lens
+        if (vn2(x * 0.045 + 7, z * 0.03) < 0.3 + (1 - edge) * 0.45) continue;   // tears for shafts of light
+        const r = 6 + D() * 5;
+        if (sunHole(x, y, z, r)) continue;
+        archBlobs.push([x + (D() - 0.5) * 4, y, z + (D() - 0.5) * 4, r, r * 0.45, palette() & 3]);
+        if (D() < 0.6) archBlobs.push([x + (D() - 0.5) * 6, y + r * 0.35, z + (D() - 0.5) * 6, r * 0.8, r * 0.4, palette() & 3]);
+        if (D() < 0.5) archBlobs.push([x + (D() - 0.5) * 6, y - r * 0.3, z + (D() - 0.5) * 6, r * 0.55, r * 0.5, palette() & 3]);   // lumps underneath
+        for (let i = 0; i < 2; i++) if (D() < 0.6)
+          vines.push([x + (D() - 0.5) * r * 1.6, y - r * 0.3, z + (D() - 0.5) * r * 1.6, 2 + Math.pow(D(), 2) * Math.min(y - 8, 45), (0.07 + D() * 0.12) * (1 + dist(x, z) / 250)]);
+      }
+    }
+  }
+
   // megatrees standing in the avenue forest: braided trunks, vast crowns, aerial roots dropping to the ground
   for (const [x, z, H, Rc] of [[-30, -150, 80, 30], [31, -240, 98, 34], [-28, -335, 110, 36], [34, -430, 92, 32], [-33, -540, 118, 38],
     [30, -640, 104, 36], [-31, -735, 96, 34], [34, -830, 112, 38], [-30, -930, 100, 34]]) {
