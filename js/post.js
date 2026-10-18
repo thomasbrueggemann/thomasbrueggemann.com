@@ -1,6 +1,7 @@
 // Shared post chain for the 3D scenes: HDR scene -> dual-filter bloom -> a scene-specific composite
 // (tone mapping, grade, lens). The composite fragment shader gets tScene, tBloom, uRes, uTime, uExposure,
-// uBloom and any extra uniforms passed in; `post.U` exposes them.
+// uBloom and any extra uniforms passed in; `post.U` exposes them. With `keepPrev`, a half-resolution copy of the
+// previous frame's HDR scene stays available as `post.prev.value` (for cheap screen-space reflections).
 
 import * as THREE from "three";
 
@@ -38,7 +39,7 @@ void main(){
          + texture2D(tSrc, vUv + d.zy).rgb + texture2D(tSrc, vUv + d.wy).rgb * 2. + texture2D(tSrc, vUv + d.xy).rgb;
   gl_FragColor = vec4(s * (uWeight / 16.), 1.);
 }`;
-export function makePost(renderer, { comp: compFrag, uniforms = {}, bloom = 0.32, thresh = 0.35 } = {}) {
+export function makePost(renderer, { comp: compFrag, uniforms = {}, bloom = 0.32, thresh = 0.35, keepPrev = false } = {}) {
   const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
@@ -56,12 +57,15 @@ export function makePost(renderer, { comp: compFrag, uniforms = {}, bloom = 0.32
   const ext = renderer.extensions, hdr = ext.has("EXT_color_buffer_float") || ext.has("EXT_color_buffer_half_float");
   const TYPE = hdr ? THREE.HalfFloatType : THREE.UnsignedByteType;
   const opts = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, type: TYPE };
-  let sceneRT = null, mips = [], norm = 1;
+  let sceneRT = null, mips = [], norm = 1, prevRT = null;
+  const prev = { value: null }, copyU = { tSrc: { value: null } };
+  const copy = sh("uniform sampler2D tSrc; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tSrc, vUv); }", copyU);
   const v2 = new THREE.Vector2();
   function setSize() {
     renderer.getDrawingBufferSize(v2);
     const w = Math.max(2, v2.x | 0), h = Math.max(2, v2.y | 0);
-    sceneRT?.dispose(); mips.forEach((m) => m.dispose()); mips = [];
+    sceneRT?.dispose(); prevRT?.dispose(); mips.forEach((m) => m.dispose()); mips = [];
+    if (keepPrev) { prevRT = new THREE.WebGLRenderTarget(w >> 1, h >> 1, opts); prev.value = prevRT.texture; }
     sceneRT = new THREE.WebGLRenderTarget(w, h, { type: TYPE, samples: 4, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     // bloom runs from half resolution down
     let mw = w >> 1, mh = h >> 1;
@@ -72,6 +76,7 @@ export function makePost(renderer, { comp: compFrag, uniforms = {}, bloom = 0.32
   const pass = (m, target) => { quad.material = m; renderer.setRenderTarget(target); renderer.render(quad, cam); };
   function render(scene, camera) {
     renderer.setRenderTarget(sceneRT); renderer.render(scene, camera);
+    if (prevRT) { copyU.tSrc.value = sceneRT.texture; pass(copy, prevRT); }
     downU.tSrc.value = sceneRT.texture; downU.uTexel.value.set(1 / sceneRT.width, 1 / sceneRT.height);
     pass(downFirst, mips[0]);
     for (let i = 1; i < mips.length; i++) { downU.tSrc.value = mips[i - 1].texture; downU.uTexel.value.set(1 / mips[i - 1].width, 1 / mips[i - 1].height); pass(down, mips[i]); }
@@ -81,5 +86,5 @@ export function makePost(renderer, { comp: compFrag, uniforms = {}, bloom = 0.32
     compU.uBloom.value = bloom / norm;
     pass(comp, null);
   }
-  return { setSize, render, U: compU };
+  return { setSize, render, U: compU, prev };
 }

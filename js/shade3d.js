@@ -9,8 +9,11 @@ import * as THREE from "three";
 import { makePost } from "./post.js";
 
 const TAU = Math.PI * 2;
-const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const h1 = (n) => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const vn2 = (x, z) => { const i = Math.floor(x), j = Math.floor(z), f = x - i, g = z - j, u = f * f * (3 - 2 * f), v = g * g * (3 - 2 * g), h = (a, b) => h1(a * 57.3 + b * 113.1);
+  return h(i, j) * (1 - u) * (1 - v) + h(i + 1, j) * u * (1 - v) + h(i, j + 1) * (1 - u) * v + h(i + 1, j + 1) * u * v; };
 const vnoise = (x) => { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return h1(i) + (h1(i + 1) - h1(i)) * u; };
 function rng(seed) {
   return () => {
@@ -22,9 +25,17 @@ function rng(seed) {
 }
 
 // ---------------------------------------------------------------- layout (metres; the avenue runs along -z)
-const AVE = 44, CANAL = 7, PITCH = 92, BLOCK = 74;
+const AVE = 44, PITCH = 92, BLOCK = 74;
 const CAM = new THREE.Vector3(-6, 56, 78), LOOK = new THREE.Vector3(4, 36, -300);
-const STREET = { x: 0, y: 3.2, ly: 66 };                        // the low end of the mouse drop: over the canal, looking up
+// the river that replaced the avenue's lanes: it meanders inside the avenue and changes width as it goes
+const riverX = (z) => 9 * Math.sin(z * 0.011 + 0.6) + 5 * Math.sin(z * 0.027 + 2.1) + 2 * Math.sin(z * 0.06);
+const riverW = (z) => 9 + 2.5 * Math.sin(z * 0.017 + 1) + 1.5 * Math.sin(z * 0.043 + 0.4);
+const GLSL_RIVER = /* glsl */`
+float riverX(float z){ return 9. * sin(z * 0.011 + 0.6) + 5. * sin(z * 0.027 + 2.1) + 2. * sin(z * 0.06); }
+float riverW(float z){ return 9. + 2.5 * sin(z * 0.017 + 1.) + 1.5 * sin(z * 0.043 + 0.4); }
+`;
+const WATER_Y = -0.6;
+const STREET = { x: riverX(CAM.z), y: 3.2, ly: 66 };            // the low end of the mouse drop: over the river, looking up
 const SUN_DIR = new THREE.Vector3(0.17, 0.2, -0.96).normalize();     // low, ahead: the avenue runs into the sun
 const WIND = new THREE.Vector2(0.75, 0.66).normalize();       // blowing from the sun side toward the camera's right
 const CABLE_Z = -150, CABLE_Y = 104;
@@ -102,9 +113,9 @@ const LIGHTS_BEGIN = (() => {
   const dir = c.slice(i).replace("RE_Direct( directLight", "directLight.color *= cloudShade(vW);\n\t\tsunLit = directLight.color;\n\t\tRE_Direct( directLight");
   return "vec3 sunLit = vec3(0.);\n" + c.slice(0, i) + dir;
 })();
-function patch(mat, key, { vert = "", wind = "", frag = "", color = "", normal = "", after = "" } = {}) {
+function patch(mat, key, { vert = "", wind = "", frag = "", color = "", normal = "", after = "", uniforms = {} } = {}) {
   mat.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, SU);
+    Object.assign(sh.uniforms, SU, uniforms);
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", `#include <common>\n${GLSL_COMMON}\nvarying vec3 vW, vWN;\n${vert}`)
       .replace("#include <project_vertex>", `
@@ -280,7 +291,7 @@ const VINE = {
 };
 
 const GROUND = {
-  frag: GLSL_REFL,
+  frag: GLSL_REFL + GLSL_RIVER,
   color: `
   vec2 q = vW.xz;
   float n = fbm(q * 0.06), m = fbm3(q * 0.6);
@@ -291,28 +302,59 @@ const GROUND = {
   float asph = step(abs(vW.x), ${AVE}.) * smoothstep(0.52, 0.56, fbm3(q * 0.045 + 4.)) ;
   vec2 cl = q * 0.35; vec2 ci = floor(cl), cf = fract(cl);
   float crack = smoothstep(0.08, 0.0, min(min(cf.x, 1. - cf.x), min(cf.y, 1. - cf.y)) + (vnoise(q * 1.3) - 0.5) * 0.12);
+  float dn = abs(vW.x - riverX(vW.z)) / riverW(vW.z);
+  asph *= smoothstep(1.6, 2.4, dn);
   c = mix(c, mix(vec3(0.075, 0.075, 0.07), grass, crack), asph);
+  // the banks: dark wet mud at the waterline, a stony bed below it
+  float wet = smoothstep(1.35, 0.95, dn);
+  c = mix(c, mix(vec3(0.035, 0.03, 0.022), vec3(0.06, 0.055, 0.045), m), wet);
   diffuseColor.rgb = c;
-  rough = 0.95;`,
+  rough = mix(0.95, 0.45, wet * (1. - smoothstep(${WATER_Y.toFixed(2)}, ${(WATER_Y + 0.5).toFixed(2)}, vW.y)));`,
 };
 
 const WATER = {
-  frag: GLSL_REFL + "vec3 wN;",
+  frag: GLSL_REFL + GLSL_RIVER + "uniform sampler2D uPrev; uniform mat4 uVP; vec3 wN, rW; float pad;",
   color: `
-  vec2 q = vW.xz;
-  float e = 0.08, t = uTime;
-  #define WH(p) (vnoise((p) * vec2(0.9, 0.3) + vec2(t * 0.2, -t * 0.5)) * 0.6 + vnoise((p) * vec2(2.6, 0.9) + vec2(-t * 0.35, -t * 0.9)) * 0.4)
-  float h0 = WH(q);
-  wN = normalize(vec3(-(WH(q + vec2(e, 0.)) - h0) / e * 0.05, 1., -(WH(q + vec2(0., e)) - h0) / e * 0.05));
-  diffuseColor.rgb = vec3(0.010, 0.018, 0.014);
-  rough = 0.04;
-  vec3 r = reflect(-V, wN);
+  float cx = riverX(vW.z), hw = riverW(vW.z), dn = (vW.x - cx) / hw, t = uTime;
+  vec2 q = vec2(vW.x - cx, vW.z);                                       // coordinates that follow the river's line
+  vec2 fq = q + vec2(0., t * 0.9 * max(0., 1. - dn * dn));              // the current, fastest mid-stream
+  float fw = clamp(length(fwidth(vW.xz)) * 1.2, 0., 1.);                // ripples finer than a pixel fade out
+  #define WH(p) (vnoise((p) * vec2(0.45, 0.16)) * 0.5 + vnoise((p) * vec2(1.5, 0.65) + 3.) * 0.3 * (1. - fw) + vnoise((p) * vec2(4.1, 2.3) + 7.) * 0.2 * (1. - fw))
+  float e = 0.06, h0 = WH(fq);
+  vec2 g = vec2(WH(fq + vec2(e, 0.)) - h0, WH(fq + vec2(0., e)) - h0) / e;
+  wN = normalize(vec3(-g.x * 0.09, 1., -g.y * 0.09));
+  // lily pads in the slack water along the banks, drifting slowly
+  vec2 pq = (q + vec2(0., t * 0.06)) / 1.4, pc = floor(pq), pv = fract(pq) - 0.5 - (vec2(hash12(pc + 7.), hash12(pc + 13.)) - 0.5) * 0.35;
+  float pr = 0.2 + 0.2 * hash12(pc + 3.), pd = length(pv), ang = atan(pv.y, pv.x) + hash12(pc) * 6.283;
+  float slack = smoothstep(0.55, 0.95, abs(dn)) * smoothstep(0.4, 0.7, vnoise(q * 0.07 + 2.));
+  pad = (1. - smoothstep(pr - 0.03, pr, pd)) * step(hash12(pc + 1.), slack * 0.85) * step(-0.93, cos(ang)) * (1. - fw);
+  vec3 deep = vec3(0.006, 0.013, 0.010), shallow = vec3(0.03, 0.036, 0.022);
+  diffuseColor.rgb = mix(deep, shallow, smoothstep(0.55, 1.05, abs(dn)));
+  rough = 0.035;
+  rW = reflect(-V, wN); rW.y = abs(rW.y);
   float fres = 0.02 + 0.98 * pow(1. - max(dot(wN, V), 0.), 5.);
-  // the banks and their trees darken the reflection toward the edges
-  float bank = smoothstep(0.35, 1.0, abs(vW.x + r.x * 30.) / ${CANAL}.) * (1. - smoothstep(0.05, 0.35, r.y));
-  vec3 refl = mix(skyRefl(r), vec3(0.025, 0.04, 0.02), bank * 0.85);
-  emis = refl * fres * 0.9;`,
+  // what the river mirrors: the tree walls on its banks and the towers behind them; mid-stream, the open sky toward the sun
+  vec3 env = skyRefl(rW);
+  float sx = rW.x < 0. ? -1. : 1., ax = max(abs(rW.x), 1e-3);
+  float tT = max(0., hw + 9. - (vW.x - cx) * sx) / ax, yT = vW.y + rW.y * tT;
+  float tB = max(0., ${AVE + 6}. - vW.x * sx) / ax, yB = vW.y + rW.y * tB;
+  vec3 towC = mix(vec3(0.05, 0.055, 0.05), hazeCol(rW), 1. - exp(-tB * 0.0012));
+  vec3 treeC = mix(vec3(0.018, 0.03, 0.013), hazeCol(rW), 1. - exp(-tT * 0.0016));
+  env = mix(env, towC, smoothstep(190., 110., yB));
+  env = mix(env, treeC, smoothstep(30., 15., yT + (vnoise(vec2(vW.z * 0.04 + tT * 0.01, sx)) - 0.5) * 18.));
+  // where the reflected direction is on screen, mirror last frame's image: the vault, the vines and the sun, broken by ripples
+  vec4 cp = uVP * vec4(cameraPosition + rW * 3000., 1.);
+  vec2 su = cp.xy / max(cp.w, 1e-3) * 0.5 + 0.5;
+  float onScr = step(0., cp.w) * smoothstep(0., 0.05, su.x) * smoothstep(1., 0.95, su.x) * smoothstep(0., 0.05, su.y) * smoothstep(1., 0.95, su.y);
+  env = mix(env, texture2D(uPrev, clamp(su, 0.002, 0.998)).rgb, onScr);
+  emis = env * fres * (1. - pad);
+  vec3 padC = mix(vec3(0.04, 0.08, 0.02), vec3(0.08, 0.13, 0.03), hash12(pc + 9.));
+  if (hash12(pc + 5.) > 0.88 && pd < 0.07) padC = mix(vec3(0.6, 0.25, 0.35), vec3(0.75, 0.72, 0.65), hash12(pc + 2.));   // a flower
+  diffuseColor.rgb = mix(diffuseColor.rgb, padC, pad);
+  rough = mix(rough, 0.5, pad);
+  wN = normalize(mix(wN, vec3(0., 1., 0.), pad));`,
   normal: "nW = wN;",
+  after: "reflectedLight.directSpecular += uSunCol * pow(max(dot(rW, uSunDir), 0.), 700.) * 5. * sunVis * (1. - pad);   // glitter",
 };
 
 // ---------------------------------------------------------------- the scene
@@ -324,7 +366,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = false;                 // the city does not move; render the sun's shadow map once
-  const post = makePost(renderer, { comp: COMP_FRAG, bloom: 0.3, thresh: 0.7, uniforms: { uHorizon: { value: 0.45 }, uSunUV: { value: new THREE.Vector2(0.5, 0.7) }, uRays: { value: 1 } } });
+  const post = makePost(renderer, { comp: COMP_FRAG, bloom: 0.3, thresh: 0.7, keepPrev: true, uniforms: { uHorizon: { value: 0.45 }, uSunUV: { value: new THREE.Vector2(0.5, 0.7) }, uRays: { value: 1 } } });
   post.U.uExposure.value = 1.12;
 
   const scene = new THREE.Scene();
@@ -355,7 +397,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   const dist = (x, z) => Math.hypot(x - CAM.x, z - CAM.z);
   const box = (x0, y0, z0, x1, y1, z1, seed, green) => boxes.push([x0, y0, z0, x1, y1, z1, seed, green]);
   const inArc = (x, z) => Math.abs(x - ARCOLOGY.x) < ARCOLOGY.w / 2 + 4 && Math.abs(z - ARCOLOGY.z) < ARCOLOGY.d / 2 + 4;
-  const tree = (x, y, z, rc, th, pal) => { if (y > 0 || (!inArc(x, z) && !(Math.abs(x) < rc + 2 && z > CAM.z - 40))) trees.push([x, y, z, rc, th, pal]); };
+  const tree = (x, y, z, rc, th, pal) => { if (y > 0 || (!inArc(x, z) && !(Math.abs(x - riverX(z)) < riverW(z) + rc + 1 && z > CAM.z - 40))) trees.push([x, y, z, rc, th, pal]); };
   const palette = () => { const r = D(); return r < 0.018 ? 4 : r < 0.03 ? 5 : r < 0.3 ? 1 : r < 0.48 ? 2 : r < 0.6 ? 3 : 0; };
 
   // trees on a flat roof or terrace, leaving out the footprint of the tier above
@@ -366,7 +408,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     for (let x = x0 + sp * 0.5; x < x1; x += sp) for (let z = z0 + sp * 0.5; z < z1; z += sp) {
       if (D() > prob) continue;
       const px = x + (D() - 0.5) * sp * 0.5, pz = z + (D() - 0.5) * sp * 0.5;
-      const rc = sp * (0.36 + D() * 0.22);
+      const rc = sp * (0.42 + D() * 0.3);
       if (px - x0 < rc * 0.5 || x1 - px < rc * 0.5 || pz - z0 < rc * 0.5 || z1 - pz < rc * 0.5) continue;
       if (hole && px > hole[0] - rc * 0.6 && px < hole[1] + rc * 0.6 && pz > hole[2] - rc * 0.6 && pz < hole[3] + rc * 0.6) continue;
       tree(px, y, pz, rc, rc * (0.15 + D() * 0.35), palette());
@@ -388,7 +430,6 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     if (d > 1100 && !always) return;
     const k = 1 + d / 260;
     const sides = [[x0, z0, x1, z0, 0, -1], [x1, z1, x0, z1, 0, 1], [x0, z1, x0, z0, -1, 0], [x1, z0, x1, z1, 1, 0]];
-    const balconies = d < 600 && D() < 0.45, every = 3.6 * (2 + Math.floor(D() * 3));
     for (const [ax, az, bx, bz, nx, nz] of sides) {
       if (nx * (CAM.x - (ax + bx) / 2) + nz * (CAM.z - (az + bz) / 2) < 0) continue;     // faces the camera never sees
       hedge(ax, az, bx, bz, nx, nz, y1, 1.5 * k, 3.2 * k, Math.min(1, green + 0.2), 0.25, 0.6);
@@ -401,13 +442,19 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
           vines.push([ax + (bx - ax) * t + nx * (0.4 + D() * 0.8), y1, az + (bz - az) * t + nz * (0.4 + D() * 0.8), len, (0.07 + D() * 0.1) * (1 + d / 250)]);
         }
       }
-      if (!balconies || Math.hypot(bx - ax, bz - az) < 18) continue;
-      for (let y = y0 + every; y < y1 - 4; y += every) {
-        if (D() < 0.35) continue;
-        // a slab sticking out of the facade with a hedge along its edge
-        const ox = nx * 1.8, oz = nz * 1.8;
-        box(Math.min(ax, bx, ax + ox, bx + ox), y - 0.5, Math.min(az, bz, az + oz, bz + oz), Math.max(ax, bx, ax + ox, bx + ox), y, Math.max(az, bz, az + oz, bz + oz), 0.06, 1);
-        hedge(ax + ox * 0.6, az + oz * 0.6, bx + ox * 0.6, bz + oz * 0.6, nx, nz, y + 0.9, 0.9, 2.0, 0.6, 0.1, 0.3);
+      // trees and bushes bursting out of the facade, in clumps, the way growth takes a cliff
+      if (d < 650) {
+        const L = Math.hypot(bx - ax, bz - az), sp = 7 + d / 90, ph = D() * 40;
+        for (let u = sp * D(); u < L; u += sp * (0.6 + D() * 0.6)) for (let y = y0 + 4 + D() * sp; y < y1 - 3; y += sp * (0.6 + D() * 0.6)) {
+          if (vn2(u * 0.06 + ph, y * 0.05) < 0.62 - green * 0.25) continue;
+          const t = u / L, n = 1 + Math.floor(D() * 3), r0 = (1.6 + D() * 2.6) * (1 + d / 400);
+          for (let i = 0; i < n; i++) {
+            const r = r0 * (0.6 + D() * 0.5);
+            shrubs.push([ax + (bx - ax) * t + nx * r * (0.5 + D() * 0.6) + (D() - 0.5) * r * Math.abs(nz) * 1.5, y + (D() - 0.3) * r,
+              az + (bz - az) * t + nz * r * (0.5 + D() * 0.6) + (D() - 0.5) * r * Math.abs(nx) * 1.5, r, r * 0.75, palette() & 3]);
+          }
+          if (D() < 0.35) vines.push([ax + (bx - ax) * t + nx * r0, y, az + (bz - az) * t + nz * r0, Math.min(y - 1, 3 + D() * 20), (0.06 + D() * 0.08) * (1 + d / 250)]);
+        }
       }
     }
   }
@@ -461,7 +508,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
       if (front) fronts.push([Math.sign(cx), cx > 0 ? t[0] : t[1], t[2], t[3], t[4], t[5]]);
       overgrow(t, green);
       const nx = tiers[i + 1];
-      plant(t[0], t[2], t[1], t[3], t[5], nx ? [nx[0], nx[1], nx[2], nx[3]] : null, nx ? 0.9 : 0.85);
+      plant(t[0], t[2], t[1], t[3], t[5], nx ? [nx[0], nx[1], nx[2], nx[3]] : null, 0.97);
     });
   }
 
@@ -501,7 +548,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     }
     return null;
   }
-  function arch(A, B, lift, bulge, thick) {
+  function arch(A, B, lift, bulge, thick, leaf = 1) {
     if (!A || !B) return;
     const ph = D() * TAU, mid = (A.y + B.y) / 2;
     const P = (t, out = new THREE.Vector3()) => {
@@ -527,10 +574,10 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
       archGeos.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), N * 2, rad, 5));
     }
     // leaves wrapped around the braid, heaviest at the roots: many modest clumps, so a thick arch stays textured
-    const rk = Math.min(thick / 1.6, 1.5) * (1 + d / 900);
-    for (let u = 0; u < len; u += 1.6 * rk * (0.6 + D() * 0.5)) {
+    const rk = clamp(thick / 1.6, 0.6, 1.5) * (1 + d / 900);
+    for (let u = 0; u < len; u += Math.max(1.6 * rk, 1.4) * (0.6 + D() * 0.5)) {
       const t = u / len, s = Math.sin(Math.PI * t), c = P(t, a);
-      if (D() < s * 0.2) continue;                                   // gaps along the span show the braid
+      if (D() < s * 0.2 || D() > leaf * (0.3 + 1.4 * vnoise(u * 0.09 + ph))) continue;   // clumps, with gaps that show the braid
       T.subVectors(P(Math.min(1, t + 0.01), b), P(Math.max(0, t - 0.01), n2)).normalize();
       n1.crossVectors(T, up).normalize(); n2.crossVectors(n1, T);
       const ring = thick * (0.6 + (1 - s) * 0.8), per = 1 + Math.round(thick / 1.8);
@@ -543,7 +590,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     }
     // vines hanging from the underside
     for (let u = 1; u < len; u += 1.1 + d / 400) {
-      const t = u / len; if (t < 0.05 || t > 0.95 || vnoise(u * 0.18 + ph) < 0.4) continue;   // in clustered curtains
+      const t = u / len; if (t < 0.05 || t > 0.95 || vnoise(u * 0.18 + ph) < 0.4 || D() > leaf + 0.3) continue;   // in clustered curtains
       const c = P(t, a), L = Math.min(c.y - 3, 1 + Math.pow(D(), 2.2) * 42 * Math.sin(Math.PI * t) * Math.min(2, thick / 1.6));
       if (L > 0.8) vines.push([c.x + (D() - 0.5) * thick * 2.4, c.y - thick * 0.2, c.z + (D() - 0.5) * thick * 2.4, L, (0.05 + D() * 0.08) * (1 + d / 250)]);
     }
@@ -565,19 +612,31 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     arch(A, B, lift, new THREE.Vector3(0, 0, sway), th);
     root(A, -1, th * 0.75); root(B, 1, th * 0.75);
   }
-  // along the canyon walls: across each side street, from one tower to the next
+  // a web of lianas strung across the avenue at every height, sagging under their own leaves
+  for (let i = 0; i < 48; i++) {
+    const z = CAM.z - 95 - Math.pow(D(), 1.3) * 950, y = 16 + D() * 150;
+    arch(anchor(-1, z + (D() - 0.5) * 30, y), anchor(1, z + (D() - 0.5) * 30, y + (D() - 0.5) * 30),
+      -(4 + D() * 18), new THREE.Vector3(0, 0, (D() - 0.5) * 16), 0.5 + D() * 0.8, 0.7);
+  }
+  // along the canyon walls, every side street is bridged: arches, sagging lianas, and green bridges from roof to roof
+  const topAt = (side, z) => { let t = 0; for (const [sd, , z0, z1, , y1] of fronts) if (sd === side && z > z0 + 1 && z < z1 - 1) t = Math.max(t, y1); return t; };
   for (let k = 0; k < 12; k++) {                     // not right beside the lens
-    const zc = -k * PITCH;
-    for (const side of [-1, 1]) for (let n = 0; n < 3; n++) {
-      if (D() > [0.95, 0.75, 0.5][n]) continue;
-      const y = 12 + D() * 120;
-      arch(anchor(side, zc - BLOCK / 2 + 1, y, [0, 3, 6, 10]), anchor(side, zc - PITCH + BLOCK / 2 - 1, y + (D() - 0.5) * 20, [0, -3, -6, -10]),
-        4 + D() * 10, new THREE.Vector3(-side * (2 + D() * 5), 0, 0), 1.2 + D() * 1.2);
+    const zc = -k * PITCH, za = zc - BLOCK / 2 + 1, zb = zc - PITCH + BLOCK / 2 - 1;
+    for (const side of [-1, 1]) {
+      for (let n = 0; n < 5; n++) {
+        if (D() > [1, 0.95, 0.8, 0.65, 0.5][n]) continue;
+        const y = 12 + D() * 130, liana = n % 2 === 1;
+        arch(anchor(side, za, y, [0, 3, 6, 10]), anchor(side, zb, y + (D() - 0.5) * 20, [0, -3, -6, -10]),
+          liana ? -(2 + D() * 6) : 4 + D() * 10, new THREE.Vector3(-side * (2 + D() * 5), 0, 0), liana ? 0.4 + D() * 0.5 : 1.2 + D() * 1.2, liana ? 0.6 : 1);
+      }
+      const h = Math.min(topAt(side, za + 3), topAt(side, zb - 3));
+      if (h > 30 && D() < 0.75) arch(anchor(side, za, h - 3, [0, 3, 6]), anchor(side, zb, h - 3, [0, -3, -6]), 3 + D() * 4, new THREE.Vector3(-side * 3, 0, 0), 2.6 + D() * 1.2);
     }
   }
 
   // megatrees standing in the avenue forest: braided trunks, vast crowns, aerial roots dropping to the ground
-  for (const [x, z, H, Rc] of [[-30, -175, 84, 24], [33, -300, 104, 28], [-34, -470, 96, 26], [36, -655, 112, 30], [-30, -840, 90, 26]]) {
+  for (const [x, z, H, Rc] of [[-30, -150, 80, 30], [31, -240, 98, 34], [-28, -335, 110, 36], [34, -430, 92, 32], [-33, -540, 118, 38],
+    [30, -640, 104, 36], [-31, -735, 96, 34], [34, -830, 112, 38], [-30, -930, 100, 34]]) {
     const top = new THREE.Vector3(x + (D() - 0.5) * 8, H, z + (D() - 0.5) * 8);
     arch(new THREE.Vector3(x, 0, z), top, 0, new THREE.Vector3(-Math.sign(x) * 4, 0, 4), 4.2);
     for (let i = 0; i < 4; i++) {                                  // buttress roots
@@ -585,9 +644,9 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
       arch(new THREE.Vector3(x + Math.cos(a) * 14, 0, z + Math.sin(a) * 14), new THREE.Vector3(x, H * (0.3 + D() * 0.25), z), 2, new THREE.Vector3(Math.cos(a) * 3, 0, Math.sin(a) * 3), 1.8);
     }
     const d = dist(x, z);
-    for (let i = 0; i < 130; i++) {                                // the crown: wide, flat-bottomed, domed on top
-      const a = D() * TAU, r = Math.sqrt(D()) * Rc, h = (1 - (r / Rc) ** 2) * Rc * 0.35;
-      const s = (4 + D() * 4.5) * (1 + d / 900);
+    for (let i = 0; i < 190; i++) {                                // the crown: wide, flat-bottomed, domed on top, ragged at the rim
+      const a = D() * TAU, r = Math.sqrt(D()) * Rc * (0.85 + 0.3 * vnoise(a * 2 + x)), h = Math.max(0, 1 - (r / Rc) ** 2) * Rc * 0.35;
+      const s = (4.5 + D() * 5) * (1 + d / 900);
       archBlobs.push([top.x + Math.cos(a) * r, H + h * D() - 2, top.z + Math.sin(a) * r, s, s * 0.7, palette() & 3]);
       if (D() < 0.85) vines.push([top.x + Math.cos(a) * r, H - 4, top.z + Math.sin(a) * r, (H - 4) * (D() < 0.3 ? 1 : 0.2 + D() * 0.6), (0.12 + D() * 0.25) * (1 + d / 250)]);
     }
@@ -621,17 +680,19 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     }
   }
 
-  // the avenue forest: rows along both banks closing into one canopy, a few engineered giants standing out of it
-  for (const side of [-1, 1]) for (const [row, rMin, rMax] of [[CANAL + 6.5, 4.5, 6.5], [CANAL + 15, 5.5, 8], [CANAL + 24.5, 5.5, 8.5], [AVE - 5, 4.5, 7]]) {
-    for (let z = CAM.z + 40; z > -2300; z -= 7 + D() * 5) {
-      const giant = D() < 0.03 && row > CANAL + 10 && z < CAM.z - 300;
-      const rc = giant ? 12 + D() * 5 : rMin + D() * (rMax - rMin);
-      tree(side * (row + (D() - 0.5) * 3), 0, z, rc, giant ? 22 + D() * 8 : 4 + D() * 6, palette());
-    }
+  // the avenue: a layered jungle instead of rows. Emergent giants, a closed canopy, an understory below it.
+  const dry = (x, z, m) => Math.abs(x - riverX(z)) > riverW(z) + m && Math.abs(x) < AVE - 1;
+  for (let z = CAM.z + 40; z > -2300; z -= 1.3 + D() * 1.2) {
+    const x = (D() * 2 - 1) * (AVE - 2), l = D();
+    if (!dry(x, z, l < 0.4 ? 0.5 : 2.5)) continue;
+    if (l < 0.06 && z < CAM.z - 120) tree(x, 0, z, 9 + D() * 6, 18 + D() * 14, palette());
+    else if (l < 0.6) tree(x, 0, z, 5 + D() * 3.5, 6 + D() * 8, palette());
+    else if (dist(x, z) < 900) tree(x, 0, z, 2 + D() * 2, 1 + D() * 3, palette() & 3);
   }
-  // undergrowth along the canal banks, close enough to see between the trunks
-  for (const side of [-1, 1]) for (let z = CAM.z + 20; z > -500; z -= 3 + D() * 4) {
-    tree(side * (CANAL + 1.5 + D() * 30), 0, z, 1.4 + D() * 1.8, 0, palette() & 3);
+  // undergrowth along the banks, close enough to see between the trunks
+  for (const side of [-1, 1]) for (let z = CAM.z + 20; z > -600; z -= 1.6 + D() * 2) {
+    const x = riverX(z) + side * (riverW(z) + 0.8 + D() * 30);
+    if (dry(x, z, 0.5)) tree(x, 0, z, 1.4 + D() * 1.8, 0, palette() & 3);
   }
   // cross streets near the camera are planted too
   for (let k = -1; k < 9; k++) {
@@ -639,9 +700,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     for (const side of [-1, 1]) for (let x = AVE + 8; x < halfW(zs); x += 10 + D() * 5) tree(side * x, 0, zs + (D() - 0.5) * 6, 4 + D() * 3, 6 + D() * 6, palette());
   }
 
-  // ---- buildings mesh (+ canal walls, which share the facade shader)
-  box(-CANAL - 0.8, -2.2, -2400, -CANAL, 0.15, CAM.z + 60, 0.91, 1);
-  box(CANAL, -2.2, -2400, CANAL + 0.8, 0.15, CAM.z + 60, 0.91, 1);
+  // ---- buildings mesh
   {
     const P = [], N = [], B = [], I = [];
     const face = (o, ux, uy, n, b) => {
@@ -698,38 +757,27 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   }
   blobs.push(...archBlobs);
   nBlobs = blobs.length;
-  const foliage = new THREE.InstancedMesh(blobGeo, patch(new THREE.MeshStandardMaterial({ roughness: 0.62 }), "shade-foliage", FOLIAGE), nBlobs);
-  {
+  const foliageMat = patch(new THREE.MeshStandardMaterial({ roughness: 0.62 }), "shade-foliage", FOLIAGE);
+  // near crowns keep the finer blob; far ones and the facade shrubs use a low-poly one (the leaf shading hides it)
+  const lowGeo = new THREE.IcosahedronGeometry(1, 1);
+  function foliageMesh(list, geo, rot) {
+    const im = new THREE.InstancedMesh(geo, foliageMat, list.length);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), c = new THREE.Color(), s = new THREE.Vector3(), p = new THREE.Vector3();
-    blobs.forEach(([x, y, z, r, ry, pal], i) => {
-      e.set((D() - 0.5) * 0.3, D() * TAU, (D() - 0.5) * 0.3); q.setFromEuler(e);
-      m.compose(p.set(x, y, z), q, s.set(r, ry, r));
-      foliage.setMatrixAt(i, m);
+    list.forEach(([x, y, z, r, ry, pal], i) => {
+      e.set(rot ? (D() - 0.5) * 0.3 : 0, D() * TAU, rot ? (D() - 0.5) * 0.3 : 0); q.setFromEuler(e);
+      im.setMatrixAt(i, m.compose(p.set(x, y, z), q, s.set(r, ry, r)));
       const b = PAL[pal], k = 0.8 + D() * 0.4;
-      c.setRGB(b[0] * k, b[1] * k, b[2] * k * (0.9 + D() * 0.2), THREE.LinearSRGBColorSpace);
-      foliage.setColorAt(i, c);
+      im.setColorAt(i, c.setRGB(b[0] * k, b[1] * k, b[2] * k * (0.9 + D() * 0.2), THREE.LinearSRGBColorSpace));
     });
+    im.castShadow = im.receiveShadow = true;
+    im.computeBoundingSphere();
+    scene.add(im);
+    return im;
   }
-  foliage.castShadow = foliage.receiveShadow = true;
-  foliage.computeBoundingSphere();
-  scene.add(foliage);
-
-  // facade shrubs: the same leafy material on a lighter blob
-  {
-    const g = new THREE.IcosahedronGeometry(1, 1);
-    const sm = new THREE.InstancedMesh(g, foliage.material, shrubs.length);
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), c = new THREE.Color(), sc = new THREE.Vector3(), p = new THREE.Vector3();
-    shrubs.forEach(([x, y, z, r, ry, pal], i) => {
-      e.set(0, D() * TAU, 0); q.setFromEuler(e);
-      sm.setMatrixAt(i, m.compose(p.set(x, y, z), q, sc.set(r, ry, r)));
-      const b = PAL[pal], k = 0.8 + D() * 0.4;
-      sm.setColorAt(i, c.setRGB(b[0] * k, b[1] * k, b[2] * k, THREE.LinearSRGBColorSpace));
-    });
-    sm.castShadow = sm.receiveShadow = true;
-    sm.computeBoundingSphere();
-    scene.add(sm);
-    nShrubs = shrubs.length;
-  }
+  const isNear = (b) => dist(b[0], b[2]) < 420;
+  foliageMesh(blobs.filter(isNear), blobGeo, true);
+  foliageMesh(blobs.filter((b) => !isNear(b)).concat(shrubs), lowGeo, true);
+  nShrubs = shrubs.length;
 
   // trunks (only for trees near enough to show one) and the arches' braids share one bark
   const bark = patch(new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.07, 0.062, 0.045, THREE.LinearSRGBColorSpace), roughness: 0.95 }), "shade-bark", {
@@ -769,15 +817,43 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     scene.add(vm);
   }
 
-  // ---- ground (two halves either side of the canal) and the canal water
+  // ---- ground: the avenue is a mesh with the river's bed and banks cut in; flat planes beyond it
   const groundMat = patch(new THREE.MeshStandardMaterial({ roughness: 0.95 }), "shade-ground", GROUND);
+  const GX = AVE + 12, Z0 = CAM.z + 160, Z1 = -2500, waterVP = { value: new THREE.Matrix4() };
+  {
+    const groundY = (x, z) => {
+      const d = Math.abs(x - riverX(z)) / riverW(z);
+      let y = -2.6 * (1 - smooth(0.45, 1.3, d));                                       // bed and sloping banks
+      y += (vn2(x * 0.3, z * 0.3) - 0.5) * 0.9 * smooth(0.6, 1.0, d) * (1 - smooth(1.2, 1.8, d));   // ragged shoreline
+      y += (vn2(x * 0.06 + 5, z * 0.06) - 0.5) * 1.2 * smooth(1.3, 2.2, d) * (1 - smooth(AVE - 4, GX, Math.abs(x)));   // low mounds
+      return y;
+    };
+    const nx = Math.round(2 * GX / 1.5), nz = Math.round((Z0 - Z1) / 2.5);
+    const P = new Float32Array((nx + 1) * (nz + 1) * 3), I = [];
+    for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) {
+      const x = -GX + 2 * GX * i / nx, z = Z0 - (Z0 - Z1) * j / nz, o = (j * (nx + 1) + i) * 3;
+      P[o] = x; P[o + 1] = groundY(x, z); P[o + 2] = z;
+      if (i < nx && j < nz) { const a = j * (nx + 1) + i; I.push(a, a + 1, a + nx + 1, a + 1, a + nx + 2, a + nx + 1); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(P, 3)); g.setIndex(I); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, groundMat); m.receiveShadow = true; scene.add(m);
+  }
   for (const side of [-1, 1]) {
-    const g = new THREE.PlaneGeometry(3000, 6000).rotateX(-Math.PI / 2).translate(side * (CANAL + 1500), 0, -2000);
+    const g = new THREE.PlaneGeometry(3000, 6000).rotateX(-Math.PI / 2).translate(side * (GX + 1500), 0, -2000);
     const m = new THREE.Mesh(g, groundMat); m.receiveShadow = true; scene.add(m);
   }
   {
-    const g = new THREE.PlaneGeometry(CANAL * 2, 2600).rotateX(-Math.PI / 2).translate(0, -1.1, CAM.z + 60 - 1300);
-    const m = new THREE.Mesh(g, patch(new THREE.MeshStandardMaterial({ roughness: 0.06 }), "shade-water", WATER)); m.receiveShadow = true; scene.add(m);
+    // the water: a strip along the river's line, a little wider than its banks so the shore is where the ground rises out
+    const n = Math.round((Z0 - Z1) / 3), P = new Float32Array((n + 1) * 2 * 3), N = new Float32Array((n + 1) * 2 * 3), I = [];
+    for (let j = 0; j <= n; j++) {
+      const z = Z0 - (Z0 - Z1) * j / n, cx = riverX(z), hw = riverW(z) * 1.4;
+      P.set([cx - hw, WATER_Y, z, cx + hw, WATER_Y, z], j * 6); N.set([0, 1, 0, 0, 1, 0], j * 6);
+      if (j < n) I.push(j * 2, j * 2 + 1, j * 2 + 2, j * 2 + 1, j * 2 + 3, j * 2 + 2);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(P, 3)); g.setAttribute("normal", new THREE.BufferAttribute(N, 3)); g.setIndex(I);
+    const m = new THREE.Mesh(g, patch(new THREE.MeshStandardMaterial({ roughness: 0.04 }), "shade-water", { ...WATER, uniforms: { uPrev: post.prev, uVP: waterVP } })); m.receiveShadow = true; scene.add(m);
   }
 
   // ---- gondolas: two cables across the avenue, cabins gliding between the station towers
@@ -974,6 +1050,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     updateBirds(t);
 
     camera.updateMatrixWorld();
+    waterVP.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     horizon.set(camera.position.x, 0, camera.position.z - 2600).project(camera);
     post.U.uHorizon.value = horizon.y * 0.5 + 0.5;
     horizon.copy(camera.position).addScaledVector(SUN_DIR, 1000).project(camera);
@@ -994,7 +1071,8 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
   io.observe(canvasEl);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
-  if (reduced) frame(0.016); else raf = requestAnimationFrame((n) => { last = n; loop(n); });
+  if (reduced) { frame(0.016); frame(0); }            // twice, so the river has a previous frame to mirror
+  else raf = requestAnimationFrame((n) => { last = n; loop(n); });
   const setDrop = (v) => { drop = v; mouse.ty = mouse.y = -0.85 * v; };   // for screenshots: jump to a height without the easing
   return { renderer, frame, setDrop, scene, camera, SU, stats: { boxes: boxes.length, trees: trees.length, blobs: nBlobs, shrubs: nShrubs, arches: archGeos.length, vines: vines.length } };
 }
@@ -1031,7 +1109,7 @@ void main(){
   vec3 col = vec3(texture2D(tScene, uv - ca).r, texture2D(tScene, uv).g, texture2D(tScene, uv + ca).b);
   col += texture2D(tBloom, uv).rgb * uBloom;
   // crepuscular rays: march toward the sun and gather the blazing sky between towers, arches and vines
-  vec2 dl = (uSunUV - uv) / 64.;
+  vec2 dl = uSunUV - uv; dl *= min(1., 0.32 / max(length(dl), 1e-4)) / 64.;      // look at most a third of the screen toward the sun
   vec2 sp = uv + dl * 0.5;
   float acc = 0., dec = 1.;
   for (int i = 0; i < 64; i++) {
