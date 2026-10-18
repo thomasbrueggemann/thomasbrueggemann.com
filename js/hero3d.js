@@ -15,7 +15,9 @@ const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const PLATEAU = 7, TOWER_TOP = 34, R_BASE = 5.6, R_TOP = 4.5, R_GALLERY = 5.9;
 const LANTERN_Y = TOWER_TOP, LENS_Y = LANTERN_Y + 1.85, GLASS_TOP = LANTERN_Y + 3.8;
 const GLASS_Y0 = LANTERN_Y + 0.9, GLASS_H = GLASS_TOP - GLASS_Y0;
+const FLUE = new THREE.Vector3(Math.cos(2.55) * 4.1, 0, Math.sin(2.55) * 4.1), FLUE_TOP = TOWER_TOP + 3.4;
 const MOON_DIR = new THREE.Vector3(-0.2, 0.3, -0.92).normalize();
+const NAV_MAX = 16;              // navigation lights reflected in the sea at once
 
 // ---------------------------------------------------------------- waves [dirX, dirZ, amp, wavelength]
 const RAW = [
@@ -374,8 +376,8 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   }
 
   // ---- tower
-  const lampMats = [];
-  let glassU = null;
+  const hearths = [];            // lit windows: material, halo, flicker state
+  let glassU = null, spillU = null;
   {
     // ashlar courses: colour with per-block tone, and a height map for relief (mortar recessed, block faces slightly domed)
     const TW = 512, rowH = 32, blockW = 128;
@@ -410,12 +412,25 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     const ntex = new THREE.CanvasTexture(normalFromHeight(hx, TW, TW, 3.0));
     ntex.wrapS = ntex.wrapT = THREE.RepeatWrapping; ntex.anisotropy = 4;
 
-    // rain-streaked, weathered paint: grime and rust bleeding from the gallery, green-black algae at the foot, wet sheen
+    const radius = (y) => THREE.MathUtils.lerp(R_BASE, R_TOP, (y - PLATEAU) / (TOWER_TOP - PLATEAU));
+    // windows spiralling up the tower; the lit ones are the keeper's rooms: fires in the hearth low down, lamps higher up
+    // (fire: how hard the light flickers, 1 = an open fire)
+    const WINS = [];
+    for (let k = 0; k < 11; k++) {
+      const y = 11 + k * 2.15, a = 1.5 + k * 1.15;
+      WINS.push({ y, a, lit: [1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1][k], fire: [1, 1, 0, 0.4, 0, 0.6, 0, 0.4, 0.4, 0, 0.4][k] });
+    }
+    const NW = WINS.filter((w) => w.lit).length + 1;            // + the glazed panel in the door
+    spillU = { uWin: { value: Array.from({ length: NW }, () => new THREE.Vector4()) } };
+
+    // rain-streaked, weathered paint: grime and rust bleeding from the gallery, green-black algae at the foot, wet sheen;
+    // firelight from the lit windows warms the stone round them
     const weathered = (m) => {
       m.onBeforeCompile = (sh) => {
+        sh.uniforms.uWin = spillU.uWin;
         sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWP;")
           .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.)).xyz;");
-        sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec3 vWP;\n${GLSL_NOISE}`)
+        sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec3 vWP;\nuniform vec4 uWin[${NW}];\n${GLSL_NOISE}`)
           .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
             float th = atan(vWP.z, vWP.x);
             float sN = fbm3(vec2(th * 8.0, vWP.y * 0.05));
@@ -426,11 +441,15 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
             diffuseColor.rgb *= 1.0 - 0.30 * streak - 0.06 * sF;
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.30, 0.15, 0.07) * (0.6 + 0.4 * sF), topK * streak * 0.55);
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.045, 0.055, 0.032), footK * 0.8);
-            roughnessFactor = clamp(roughnessFactor - 0.28 * streak - 0.25 * footK, 0.18, 1.0);`);
+            roughnessFactor = clamp(roughnessFactor - 0.28 * streak - 0.25 * footK, 0.18, 1.0);`)
+          .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+            for (int i = 0; i < ${NW}; i++) {
+              vec3 d = vWP - uWin[i].xyz; d.y *= d.y > 0. ? 1.5 : 0.75;
+              totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.46, 0.16) * uWin[i].w * exp(-dot(d, d) * 1.3);
+            }`);
       };
       return m;
     };
-    const radius = (y) => THREE.MathUtils.lerp(R_BASE, R_TOP, (y - PLATEAU) / (TOWER_TOP - PLATEAU));
     const lathe = (y0, y1, color) => {
       const pts = []; for (let i = 0; i <= 6; i++) { const y = y0 + (y1 - y0) * i / 6; pts.push(new THREE.Vector2(radius(y), y)); }
       const g = new THREE.LatheGeometry(pts, 96);
@@ -442,26 +461,62 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     };
     scene.add(lathe(PLATEAU - 1.2, 19, 0xe2e3df), lathe(19, 25, 0x9b2b25), lathe(25, TOWER_TOP, 0xe2e3df));
 
-    // windows spiralling up the tower: recessed dark frame, sill, glowing or dark glass
+    // windows: recessed dark frame, sill, and either dark wet glass or a warm room behind it
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 0.5 });
     const darkGlass = new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.06, metalness: 0.2, envMap: envTex, envMapIntensity: 1.6 });
     wetMats.push([darkGlass, 1.6]);
     const sillMat = new THREE.MeshStandardMaterial({ color: 0xbdbcb6, roughness: 0.5, envMap: envTex, envMapIntensity: 0.5 });
+    const winSill = weathered(sillMat.clone());
+    // a lit room seen through the glass: the back wall glowing orange over the fire and darker up toward the ceiling,
+    // shadows of the flames moving on it, curtains half drawn and lit through, glazing bars, rain running down the panes
+    const hearthMat = (seed, w, h, curtain, barY) => new THREE.ShaderMaterial({
+      fog: true,
+      uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uTime: U.uTime, uSeed: { value: seed }, uFlick: { value: 1 }, uCurt: { value: curtain } },
+      vertexShader: `#include <fog_pars_vertex>
+        varying vec2 vUv; void main(){ vUv = uv; vec4 mvPosition = modelViewMatrix * vec4(position, 1.); gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+        }`,
+      fragmentShader: `#include <fog_pars_fragment>
+        ${GLSL_NOISE} uniform float uTime, uSeed, uFlick, uCurt; varying vec2 vUv;
+        void main(){
+          vec2 uv = vUv, m = uv * vec2(${w.toFixed(2)}, ${h.toFixed(2)});
+          float fx = 0.25 + 0.5 * fract(uSeed * 7.13);
+          vec2 fd = (uv - vec2(fx, -0.1)) * vec2(${w.toFixed(2)}, ${h.toFixed(2)});
+          float fire = exp(-dot(fd, fd) * 3.0);
+          float dance = 0.78 + 0.22 * vnoise(vec2(uv.x * 3.0 - uTime * 1.3 + uSeed * 17.0, uTime * 2.3));
+          vec3 room = mix(vec3(0.3, 0.075, 0.02), vec3(1.0, 0.42, 0.11), smoothstep(1.0, 0.1, uv.y)) * (0.4 + 1.5 * fire) * dance;
+          float cw = uCurt * (0.8 + 0.4 * fract(uSeed * 3.71)), sag = 0.04 * smoothstep(0.6, 0.0, uv.y);
+          float cur = max(1.0 - smoothstep(cw - sag - 0.02, cw - sag, uv.x), smoothstep(1.0 - cw + sag, 1.0 - cw + sag + 0.02, uv.x)) * step(0.001, uCurt);
+          float folds = 0.6 + 0.4 * sin(m.x * 95.0 + sin(m.y * 4.0 + uSeed * 9.0) * 1.5);
+          vec3 cloth = mix(vec3(0.42, 0.05, 0.025), vec3(0.42, 0.22, 0.04), step(0.6, fract(uSeed * 5.17))) * folds * (0.5 + 0.9 * fire);
+          vec3 col = mix(room, cloth, cur) * uFlick;
+          vec2 e = min(m, vec2(${w.toFixed(2)}, ${h.toFixed(2)}) - m);
+          float bar = min(min(e.x, e.y), min(abs(m.x - ${(w / 2).toFixed(3)}), abs(uv.y - ${barY.toFixed(2)}) * ${h.toFixed(2)}));
+          col *= 0.06 + 0.94 * smoothstep(0.018, 0.03, bar);
+          float rn = vnoise(vec2(m.x * 34.0, m.y * 2.5 + uTime * 1.6 + uSeed * 20.0));
+          col *= 0.8 + 0.35 * smoothstep(0.55, 0.9, rn);
+          gl_FragColor = vec4(col * 2.6, 1.);
+          #include <fog_fragment>
+        }`,
+    });
     const winGeo = new THREE.PlaneGeometry(0.7, 1.3), frameGeo = new THREE.PlaneGeometry(0.98, 1.62), sillGeo = new THREE.BoxGeometry(1.1, 0.14, 0.32);
     const place = (mesh, a, r, y) => { mesh.position.set(Math.cos(a) * r, y, Math.sin(a) * r); mesh.rotation.y = Math.PI / 2 - a; scene.add(mesh); };
-    for (let k = 0; k < 11; k++) {
-      const y = 11 + k * 2.15, a = 1.5 + k * 1.15, r = radius(y);
-      const lit = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1][k];
-      const m = lit ? new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 1.3, 0.55) }) : darkGlass;
-      if (lit) lampMats.push(m);
+    const hearth = (mat, a, r, y, fire, glow) => hearths.push({ mat, fire, glow, f: 1, target: 1, next: 0, seed: Math.random() * 10,
+      at: new THREE.Vector3(Math.cos(a) * (r + 0.35), y, Math.sin(a) * (r + 0.35)), win: spillU.uWin.value[hearths.length].set(Math.cos(a) * (r + 0.3), y - 0.2, Math.sin(a) * (r + 0.3), 1) });
+    for (const [k, { y, a, lit, fire }] of WINS.entries()) {
+      const r = radius(y), m = lit ? hearthMat(k * 0.618 + 0.1, 0.7, 1.3, 0.28, 0.6) : darkGlass;
+      if (lit) hearth(m, a, r, y, fire, 1);
       place(new THREE.Mesh(frameGeo, frameMat), a, r + 0.02, y);
       place(new THREE.Mesh(winGeo, m), a, r + 0.035, y);
-      place(new THREE.Mesh(sillGeo, sillMat), a, r + 0.1, y - 0.78);
+      place(new THREE.Mesh(sillGeo, lit ? winSill : sillMat), a, r + 0.1, y - 0.78);
     }
-    // the keeper's door, its step and lamp
+    // the keeper's door with a glazed panel onto the warm hall, its step and lamp
     const rd = radius(PLATEAU);
     place(new THREE.Mesh(new THREE.PlaneGeometry(1.75, 3.0), frameMat), doorA, rd + 0.02, PLATEAU + 1.3);
     place(new THREE.Mesh(new THREE.PlaneGeometry(1.35, 2.6), new THREE.MeshStandardMaterial({ color: 0x0f2a22, roughness: 0.35, envMap: envTex, envMapIntensity: 0.8 })), doorA, rd + 0.04, PLATEAU + 1.2);
+    const doorGlass = hearthMat(4.2, 0.8, 0.6, 0, 0.5);
+    place(new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.6), doorGlass), doorA, rd + 0.05, PLATEAU + 1.95);
+    hearth(doorGlass, doorA, rd, PLATEAU + 1.95, 1, 0.5);
     place(new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.6), sillMat), doorA, rd + 0.55, PLATEAU - 0.3);
     const doorLamp = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 5.5, 2.2) }));
     place(doorLamp, doorA, rd + 0.3, PLATEAU + 3.1);
@@ -521,6 +576,11 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     roof.position.y = GLASS_TOP + 1.2; scene.add(roof);
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 10), dark); ball.position.y = GLASS_TOP + 2.55; scene.add(ball);
     const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 2.2, 6), dark); rod.position.y = GLASS_TOP + 3.6; scene.add(rod);
+    // the flue of the keepers' stove, up through the gallery deck beside the lantern
+    const flue = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, FLUE_TOP - TOWER_TOP, 10), dark);
+    flue.position.set(FLUE.x, (TOWER_TOP + FLUE_TOP) / 2, FLUE.z);
+    const cowl = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.3, 10), dark); cowl.position.set(FLUE.x, FLUE_TOP + 0.25, FLUE.z);
+    scene.add(flue, cowl);
   }
 
   // ---- soft round texture for glows
@@ -571,6 +631,8 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   const lampCore = sprite(glowTex, new THREE.Color(2.2, 1.7, 1.1), 7, { depthTest: false });
   const lampStar = sprite(starTex, new THREE.Color(1.2, 0.95, 0.65), 40, { depthTest: false });
   lampCore.renderOrder = lampStar.renderOrder = 20;
+  // firelight from the windows: a soft halo in the rain outside each
+  for (const h of hearths) { h.halo = sprite(glowTex, new THREE.Color(), 3.2 * h.glow); h.halo.position.copy(h.at); }
 
   // ---- beam: two soft ribbons from the lens, always facing the camera, turning
   const BEAM_L = 330;
@@ -618,6 +680,11 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     uRock: { value: ROCKS.map(([x, z, R, , ph]) => new THREE.Vector4(x, z, R, ph)) },
     uBeamAngle: { value: 0 }, uBeam: { value: 1 }, uLantern: { value: new THREE.Vector3(0, LENS_Y, 0) }, uLampI: { value: 1 },
     uDeep: { value: new THREE.Color(0x03090c) }, uShallow: { value: new THREE.Color(0x0a1d21) }, uFoam: { value: new THREE.Color(0xc8d2d6) },
+    // traffic (see below): the submarine's white water (x, z, heading) and (boil, wake, half length, half beam),
+    // and the navigation lights reflected in the sea (position + GGX alpha, colour), uNavN of them
+    uSub: { value: new THREE.Vector4(0, 0, 1, 0) }, uSubK: { value: new THREE.Vector4() },
+    uNavP: { value: Array.from({ length: NAV_MAX }, () => new THREE.Vector4()) },
+    uNavC: { value: Array.from({ length: NAV_MAX }, () => new THREE.Vector3()) }, uNavN: { value: 0 },
   };
   Object.assign(OU, THREE.UniformsUtils.merge([THREE.UniformsLib.fog]));
   const oceanGeo = (() => {
@@ -661,6 +728,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
       ${SHORE_GLSL}
       uniform float uBeam, uBeamAngle, uLampI;
       uniform vec3 uLantern, uDeep, uShallow, uFoam;
+      uniform vec4 uSub, uSubK, uNavP[${NAV_MAX}]; uniform vec3 uNavC[${NAV_MAX}]; uniform int uNavN;
       varying vec3 vW; varying vec3 vN; varying float vJ; varying float vH; varying float vTrail;
       void main(){
         float sd = shoreDist(vW.xz);
@@ -728,6 +796,18 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
         float wash = exp(-max(sd, 0.) / 10.) * (0.35 + 0.65 * surge) * smoothstep(-2., 1., sd);
         float lee = exp(-max(shoreDist(vW.xz - vec2(10., 2.5)), 0.) / 8.) * (1.0 - smoothstep(-2., 4., -sd));
         float cover = crest * 1.25 + trail * 0.8 + shore * 1.3 + wash * 0.75 + lee * 0.5 + streaks;
+        // the submarine: a boil where it broke the surface, white water along the hull and at the bow, a Kelvin wake astern
+        if (uSubK.x + uSubK.y > 0.001) {
+          vec2 rs = vW.xz - uSub.xy;
+          float su = dot(rs, uSub.zw), sv = dot(rs, vec2(-uSub.w, uSub.z)), hl = uSubK.z, hb = uSubK.w;
+          float dh = length(vec2(su - clamp(su, -hl, hl), sv)) - hb;
+          float hullF = exp(-max(dh, 0.) / 2.2), bowF = exp(-pow((su - hl * 0.85) / 7., 2.)) * exp(-max(dh, 0.) / 5.);
+          float s = max(-su - hl, 0.), astern = step(0.001, s);
+          float arms = exp(-pow((abs(sv) - hb - s * 0.36) / (1.2 + s * 0.07), 2.)) * exp(-s / 40.) * astern;
+          float wake = exp(-pow(sv / (hb + s * 0.08), 2.)) * exp(-s / 30.) * astern;
+          float boil = exp(-(su * su / (hl * hl * 1.6) + sv * sv / (hb * hb * 12.)));
+          cover += uSubK.x * boil * 1.8 + uSubK.y * (hullF * 0.9 + bowF * 0.9 + arms * 0.75 + wake * 0.7);
+        }
         float foamAmt = smoothstep(1.1 - cover, 1.55 - cover, pat);
         // bubbles and holes in the mat, fading out with distance before they can shimmer
         float holes = fbm3(fp * 2.4 + lace * 2.0);
@@ -744,6 +824,13 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
           float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
           gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
         #endif
+        // navigation lights glittering on the swell (their haze is already in uNavC)
+        for (int i = 0; i < ${NAV_MAX}; i++) {
+          if (i >= uNavN) break;
+          vec3 Hn = normalize(normalize(uNavP[i].xyz - vW) + V);
+          float nh = max(dot(N, Hn), 0.), a = uNavP[i].w, dn2 = nh * nh * (a - 1.) + 1.;
+          gl_FragColor.rgb += uNavC[i] * (a / (PI * dn2 * dn2)) * (0.3 + 0.7 * fres);
+        }
       }`,
   });
   const ocean = new THREE.Mesh(oceanGeo, oceanMat);
@@ -814,7 +901,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   makeRain(2600, [34, 22, 34], -13, [1.3, 0.9], 0.02, 0.0045, [1.6, 4.5, 11, 17], 0.03, 0.2);
 
   // ---- spray: clumpy white water thrown up where swells hit the rocks, and a slow mist layer that rolls off it downwind
-  const makeParticles = (N, alpha, grow, order) => {
+  const makeParticles = (N, alpha, grow, order, tone = [0.16, 0.18, 0.20]) => {
     const S = { N, pos: new Float32Array(N * 3), vel: new Float32Array(N * 3), life: new Float32Array(N), max: new Float32Array(N), size: new Float32Array(N), next: 0 };
     const lifeA = new THREE.BufferAttribute(new Float32Array(N), 1), posA = new THREE.BufferAttribute(S.pos, 3), sizeA = new THREE.BufferAttribute(S.size, 1);
     const seed = new Float32Array(N); for (let i = 0; i < N; i++) seed[i] = Math.random();
@@ -839,7 +926,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
           float cell = floor(fract(vSeed * 13.7) * 4.0);
           vec2 uv = (pc + vec2(mod(cell, 2.0), floor(cell * 0.5))) * 0.5;
           float a = texture2D(uTex, uv).a * min(1.0, vL * 2.5) * vL * ${alpha.toFixed(3)} * exp(-vD * 0.003);
-          vec3 c = vec3(0.16, 0.18, 0.20) * (1.0 + vBack * 1.6 + uFlash * 9.0) + vec3(1.0, 0.68, 0.38) * vLamp * 0.25 * uLampI;
+          vec3 c = vec3(${tone.map((v) => v.toFixed(3))}) * (1.0 + vBack * 1.6 + uFlash * 9.0) + vec3(1.0, 0.68, 0.38) * vLamp * 0.25 * uLampI;
           gl_FragColor = vec4(c, a); }`,
     }));
     pts.frustumCulled = false; pts.renderOrder = order; scene.add(pts);
@@ -860,6 +947,19 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   };
   const SP = makeParticles(9000, 0.85, 2.0, 7);
   const MI = makeParticles(1800, 0.2, 2.6, 6);
+  // wood smoke from the stove, torn off downwind and lit from below by the lamp
+  const SM = makeParticles(400, 0.32, 5.0, 6, [0.085, 0.077, 0.07]);
+  let smokeAcc = 0;
+  const smoke = (dt, wx) => {
+    for (smokeAcc += dt * 50; smokeAcc >= 1; smokeAcc--) {
+      const k = SM.next; SM.next = (SM.next + 1) % SM.N;
+      SM.pos[k * 3] = FLUE.x + (Math.random() - 0.5) * 0.2; SM.pos[k * 3 + 1] = FLUE_TOP + 0.35; SM.pos[k * 3 + 2] = FLUE.z + (Math.random() - 0.5) * 0.2;
+      SM.vel[k * 3] = Math.random() * 1.5; SM.vel[k * 3 + 1] = 1.4 + Math.random() * 1.2; SM.vel[k * 3 + 2] = (Math.random() - 0.5) * 1.2;
+      SM.max[k] = 5 + Math.random() * 3; SM.life[k] = SM.max[k]; SM.size[k] = 1.6 + Math.random() * 1.4;
+    }
+    SM.update(dt, wx, 0.5, 0, 0.25);
+  };
+  for (let i = 0; i < 160; i++) smoke(0.05, 6);       // already drawing when the page opens
   const burst = (x, y, z, n, power, nx, nz) => {
     for (let i = 0; i < n; i++) {
       const k = SP.next; SP.next = (SP.next + 1) % SP.N;
@@ -950,6 +1050,239 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     if (onStrike) onStrike({ big, dist });
   };
 
+  // ---- traffic, on demand (the storm page's Boat button): ships passing in the dark distance, little more than a
+  // silhouette and their navigation lights in the haze, and now and then a submarine that surfaces in front of the camera
+  // and sails slowly out of frame. Built on first use, so the front page never pays for it.
+  const NAV_COL = { white: [1, 0.9, 0.74], red: [1, 0.07, 0.035], green: [0.1, 1, 0.42], amber: [1, 0.5, 0.06], warm: [1, 0.58, 0.26], flood: [1, 0.93, 0.82] };
+  const DEG = Math.PI / 180, ARC = 112.5 * DEG, SUB_RISE = 10;
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  // the arcs a light shows over (rel: bearing of the viewer from the bow, + to starboard): masthead 225° ahead,
+  // sidelights from dead ahead to 22.5° abaft the beam, stern light 135° astern
+  const arc = (kind, rel) => {
+    const fore = 1 - smooth(ARC - 2 * DEG, ARC + 2 * DEG, Math.abs(rel));
+    if (kind === "ahead") return fore;
+    if (kind === "stern") return 1 - fore;
+    if (kind === "stbd") return fore * smooth(-2 * DEG, 2 * DEG, rel);
+    if (kind === "port") return fore * smooth(-2 * DEG, 2 * DEG, -rel);
+    return 1;
+  };
+  // hulls take a thinner haze than the scene fog (uHazeK scales its density) so they read as silhouettes; uHaze fades them in
+  const hullMat = (params, hazeK) => {
+    const m = new THREE.MeshStandardMaterial(params), hu = { uHaze: { value: 1 }, uHazeK: { value: hazeK } };
+    m.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, hu);
+      sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nuniform float uHaze, uHazeK;")
+        .replace("#include <fog_fragment>", `#ifdef USE_FOG
+          float fogFactor = 1.0 - exp(-fogDensity * fogDensity * uHazeK * vFogDepth * vFogDepth);
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, mix(fogFactor, 1.0, uHaze));
+          #endif`);
+    };
+    m.hu = hu;
+    return m;
+  };
+  const box = (g, m, sx, sy, sz, x, y, z, rz = 0) => { const b = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); b.position.set(x, y, z); b.rotation.z = rz; g.add(b); };
+  // a side profile (bow toward +x, waterline at y = 0) extruded to the beam and pinched in toward the stem from x0
+  const hull = (g, m, pts, beam, x0, x1) => {
+    const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y))), { depth: beam, bevelEnabled: false });
+    geo.translate(0, 0, -beam / 2);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i); if (x > x0) p.setZ(i, p.getZ(i) * (1 - 0.88 * Math.pow(Math.min(1, (x - x0) / (x1 - x0)), 1.5))); }
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, m));
+  };
+  // lights: [x, y, z, colour, arc, intensity, halo size, flashing]
+  const KINDS = {
+    coaster: {           // a small cargo ship, bridge and accommodation aft
+      len: 74, beam: 11, speed: 6, lane: [320, 450],
+      build(g, m) {
+        hull(g, m, [[-35, -3], [30, -3], [37.5, 7.6], [28, 7.6], [27.5, 5.6], [-27, 5.6], [-27, 6.6], [-36.5, 6.6], [-36.5, 1.8]], 11, 18, 37.5);
+        box(g, m, 44, 1.6, 8.6, 2, 6.4, 0);                                      // hatch covers
+        box(g, m, 9, 8, 10, -31.5, 10.6, 0);                                     // accommodation
+        box(g, m, 6, 2.6, 13.4, -28.5, 15.9, 0);                                 // bridge and wings
+        box(g, m, 3, 5, 2.6, -34.5, 17.1, 0, -0.12);                             // funnel
+        box(g, m, 0.5, 6, 0.5, -29, 20.2, 0); box(g, m, 0.3, 0.3, 5, -29, 21.6, 0);
+        box(g, m, 0.6, 10, 0.6, 31, 12.6, 0);                                    // foremast
+        for (const x of [-8, 12]) { box(g, m, 1.2, 8, 1.2, x, 10.4, 0); box(g, m, 16, 0.7, 0.7, x + 7.3, 12.9, 0, 0.32); }   // cranes
+      },
+      lights: [
+        [31, 17.9, 0, "white", "ahead", 1], [-29, 23.5, 0, "white", "ahead", 1],
+        [-28.5, 16.3, 6.9, "green", "stbd", 1], [-28.5, 16.3, -6.9, "red", "port", 1], [-36.8, 6.2, 0, "white", "stern", 0.8],
+        [-26.9, 12.6, 3.5, "warm", "all", 0.25, 0.4], [-26.9, 9.6, -2, "warm", "all", 0.2, 0.4], [-26.9, 12.6, -3.5, "warm", "all", 0.22, 0.4],
+      ],
+    },
+    trawler: {           // a stern trawler at work: green over white, deck lights blazing
+      len: 32, beam: 7.5, speed: 4.2, lane: [280, 380],
+      build(g, m) {
+        hull(g, m, [[-15, -2.4], [12.5, -2.4], [16.8, 5.6], [10.5, 5.0], [9, 3.6], [-15.6, 3.0], [-15.6, 0.6]], 7.5, 4, 16.8);
+        box(g, m, 6, 3.8, 6, 6, 5.4, 0); box(g, m, 6.6, 0.3, 6.6, 6, 7.45, 0);  // wheelhouse
+        box(g, m, 0.4, 8.5, 0.4, 6.5, 11.6, 0);                                 // mast
+        for (const z of [-3, 3]) box(g, m, 0.6, 7, 0.6, -14, 6.4, z);           // stern gantry
+        box(g, m, 0.6, 0.6, 6.6, -14, 9.9, 0); box(g, m, 3, 2, 5, -9, 4, 0);    // and net drum
+      },
+      lights: [
+        [6.5, 16.0, 0, "green", "all", 0.9], [6.5, 14.0, 0, "white", "all", 0.9],
+        [8.8, 6.6, 3.3, "green", "stbd", 0.8], [8.8, 6.6, -3.3, "red", "port", 0.8], [-15.9, 4.2, 0, "white", "stern", 0.7],
+        [-14, 10.4, 0, "flood", "all", 1.5, 1.8], [6, 8.0, 0, "flood", "all", 0.7, 1.2], [9.1, 6.0, 0, "warm", "all", 0.3, 0.4],
+      ],
+    },
+    sub: {               // hull axis at y = 0; she rides with ~2 m of hull above the water
+      len: 64, beam: 7.2, speed: 2.6,
+      build(g, m) {
+        const prof = [[0, -32], [0.5, -31.5], [1.4, -28], [2.7, -22], [3.5, -15], [3.6, -8], [3.6, 22], [3.4, 26], [2.8, 29], [1.8, 31], [0, 32.2]];
+        const hg = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 40); hg.rotateZ(-Math.PI / 2);
+        g.add(new THREE.Mesh(hg, m));
+        box(g, m, 40, 0.5, 2.2, 2, 3.45, 0);                                    // deck casing
+        const sail = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 6.6, 32), m);
+        sail.scale.set(4.4, 1, 1.15); sail.position.set(12, 6.3, 0); g.add(sail);
+        box(g, m, 2.4, 0.18, 7.4, 13.2, 7.0, 0);                                // fairwater planes
+        for (const [x, h] of [[10.6, 2.4], [11.8, 1.6], [13.6, 1.1]]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, h, 8), m); p.position.set(x, 9.6 + h / 2, 0); g.add(p); }
+        box(g, m, 4.6, 4.6, 0.3, -28.6, 2.6, 0, -0.25);                         // upper rudder
+        box(g, m, 3.6, 0.25, 8.6, -28, 0, 0);                                   // stern planes
+      },
+      lights: [
+        [13.6, 10.8, 0, "white", "ahead", 0.8], [14.6, 8.4, 1.15, "green", "stbd", 0.8], [14.6, 8.4, -1.15, "red", "port", 0.8],
+        [-29.5, 5.1, 0, "white", "stern", 0.7], [10.6, 12.1, 0, "amber", "all", 1.2, 1, true],   // a submarine's amber quick flash
+      ],
+    },
+  };
+  const crafts = [];
+  const makeCraft = (kind) => {
+    const K = KINDS[kind], sub = kind === "sub";
+    const mat = hullMat(sub
+      ? { color: 0x141619, roughness: 0.3, metalness: 0.2, envMap: envTex, envMapIntensity: 0.9 }
+      : { color: 0x0a0c0f, roughness: 0.75, metalness: 0.1, envMap: envTex, envMapIntensity: 0.25 }, sub ? 1 : 0.6);
+    if (sub) wetMats.push([mat, 0.9]);
+    const group = new THREE.Group(); K.build(group, mat); group.visible = false; scene.add(group);
+    const lights = K.lights.map(([x, y, z, col, arcK, i, halo = 1, flash = false]) => {
+      const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true }));
+      const glow = new THREE.Sprite(core.material.clone());
+      core.renderOrder = glow.renderOrder = 4; core.visible = glow.visible = false;
+      scene.add(core, glow);
+      return { p: new THREE.Vector3(x, y, z), w: new THREE.Vector3(), col: NAV_COL[col], arcK, i, halo, flash, core, glow };
+    });
+    const c = { kind, K, sub, group, mat, lights, pos: new THREE.Vector2(), dir: new THREE.Vector2(), age: 0, vis: 0, lane: 0, travel: 0, active: false };
+    crafts.push(c);
+    return c;
+  };
+  const camV = new THREE.Vector3();
+  const view = () => {   // the camera's forward and right on the water, and tan of half the horizontal field of view
+    camera.getWorldDirection(camV);
+    const l = Math.hypot(camV.x, camV.z);
+    return { fx: camV.x / l, fz: camV.z / l, rx: -camV.z / l, rz: camV.x / l, tanH: Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect };
+  };
+  let shipN = 0;
+  const ship = () => {
+    const kind = shipN++ % 3 === 1 ? "trawler" : "coaster", own = crafts.filter((o) => o.kind === kind);
+    const c = own.find((o) => !o.active) || (own.length < 3 ? makeCraft(kind) : own.sort((a, b) => b.age - a.age)[0]);
+    // a lane as far as possible from the other ships', somewhere in the middle of the view, heading left or right
+    const v = view(), others = crafts.filter((o) => o.active && !o.sub && o !== c).map((o) => o.lane);
+    let D = 0, best = -1;
+    for (let i = 0; i < 8; i++) {
+      const d = c.K.lane[0] + Math.random() * (c.K.lane[1] - c.K.lane[0]), gap = Math.min(1e3, ...others.map((o) => Math.abs(o - d)));
+      if (gap > best) { best = gap; D = d; }
+    }
+    const side = (Math.random() - 0.5) * 1.2 * D * v.tanH, sgn = Math.random() < 0.5 ? -1 : 1;
+    c.pos.set(camera.position.x + v.fx * D + v.rx * side, camera.position.z + v.fz * D + v.rz * side);
+    c.dir.set(v.rx * sgn, v.rz * sgn).rotateAround(new THREE.Vector2(), (Math.random() - 0.5) * 0.5);
+    Object.assign(c, { lane: D, age: reduced ? 8 : 0, travel: 0, active: true });
+    c.group.visible = true;
+    if (reduced) frame(0);
+    return { kind, dist: D };
+  };
+  const surface = () => {
+    const c = crafts.find((o) => o.sub) || makeCraft("sub");
+    if (c.active) return null;
+    const v = view(), D = 85, sgn = Math.random() < 0.5 ? -1 : 1;
+    c.dir.set(v.rx * sgn + v.fx * 0.15, v.rz * sgn + v.fz * 0.15).normalize();
+    c.pos.set(camera.position.x + v.fx * D, camera.position.z + v.fz * D).addScaledVector(c.dir, -10);
+    Object.assign(c, { age: reduced ? SUB_RISE + 6 : 0, travel: 0, splash: false, active: true });
+    c.group.visible = true;
+    if (reduced) frame(0);
+    return { dist: D };
+  };
+  const toCamV = new THREE.Vector3();
+  function traffic(dt, t, ang) {
+    let nN = 0, v = null;
+    for (const c of crafts) {
+      if (!c.active) {
+        if (c.group.visible) {
+          c.group.visible = false;
+          for (const L of c.lights) L.core.visible = L.glow.visible = false;
+          if (c.sub) OU.uSubK.value.set(0, 0, 0, 0);
+        }
+        continue;
+      }
+      v ||= view();
+      const { K } = c, a = (c.age += dt), hx = c.dir.x, hz = c.dir.y;
+      let rise = 1, speed = K.speed, pitch0 = 0;
+      if (c.sub) {
+        rise = 1 - Math.pow(1 - Math.min(1, a / SUB_RISE), 3);
+        speed *= 0.45 + 0.55 * smooth(0, 16, a);
+        pitch0 = 0.07 * Math.sin(Math.PI * Math.min(1, a / (SUB_RISE * 1.2)));   // bow up as she comes up
+      }
+      c.pos.addScaledVector(c.dir, speed * dt); c.travel += speed * dt;
+      // ride the swell: heave, pitch and roll from the sea under the bow, stern and either side
+      const ex = c.pos.x - camera.position.x, ez = c.pos.y - camera.position.z;
+      const fade = 1 - smooth(260, 650, Math.hypot(ex, ez));      // the ocean flattens its swell with distance the same way
+      const L2 = K.len * 0.4, B2 = K.beam * 0.5, sea = (x, z) => waveHeight(c.pos.x + x, c.pos.y + z, t);
+      const hC = sea(0, 0), hB = sea(hx * L2, hz * L2), hS = sea(-hx * L2, -hz * L2), hP = sea(hz * B2, -hx * B2), hSb = sea(-hz * B2, hx * B2);
+      const k = (c.sub ? 0.85 : 0.6) * fade * rise;
+      c.group.position.set(c.pos.x, hC * k + (c.sub ? THREE.MathUtils.lerp(-16, -1.7, rise) : 0), c.pos.y);
+      c.group.rotation.set(Math.atan2(hP - hSb, K.beam) * k * 0.7, Math.atan2(-hz, hx), pitch0 + Math.atan2(hB - hS, L2 * 2) * k * 0.8, "YXZ");
+      c.group.updateMatrixWorld();
+
+      if (c.sub) {
+        c.vis = smooth(SUB_RISE * 0.5, SUB_RISE + 3, a);          // her lights come on once she is up
+        c.mat.hu.uHaze.value = 0;
+        OU.uSub.value.set(c.pos.x, c.pos.y, hx, hz);
+        OU.uSubK.value.set(smooth(0.3, 0.75, rise) * Math.exp(-Math.max(0, a - SUB_RISE) / 7),
+          smooth(SUB_RISE * 0.5, SUB_RISE + 5, a) * (1 - smooth(95, 150, c.travel)), K.len * 0.47, K.beam * 0.5);
+        // water pours off her as the sail and then the hull break the surface
+        const y = c.group.position.y;
+        if (!c.splash && y + 9.6 > 0) { c.splash = true; burst(c.pos.x + hx * 12, 0.3, c.pos.y + hz * 12, 160, 6, 0, 0); }
+        if (a < SUB_RISE + 2 && y + 3.6 > -1.2) {
+          for (let i = 0; i < 3; i++) {
+            const s = (Math.random() - 0.5) * K.len * 0.85, sd = Math.random() < 0.5 ? -1 : 1, nx = -hz * sd, nz = hx * sd;
+            burst(c.pos.x + hx * s + nx * 3.4, 0.2, c.pos.y + hz * s + nz * 3.4, 8, 3.5, -nx, -nz);
+          }
+        }
+        if (c.travel > 150) c.active = false;
+      } else {
+        // fade in out of the rain, sail on until out of frame (or fade back into it after a while)
+        const fwd = ex * v.fx + ez * v.fz, lat = ex * v.rx + ez * v.rz;
+        c.vis = smooth(0, 6, a) * (1 - smooth(150, 158, a));
+        c.mat.hu.uHaze.value = 1 - c.vis;
+        if (a > 158 || Math.abs(lat) > fwd * v.tanH + K.len) c.active = false;
+      }
+      // the lighthouse beam catches her as it sweeps past (close in it passes high over the low submarine)
+      const hd = Math.hypot(c.pos.x, c.pos.y), bt = Math.atan2(c.pos.y, c.pos.x);
+      const dA = Math.min(Math.abs(wrap(bt - ang)), Math.abs(wrap(bt - ang - Math.PI)));
+      c.mat.emissive.setRGB(1, 0.85, 0.6).multiplyScalar(Math.exp(-((dA / 0.08) ** 2)) * 2 / (hd * 0.12 + 6) * (c.sub ? 0.2 : c.vis));
+
+      // navigation lights: a hot point and a halo in the haze, and their glitter on the sea
+      const lx = -ex, lz = -ez, rel = Math.atan2(-lx * hz + lz * hx, lx * hx + lz * hz);
+      for (const L of c.lights) {
+        let s = L.i * arc(L.arcK, rel) * c.vis;
+        if (L.flash && (t * 1.6) % 1 > 0.16) s = 0;
+        L.core.visible = L.glow.visible = s > 0.002;
+        if (!L.core.visible) continue;
+        L.w.copy(L.p).applyMatrix4(c.group.matrixWorld);
+        const d = L.w.distanceTo(camera.position), att = Math.exp(-d * 0.0019);
+        toCamV.subVectors(camera.position, L.w).multiplyScalar(0.6 / d);     // nudged toward the camera so the fittings don't clip it
+        L.core.position.copy(L.w).add(toCamV); L.glow.position.copy(L.core.position);
+        L.core.scale.setScalar(Math.max(0.3, d * 0.0045));
+        L.glow.scale.setScalar(d * 0.04 * L.halo);
+        L.core.material.color.setRGB(...L.col).multiplyScalar(s * 7 * (0.35 + 0.65 * att));
+        L.glow.material.color.setRGB(...L.col).multiplyScalar(s * 0.3 * att);
+        if (nN < NAV_MAX && L.i >= 0.5) {
+          OU.uNavP.value[nN].set(L.w.x, L.w.y, L.w.z, 0.004 + d * 0.00002);
+          OU.uNavC.value[nN++].set(...L.col).multiplyScalar(s * att * 0.02);
+        }
+      }
+    }
+    OU.uNavN.value = nN;
+  }
+
   // ---- sizing, input, loop
   const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
   addEventListener("pointermove", (e) => { mouse.tx = (e.clientX / innerWidth - 0.5) * 2; mouse.ty = -(e.clientY / innerHeight - 0.5) * 2; }, { passive: true });
@@ -962,7 +1295,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     target.x = camera.aspect < 1 ? -6 : -18;
     camera.updateProjectionMatrix();
     const sc = renderer.domElement.height * 0.5 * Math.tan(THREE.MathUtils.degToRad(23)) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));   // same apparent size at either lens
-    SP.u.uScale.value = sc; MI.u.uScale.value = sc;
+    SP.u.uScale.value = sc; MI.u.uScale.value = sc; SM.u.uScale.value = sc;
     post.setSize();
   };
   addEventListener("resize", resize); resize();
@@ -1014,7 +1347,16 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     lampLight.intensity = 6 + facing * 6;
     glassU.uFacing.value = facing; glassU.uFlick.value = flick;
     OU.uLampI.value = 1 + facing * 2.5;
-    lampMats.forEach((m, i) => m.color.setRGB(2.2 * flick, 1.3 * flick, 0.55 * flick * (0.9 + 0.1 * Math.sin(t * 0.7 + i))));
+    // the keepers' fires: each room's light jumps to a new level every few hundredths of a second and eases toward it
+    for (const h of hearths) {
+      if ((h.next -= dt) <= 0) { h.target = 1 + (Math.random() - 0.5) * 0.6 * h.fire; h.next = 0.04 + Math.random() * 0.1; }
+      h.f += (h.target - h.f) * Math.min(1, dt * 12);
+      const fl = h.f * (1 + 0.1 * h.fire * Math.sin(t * 0.45 + h.seed));
+      h.mat.uniforms.uFlick.value = fl;
+      h.win.w = fl * h.glow;
+      h.halo.material.color.setRGB(1, 0.48, 0.18).multiplyScalar(0.3 * fl);
+    }
+    doorLight.intensity = 9 * (0.85 + 0.15 * hearths[hearths.length - 1].f);
     hemi.intensity = 1.5 + f * 2.4;
 
     // rain
@@ -1044,6 +1386,8 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     const wx = 3 + gust * 5;
     SP.update(dt, wx, 0.8, 9.0, 0);
     MI.update(dt, wx * 0.9, 0.6, 0.6, 0.9);
+    smoke(dt, wx * 0.8);
+    if (crafts.length) traffic(dt, t, ang);
 
     post.U.uTime.value = t;
     post.render(scene, camera);
@@ -1062,5 +1406,5 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   io.observe(canvasEl);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
   if (reduced) { frame(0.016); } else raf = requestAnimationFrame((n) => { last = n; loop(n); });
-  return { renderer, frame, scene, camera, U, strike };
+  return { renderer, frame, scene, camera, U, strike, ship, surface, crafts };
 }

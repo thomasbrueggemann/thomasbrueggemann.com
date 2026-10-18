@@ -28,12 +28,12 @@
 </head>
 <body>
   <canvas id="shade" aria-label="An overgrown megacity in the afternoon heat: towers crowned with trees above a forested avenue and a canal"></canvas>
-  <p class="hint" id="hint">Drag to look around · ← →</p>
+  <p class="hint" id="hint">Move the mouse to look around · ← →</p>
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
     <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
-    <button id="pan" type="button" aria-pressed="false" title="Turn slowly through 360° (P). Drag the picture or use the arrow keys to look around.">Pan 360°</button>
+    <button id="pan" type="button" aria-pressed="false" title="Turn slowly through 360° (P). Move the mouse or use the arrow keys to look around.">Pan 360°</button>
     <button id="gust" type="button" title="Send a gust over the city (G)">Gust</button>
     <button id="down" type="button" aria-pressed="false" title="Down to the river and back (D), or move the pointer into the lower half">Descend</button>
   </nav>
@@ -64,7 +64,7 @@
     // follow the camera, however it got there: the button label, and the river coming closer in the sound
     setInterval(() => {
       const low = shade.drop > 0.5;
-      if (!shade.panning && panBtn.getAttribute("aria-pressed") === "true") setPan(false);     // a drag or an arrow key ends the pan
+      if (!shade.panning && panBtn.getAttribute("aria-pressed") === "true") setPan(false);     // a touch drag or an arrow key ends the pan
       if (down.textContent !== (low ? "Rise" : "Descend")) { down.textContent = low ? "Rise" : "Descend"; down.setAttribute("aria-pressed", String(low)); }
       if (audio?.on) audio.depth = shade.drop;
     }, 250);
@@ -87,7 +87,10 @@
     let t;
     const hint = document.getElementById("hint");
     const wake = () => { ui.classList.remove("idle"); hint.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => { ui.classList.add("idle"); hint.classList.add("idle"); }, 3000); };
-    addEventListener("pointerdown", () => { hint.hidden = true; }, { once: true });
+    if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag to look around";
+    let moved = 0;                                       // the hint goes once it has been tried
+    addEventListener("pointermove", (e) => { if (e.pointerType === "mouse" && (moved += Math.abs(e.movementX)) > innerWidth * 0.25) hint.hidden = true; }, { passive: true });
+    addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") hint.hidden = true; });
     addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) hint.hidden = true; });
     ["pointermove", "pointerdown", "keydown"].forEach((ev) => addEventListener(ev, wake, { passive: true }));
     ui.addEventListener("focusin", wake);

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Hearth — Thomas Brüggemann</title>
+  <meta name="description" content="An A-frame in an old spruce forest on a cold autumn evening: a carpet of needles, mist between the trunks, firewood stacked outside, smoke from the stovepipe and a warm room behind the glass. three.js.">
+  <meta name="theme-color" content="#0a0c10">
+  <link rel="canonical" href="https://thomasbrueggemann.com/hearth/">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    html, body { margin: 0; height: 100%; background: #0a0c10; overflow: hidden; }
+    canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+    .ui { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
+      display: flex; flex-wrap: wrap; gap: 8px; right: max(16px, env(safe-area-inset-right)); font: 500 14px/1 "Inter Tight", system-ui, sans-serif; transition: opacity .6s; }
+    .ui.idle { opacity: 0; }
+    .ui a, .ui button { color: #e8e6e1; background: rgba(10,12,16,.55); border: 1px solid rgba(232,230,225,.25);
+      padding: 10px 14px; border-radius: 999px; text-decoration: none; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
+    .hint { position: fixed; top: max(16px, env(safe-area-inset-top)); left: 0; right: 0; margin: 0; text-align: center; pointer-events: none;
+      font: 500 13px/1.3 "Inter Tight", system-ui, sans-serif; letter-spacing: .04em; color: rgba(232,230,225,.75); text-shadow: 0 1px 8px rgba(0,0,0,.6); transition: opacity .6s; }
+    .hint.idle { opacity: 0; }
+    .ui button.sq { min-width: 40px; }
+    .ui a:hover, .ui button:hover, .ui a:focus-visible, .ui button:focus-visible { border-color: #e0a96d; color: #e0a96d; outline: none; }
+  </style>
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+</head>
+<body>
+  <canvas id="hearth" aria-label="A spruce forest at dusk, mist between the trunks; in a clearing an A-frame cabin with lit windows, smoke rising from its stovepipe and firewood stacked outside"></canvas>
+  <p class="hint" id="hint">Move the mouse to look around · ← → walk round the house · scroll to come closer</p>
+  <nav class="ui" id="ui">
+    <a href="../">← Back</a>
+    <button id="fs" type="button">Fullscreen</button>
+    <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
+    <button id="out" class="sq" type="button" title="Step back (↓ or −)" aria-label="Step back">−</button>
+    <button id="in" class="sq" type="button" title="Come closer (↑ or +)" aria-label="Come closer">+</button>
+    <button id="stoke" type="button" title="Put another log on the fire (S)">Stoke the fire</button>
+    <button id="night" type="button" aria-pressed="false" title="Let night fall, or go back to dusk (N)">Nightfall</button>
+  </nav>
+  <script type="module">
+    import { startHearth3D } from "../js/hearth3d.js";
+    import { createHearthAudio } from "../js/hearth-audio.js";
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const hearth = window.__hearth = startHearth3D(document.getElementById("hearth"), { reduced });
+    let audio = null;
+
+    const snd = document.getElementById("snd");
+    const setSound = async (v) => {
+      audio ||= createHearthAudio();
+      audio.night = hearth.night;
+      await audio.set(v);
+      snd.textContent = "Sound: " + (v ? "on" : "off");
+      snd.setAttribute("aria-pressed", String(v));
+    };
+    snd.onclick = () => setSound(!(audio && audio.on));
+
+    const stoke = () => { hearth.stoke(); audio?.stoke(); };
+    document.getElementById("stoke").onclick = stoke;
+    const nightBtn = document.getElementById("night");
+    document.getElementById("in").onclick = () => hearth.zoomBy(-5);
+    document.getElementById("out").onclick = () => hearth.zoomBy(5);
+    const night = () => { const on = hearth.toggleNight(); nightBtn.textContent = on ? "Back to dusk" : "Nightfall"; nightBtn.setAttribute("aria-pressed", String(on)); if (audio) audio.night = on; };
+    nightBtn.onclick = night;
+    setInterval(() => { if (audio?.on) audio.near = hearth.near; }, 250);     // coming closer, the fire comes nearer in the sound
+
+    const ui = document.getElementById("ui"), fs = document.getElementById("fs");
+    if (!document.documentElement.requestFullscreen) fs.hidden = true;
+    const toggleFs = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    fs.onclick = toggleFs;
+    document.addEventListener("fullscreenchange", () => { fs.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"; });
+    addEventListener("keydown", (e) => {
+      const k = e.key.toLowerCase();
+      if (k === "f") toggleFs();
+      if (k === "m") snd.click();
+      if (k === "s") stoke();
+      if (k === "n") night();
+    });
+
+    // controls fade out after a few still seconds
+    let t;
+    const hint = document.getElementById("hint");
+    const wake = () => { ui.classList.remove("idle"); hint.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => { ui.classList.add("idle"); hint.classList.add("idle"); }, 3000); };
+    if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag to walk round the house · pinch to come closer";
+    let moved = 0;                                       // the hint goes once it has been tried
+    addEventListener("pointermove", (e) => { if (e.pointerType === "mouse" && (moved += Math.abs(e.movementX)) > innerWidth * 0.25) hint.hidden = true; }, { passive: true });
+    addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") hint.hidden = true; });
+    addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) hint.hidden = true; });
+    addEventListener("wheel", () => { hint.hidden = true; }, { once: true, passive: true });
+    ["pointermove", "pointerdown", "keydown"].forEach((ev) => addEventListener(ev, wake, { passive: true }));
+    ui.addEventListener("focusin", wake);
+    wake();
+  </script>
+</body>
+</html>
