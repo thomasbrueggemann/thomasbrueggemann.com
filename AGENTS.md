@@ -19,7 +19,7 @@ Deployed by GitHub Pages from `master` (custom domain in `CNAME`).
 | `js/torus-audio.js` | Torus soundscape, synthesised with WebAudio: a deep rumble, a beating low drone, machinery hum and air handlers, a swell as each spoke comes round, groans and creaks of the structure, in a generated reverb; `near` (the zoom) brings machinery and groans closer. The page's controls: Sound (M), − / + zoom, Fullscreen (F). |
 | `js/post.js` | Post chain shared by both scenes: HDR target, dual-filter bloom, and a scene-specific composite shader passed in. |
 | `storm/`, `shade/`, `torus/` | Fullscreen pages for the three scenes, linked from the Worlds gallery. |
-| `js/storm-audio.js` | Storm soundscape (WebAudio): wind, rain, surf, thunder, a distant ship's horn (`horn`), a submarine's ballast blow (`surface`). The storm page's controls: Sound (M), Lightning (L), Boat (B: a ship in the distance; every fifth press, `SUB_EVERY` in `storm/index.html`, the submarine instead), Fullscreen (F). |
+| `js/storm-audio.js` | Storm soundscape (WebAudio): wind, rain, surf, thunder, the lighthouse's diaphone foghorn (`foghorn`), a distant ship's horn (`horn`), a submarine's ballast blow (`surface`). The storm page's controls: Sound (M), Lightning (L), Boat (B: a ship in the distance; every fifth press, `SUB_EVERY` in `storm/index.html`, the submarine instead), Foghorn (H, switches the sound on), Fullscreen (F). |
 | `js/hero.js` | Small raw-WebGL 2D shader; only used as a fallback when three.js cannot load (offline, blocked). |
 | `css/style.css` | All styling. Tokens in `:root`; one accent colour for the whole site. |
 | `assets/shots/` | Screenshots, named `<slug>-<n>.webp` (1600 px wide max). |

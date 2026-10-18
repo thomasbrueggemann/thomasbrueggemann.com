@@ -31,6 +31,7 @@
     <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
     <button id="bolt" type="button" title="Lightning (L)">Lightning</button>
     <button id="boat" type="button" title="Boat (B)">Boat</button>
+    <button id="horn" type="button" title="Foghorn (H), turns the sound on">Foghorn</button>
   </nav>
   <script type="module">
     import { startHero3D } from "../js/hero3d.js";
@@ -64,11 +65,18 @@
       audio?.horn(ship);
     };
     document.getElementById("boat").onclick = boat;
+    // the foghorn is nothing without sound, so it switches the sound on
+    const foghorn = async () => {
+      if (!(audio && audio.on)) await setSound(true);
+      audio.foghorn();
+    };
+    document.getElementById("horn").onclick = foghorn;
     addEventListener("keydown", (e) => {
       if (e.key === "f" || e.key === "F") toggleFs();
       if (e.key === "l" || e.key === "L") hero.strike();
       if (e.key === "m" || e.key === "M") snd.click();
       if (e.key === "b" || e.key === "B") boat();
+      if (e.key === "h" || e.key === "H") foghorn();
     });
 
     // controls fade out after a few still seconds
