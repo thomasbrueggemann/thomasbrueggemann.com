@@ -172,7 +172,51 @@ float winShape(vec2 f, float style, vec2 w){
 }
 // the room behind a window (interior mapping): the view ray carries on into a box one bay wide, one floor high and a few
 // metres deep, and lands on its back wall, a side wall, the floor or the ceiling. Daylight from the window fades into it.
-vec3 roomCol(vec2 f, vec2 c, float bay, float fl, vec3 d, float seed, float lit){
+float cap(vec2 p, vec2 a, vec2 b, float r){ vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0., 1.)) - r; }
+// a person in profile, feet at y = 0, facing +x (metres). Pose 0 walking (w: the stride's phase), 1 standing at the window
+// with a cup, 2 typing at a desk, 3 dancing. part: 0 skin, 1 top, 2 trousers, 3 furniture, 4 a screen
+float figure(vec2 p, float pose, float w, float t, out float part){
+  float s = sin(w), c = cos(w);
+  vec2 hip = vec2(0., 0.92), sh = vec2(0.02, 1.42), head = vec2(0.04, 1.6), f1, f2, k1, k2, h1, h2, e1, e2;
+  if (pose < 0.5) {                                  // legs scissoring, arms swinging against them, the body bobbing
+    vec2 bob = vec2(0., abs(c) * 0.03); hip += bob; sh += bob; head += bob;
+    f1 = vec2(0.28 * s, 0.05 + max(0., c) * 0.06); f2 = vec2(-0.28 * s, 0.05 + max(0., -c) * 0.06);
+    k1 = mix(hip, f1, 0.5) + vec2(0.06, 0.); k2 = mix(hip, f2, 0.5) + vec2(0.06, 0.);
+    h1 = sh + vec2(-0.2 * s, -0.5); h2 = sh + vec2(0.2 * s, -0.5);
+    e1 = mix(sh, h1, 0.5) - vec2(0.02, 0.); e2 = mix(sh, h2, 0.5) - vec2(0.02, 0.);
+  } else if (pose < 1.5) {                           // weight shifting from foot to foot, now and then a sip
+    float sw = sin(t * 0.7) * 0.03, lift = smoothstep(0.6, 0.9, sin(t * 0.5 + w));
+    hip.x += sw; sh.x += sw * 0.6; head.x += sw * 0.4;
+    f1 = vec2(0.1, 0.05); f2 = vec2(-0.08, 0.05); k1 = vec2(0.07 + sw * 0.5, 0.5); k2 = vec2(-0.05 + sw * 0.5, 0.5);
+    h1 = mix(sh + vec2(0.24, -0.3), head + vec2(0.1, -0.06), lift); e1 = sh + vec2(0.05, -0.28);
+    h2 = sh + vec2(-0.04, -0.55); e2 = sh + vec2(-0.03, -0.28);
+  } else if (pose < 2.5) {                           // typing, leaning back now and then
+    float lean = smoothstep(0.7, 0.95, sin(t * 0.21 + w)) * 0.12, ty = sin(t * 9. + w) * 0.015 * (1. - lean * 8.);
+    hip = vec2(0., 0.5); sh = vec2(0.08 - lean, 1.02); head = vec2(0.12 - lean * 1.2, 1.2);
+    k1 = vec2(0.42, 0.52); k2 = vec2(0.4, 0.5); f1 = vec2(0.45, 0.05); f2 = vec2(0.36, 0.05);
+    h1 = vec2(0.5, 0.75 + ty); h2 = vec2(0.47, 0.75 - ty); e1 = vec2(0.22, 0.78); e2 = vec2(0.2, 0.76);
+  } else {                                           // bouncing, swaying, arms up
+    float b = abs(sin(t * 4.2 + w)) * 0.06, sw = sin(t * 2.1 + w) * 0.12, a = sin(t * 4.2 + w);
+    hip += vec2(sw * 0.5, b); sh += vec2(sw, b); head += vec2(sw * 1.1, b);
+    f1 = vec2(0.14, 0.05 + b * 0.5); f2 = vec2(-0.14, 0.05); k1 = vec2(0.12 + sw * 0.3, 0.48 + b); k2 = vec2(-0.12 + sw * 0.3, 0.48 + b);
+    h1 = sh + vec2(0.25 + 0.1 * a, 0.35 + 0.15 * a); h2 = sh + vec2(-0.25 + 0.1 * a, 0.3 - 0.15 * a);
+    e1 = sh + vec2(0.24, 0.05); e2 = sh + vec2(-0.24, 0.02);
+  }
+  float dLeg = min(min(cap(p, hip, k1, 0.075), cap(p, k1, f1, 0.06)), min(cap(p, hip, k2, 0.075), cap(p, k2, f2, 0.06)));
+  float dTop = min(cap(p, hip + vec2(0., 0.08), sh - vec2(0., 0.05), 0.15), min(min(cap(p, sh, e1, 0.055), cap(p, e1, h1, 0.045)), min(cap(p, sh, e2, 0.055), cap(p, e2, h2, 0.045))));
+  float dHead = min(length(p - head) - 0.11, cap(p, sh, head, 0.05));
+  float dd = min(min(dLeg, dTop), dHead);
+  part = dHead <= dd + 1e-4 ? 0. : dTop <= dd + 1e-4 ? 1. : 2.;
+  if (pose > 1.5 && pose < 2.5) {                    // the desk, the chair and the screen
+    float desk = min(cap(p, vec2(0.36, 0.73), vec2(1.1, 0.73), 0.025), cap(p, vec2(1.02, 0.), vec2(1.02, 0.72), 0.025));
+    float chair = min(cap(p, vec2(-0.12, 0.46), vec2(0.18, 0.46), 0.03), min(cap(p, vec2(-0.17, 0.46), vec2(-0.21, 0.98), 0.03), cap(p, vec2(0.02, 0.), vec2(0.02, 0.45), 0.025)));
+    float scr = cap(p, vec2(0.68, 0.8), vec2(0.66, 1.05), 0.022);
+    if (min(desk, chair) < dd) { part = 3.; dd = min(desk, chair); }
+    if (scr < dd) { part = 4.; dd = scr; }
+  }
+  return dd;
+}
+vec3 roomCol(vec2 f, vec2 c, float bay, float fl, vec3 d, float seed, float lit, float pxm){
   float h0 = hash12(c + seed * 17.), h1 = hash12(c + 5.3), h2 = hash12(c + 11.7);
   float depth = bay * (1.3 + 1.2 * h0);
   vec3 p0 = vec3(f.x * bay, f.y * fl, 0.);
@@ -190,7 +234,34 @@ vec3 roomCol(vec2 f, vec2 c, float bay, float fl, vec3 d, float seed, float lit)
     col = d.y < 0. ? mix(vec3(0.15, 0.09, 0.05), vec3(0.3, 0.28, 0.25), step(0.6, h0)) * (0.85 + 0.15 * step(0.5, fract(hp.x * 2.5))) : vec3(0.6, 0.58, 0.54);
   }
   float day = mix(1., 0.28, hn.z) * (t == tm.y && d.y > 0. ? 0.6 : 1.);
-  return col * mix(vec3(0.5, 0.48, 0.44) * 0.13 * day, vec3(1.0, 0.66, 0.36) * (0.45 + 0.3 * day), lit);
+  vec3 lamp = vec3(1.0, 0.66, 0.36) * (0.45 + 0.3 * day);
+  if (lit > 0.5) {
+    // someone at home: pacing to and fro, standing at the window, at a desk, or dancing; in some rooms the TV is on
+    float hp = hash12(c + 91.), hq = hash12(c + 37.);
+    if (hp > 0.72) lamp += vec3(0.2, 0.3, 0.65) * (0.35 + 0.65 * vnoise(vec2(uTime * 6., c.x + c.y * 13.))) * 0.6;
+    if (hp < 0.9) {
+      float pose = hp < 0.4 ? 0. : hp < 0.6 ? 1. : hp < 0.8 ? 2. : 3.;
+      float zp = pose > 1.5 && pose < 2.5 ? depth * 0.6 : pose > 0.5 && pose < 1.5 ? 0.45 + 0.25 * hq : depth * (0.15 + 0.25 * hq);
+      float tp = zp / d.z;
+      if (tp < t) {
+        vec3 pp = p0 + d * tp;
+        float x0 = bay * (0.3 + 0.4 * hq), dir = hq > 0.5 ? 1. : -1., w = hq * 20.;
+        if (pose < 0.5) {                            // walking at an easy pace, pausing at either end
+          float L = max(bay - 0.9, 0.5), u = fract(uTime * 0.7 / (2. * L) + hq);
+          x0 = 0.45 + L * smoothstep(0., 1., clamp((1. - abs(2. * u - 1.)) * 1.5 - 0.25, 0., 1.));
+          dir = u < 0.5 ? 1. : -1.; w = x0 / 0.32 * 3.14159;
+        }
+        float part, dd = figure(vec2((pp.x - x0) * dir, pp.y) / 1.08, pose, w, uTime + hq * 50., part) * 1.08;
+        float cov = 1. - smoothstep(-pxm, pxm, dd);
+        vec3 skin = mix(vec3(0.42, 0.28, 0.2), vec3(0.14, 0.085, 0.055), hash12(c + 13.));
+        vec3 top = mix(vec3(0.1), vec3(hash12(c + 3.1), hash12(c + 4.7), hash12(c + 8.3)) * 0.55, step(0.25, hq));
+        vec3 legs = mix(vec3(0.05, 0.06, 0.09), vec3(0.3, 0.27, 0.22), step(0.6, hash12(c + 6.9)));
+        vec3 pc = part < 0.5 ? skin : part < 1.5 ? top : part < 2.5 ? legs : part < 3.5 ? vec3(0.07, 0.05, 0.04) : vec3(1.2, 1.5, 2.);
+        col = mix(col, pc * (0.55 + 0.45 * smoothstep(0., 0.07, -dd)), cov);
+      }
+    }
+  }
+  return col * mix(vec3(0.5, 0.48, 0.44) * 0.13 * day, lamp, lit);
 }`,
   color: `
   vec3 N0 = normalize(vWN);
@@ -236,10 +307,10 @@ vec3 roomCol(vec2 f, vec2 c, float bay, float fl, vec3 d, float seed, float lit)
     glassCol = mix(glassCol, mix(vec3(0.30, 0.27, 0.21), vec3(0.48, 0.42, 0.31), hash12(c + 41.)) * (0.8 + 0.4 * vnoise(vec2(f.x * 30., f.y * 3.))), blind);
     float room = step(0.82, hash12(c + 63.)) * step(hash12(c + 63.), 0.9);
     glassCol = mix(glassCol, vec3(0.025, 0.07, 0.02) * (0.6 + 0.8 * vnoise(f * 9. + c)), room * 0.8 * lodk * (1. - blind));
-    litW = step(0.955, hash12(c + 55.)) * lodk * (0.35 + 0.65 * smoothstep(0.25, 0.95, f.y)) * (0.6 + 0.4 * hash12(c + 71.));
+    litW = step(0.94, hash12(c + 55.)) * lodk * (0.35 + 0.65 * smoothstep(0.25, 0.95, f.y)) * (0.6 + 0.4 * hash12(c + 71.));
     if (lodk > 0.02) {                                                      // and the room behind the glass
       vec3 Tu = abs(N0.x) > 0.5 ? vec3(0., 0., 1.) : vec3(1., 0., 0.), rd = -V;
-      inner = roomCol(f, c, bay, fl, vec3(dot(rd, Tu), rd.y, dot(rd, -N0)), seed, step(0.955, hash12(c + 55.)));
+      inner = roomCol(f, c, bay, fl, vec3(dot(rd, Tu), rd.y, dot(rd, -N0)), seed, step(0.94, hash12(c + 55.)), max(fw.x * bay, fw.y * fl));
       innerK = lodk * (1. - blind) * (1. - frame) * (1. - room * 0.8);
       glassCol = mix(glassCol, vec3(0.008, 0.009, 0.01), innerK);
     }
