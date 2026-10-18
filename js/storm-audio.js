@@ -1,4 +1,5 @@
-// Storm soundscape, synthesised live with WebAudio (no asset files): wind, rain, surf, thunder.
+// Storm soundscape, synthesised live with WebAudio (no asset files): wind, rain, surf, thunder,
+// a ship's horn far off and a submarine blowing her ballast tanks.
 // Must be created from a user gesture (browsers block audio until then).
 export function createStormAudio() {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -51,9 +52,45 @@ export function createStormAudio() {
     src.start(t0, Math.random() * 2); src.stop(t0 + 6);
   }
 
+  // a ship's horn far off: one long blast, muffled by distance and rain, echoing back off the rocks
+  function horn({ dist = 350, kind = "coaster" } = {}) {
+    const t0 = ctx.currentTime + dist / 340, f0 = kind === "trawler" ? 138 : 92, len = 2.8, k = 0.3 * 350 / dist;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 420; lp.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(k, t0 + 0.35);
+    g.gain.setValueAtTime(k, t0 + len); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len + 1.2);
+    for (const [f, a] of [[f0, 1], [f0 * 1.503, 0.45], [f0 * 2.004, 0.3]]) {
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.type = "sawtooth"; o.frequency.setValueAtTime(f, t0); o.frequency.setTargetAtTime(f * 0.97, t0 + len, 0.4);
+      og.gain.value = a; o.connect(og); og.connect(lp); o.start(t0); o.stop(t0 + len + 1.5);
+    }
+    lp.connect(g); g.connect(master);
+    for (const [d, a] of [[0.9, 0.3], [1.9, 0.12]]) {
+      const dl = ctx.createDelay(2), dg = ctx.createGain();
+      dl.delayTime.value = d; dg.gain.value = a; g.connect(dl); dl.connect(dg); dg.connect(master);
+    }
+  }
+  // a submarine surfacing: the deep rush of the ballast blow, air boiling up, then water pouring off her casing
+  function surface({ dist = 85 } = {}) {
+    const t0 = ctx.currentTime + dist / 340;
+    const swell = (buf, type, freq, q, peak, at, len) => {
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0 + at); g.gain.exponentialRampToValueAtTime(peak, t0 + at + len * 0.35);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
+      src.connect(f); f.connect(g); g.connect(master); src.start(t0 + at, Math.random() * 2); src.stop(t0 + at + len + 0.1);
+    };
+    swell(brown, "lowpass", 140, 0.7, 1.4, 0, 9);
+    swell(white, "bandpass", 700, 0.6, 0.18, 1.5, 7);
+    swell(white, "highpass", 1800, 0.4, 0.1, 6, 9);
+  }
+
   let on = false;
   return {
     thunder: (o) => { if (on) thunder(o); },
+    horn: (o) => { if (on && o) horn(o); },
+    surface: (o) => { if (on && o) surface(o); },
     get on() { return on; },
     async set(v) {
       on = v;
