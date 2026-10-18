@@ -11,6 +11,31 @@ const SRC = "https://github.com/thomasbrueggemann/thomasbrueggemann.com/blob/mas
 // ---------------------------------------------------------------------------
 export const worlds = [
   {
+    slug: "hearth",
+    title: "Hearth",
+    kicker: "A cabin in the spruces",
+    tagline: "An A-frame in an old spruce forest on a cold autumn evening.",
+    description:
+      "Mist between the trunks, a floor of needles, bracken gone rusty and larches turned gold. In a small clearing an A-frame glows: a lamp hangs in the double-height room, a fire burns in the stone hearth, someone walks past the windows. Smoke rises from the stone chimney, firewood is stacked under a lean-to and in a round stack, and roe deer, a fox and hares wander the trails round the house.",
+    date: "2026-10",
+    genre: "Scene",
+    tags: ["three.js", "GLSL", "procedural", "WebAudio"],
+    highlights: [
+      "Walk round the house and come closer: a flagstone path to the deck, a stone back wall with the chimney built into it",
+      "The room behind the glass is ray-traced in a shader: loft, pendant lamp, string lights, a hearth that flares when you stoke it",
+      "Spruce, pine and larch branches painted needle by needle at startup; wind in the crowns, a raven, the fire and at night an owl, all synthesised live",
+    ],
+    play: "hearth/",
+    label: "Enter",
+    repo: SRC + "js/hearth3d.js",
+    shots: [
+      { src: "hearth-1.webp", alt: "A glowing A-frame cabin in a misty spruce forest at dusk, smoke rising from its chimney, a flagstone path leading to it", caption: "Through the trunks at dusk" },
+      { src: "hearth-2.webp", alt: "The side of the A-frame up close: a mossy shingle roof with a lit roof window, firewood stacked under a lean-to, the lit deck beyond", caption: "Round the side: the woodshed and a roof window" },
+      { src: "hearth-3.webp", alt: "The back of the cabin: a stone gable wall with a stone chimney rising above the roof", caption: "The stone wall and chimney at the back" },
+      { src: "hearth-4.webp", alt: "The cabin at night, only its windows lit, glowing in the mist", caption: "Nightfall" },
+    ],
+  },
+  {
     slug: "torus",
     title: "Torus",
     kicker: "A city in orbit",
