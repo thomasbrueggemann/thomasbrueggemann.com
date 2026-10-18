@@ -13,6 +13,9 @@ Deployed by GitHub Pages from `master` (custom domain in `CNAME`).
 | `js/render.js` | Pure functions: data → HTML strings (`renderWorld`, `renderCard`, `renderTool`, …). |
 | `js/main.js` | Renders the sections, scroll fade-in, nav state, viewer dialog. |
 | `js/hero3d.js` | Hero scene in three.js: Skerryhead Light in a storm (Gerstner sea with surf foam and spray, storm sky, rain, lightning, rotating beam). Loaded via the import map in `index.html` (three.js 0.160.0 from jsDelivr). |
+| `js/shade3d.js` | Second scene, fullscreen at `shade/`: an overgrown megacity in afternoon heat haze (towers crowned with trees, vine-hung facades, arches of growth across the avenue, a canal, a terraced arcology at the end). A still frame with small motion to find: gusts over the canopy, swaying vines, a swift flock, storks circling, gondolas, drifting seeds, cloud shadows, heat shimmer. Seeded (`R` lays out the city, `D` decorates it), so the composition is the same on every load. Lit surfaces are `MeshStandardMaterial`s patched by `patch()` (shared sun shadow map, rendered once). `window.__shade` exposes `{frame, scene, camera, stats}`. |
+| `js/post.js` | Post chain shared by both scenes: HDR target, dual-filter bloom, and a scene-specific composite shader passed in. |
+| `storm/`, `shade/` | Fullscreen pages for the two scenes, linked from the hero. |
 | `js/hero.js` | Small raw-WebGL 2D shader; only used as a fallback when three.js cannot load (offline, blocked). |
 | `css/style.css` | All styling. Tokens in `:root`; one accent colour for the whole site. |
 | `assets/shots/` | Screenshots, named `<slug>-<n>.webp` (1600 px wide max). |
