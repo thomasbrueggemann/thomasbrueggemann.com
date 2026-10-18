@@ -16,6 +16,7 @@ const PLATEAU = 7, TOWER_TOP = 34, R_BASE = 5.6, R_TOP = 4.5, R_GALLERY = 5.9;
 const LANTERN_Y = TOWER_TOP, LENS_Y = LANTERN_Y + 1.85, GLASS_TOP = LANTERN_Y + 3.8;
 const GLASS_Y0 = LANTERN_Y + 0.9, GLASS_H = GLASS_TOP - GLASS_Y0;
 const MOON_DIR = new THREE.Vector3(-0.2, 0.3, -0.92).normalize();
+const NAV_MAX = 16;              // navigation lights reflected in the sea at once
 
 // ---------------------------------------------------------------- waves [dirX, dirZ, amp, wavelength]
 const RAW = [
@@ -618,6 +619,11 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     uRock: { value: ROCKS.map(([x, z, R, , ph]) => new THREE.Vector4(x, z, R, ph)) },
     uBeamAngle: { value: 0 }, uBeam: { value: 1 }, uLantern: { value: new THREE.Vector3(0, LENS_Y, 0) }, uLampI: { value: 1 },
     uDeep: { value: new THREE.Color(0x03090c) }, uShallow: { value: new THREE.Color(0x0a1d21) }, uFoam: { value: new THREE.Color(0xc8d2d6) },
+    // traffic (see below): the submarine's white water (x, z, heading) and (boil, wake, half length, half beam),
+    // and the navigation lights reflected in the sea (position + GGX alpha, colour), uNavN of them
+    uSub: { value: new THREE.Vector4(0, 0, 1, 0) }, uSubK: { value: new THREE.Vector4() },
+    uNavP: { value: Array.from({ length: NAV_MAX }, () => new THREE.Vector4()) },
+    uNavC: { value: Array.from({ length: NAV_MAX }, () => new THREE.Vector3()) }, uNavN: { value: 0 },
   };
   Object.assign(OU, THREE.UniformsUtils.merge([THREE.UniformsLib.fog]));
   const oceanGeo = (() => {
@@ -661,6 +667,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
       ${SHORE_GLSL}
       uniform float uBeam, uBeamAngle, uLampI;
       uniform vec3 uLantern, uDeep, uShallow, uFoam;
+      uniform vec4 uSub, uSubK, uNavP[${NAV_MAX}]; uniform vec3 uNavC[${NAV_MAX}]; uniform int uNavN;
       varying vec3 vW; varying vec3 vN; varying float vJ; varying float vH; varying float vTrail;
       void main(){
         float sd = shoreDist(vW.xz);
@@ -728,6 +735,18 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
         float wash = exp(-max(sd, 0.) / 10.) * (0.35 + 0.65 * surge) * smoothstep(-2., 1., sd);
         float lee = exp(-max(shoreDist(vW.xz - vec2(10., 2.5)), 0.) / 8.) * (1.0 - smoothstep(-2., 4., -sd));
         float cover = crest * 1.25 + trail * 0.8 + shore * 1.3 + wash * 0.75 + lee * 0.5 + streaks;
+        // the submarine: a boil where it broke the surface, white water along the hull and at the bow, a Kelvin wake astern
+        if (uSubK.x + uSubK.y > 0.001) {
+          vec2 rs = vW.xz - uSub.xy;
+          float su = dot(rs, uSub.zw), sv = dot(rs, vec2(-uSub.w, uSub.z)), hl = uSubK.z, hb = uSubK.w;
+          float dh = length(vec2(su - clamp(su, -hl, hl), sv)) - hb;
+          float hullF = exp(-max(dh, 0.) / 2.2), bowF = exp(-pow((su - hl * 0.85) / 7., 2.)) * exp(-max(dh, 0.) / 5.);
+          float s = max(-su - hl, 0.), astern = step(0.001, s);
+          float arms = exp(-pow((abs(sv) - hb - s * 0.36) / (1.2 + s * 0.07), 2.)) * exp(-s / 40.) * astern;
+          float wake = exp(-pow(sv / (hb + s * 0.08), 2.)) * exp(-s / 30.) * astern;
+          float boil = exp(-(su * su / (hl * hl * 1.6) + sv * sv / (hb * hb * 12.)));
+          cover += uSubK.x * boil * 1.8 + uSubK.y * (hullF * 0.9 + bowF * 0.9 + arms * 0.75 + wake * 0.7);
+        }
         float foamAmt = smoothstep(1.1 - cover, 1.55 - cover, pat);
         // bubbles and holes in the mat, fading out with distance before they can shimmer
         float holes = fbm3(fp * 2.4 + lace * 2.0);
@@ -744,6 +763,13 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
           float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
           gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
         #endif
+        // navigation lights glittering on the swell (their haze is already in uNavC)
+        for (int i = 0; i < ${NAV_MAX}; i++) {
+          if (i >= uNavN) break;
+          vec3 Hn = normalize(normalize(uNavP[i].xyz - vW) + V);
+          float nh = max(dot(N, Hn), 0.), a = uNavP[i].w, dn2 = nh * nh * (a - 1.) + 1.;
+          gl_FragColor.rgb += uNavC[i] * (a / (PI * dn2 * dn2)) * (0.3 + 0.7 * fres);
+        }
       }`,
   });
   const ocean = new THREE.Mesh(oceanGeo, oceanMat);
@@ -950,6 +976,239 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     if (onStrike) onStrike({ big, dist });
   };
 
+  // ---- traffic, on demand (the storm page's Boat button): ships passing in the dark distance, little more than a
+  // silhouette and their navigation lights in the haze, and now and then a submarine that surfaces in front of the camera
+  // and sails slowly out of frame. Built on first use, so the front page never pays for it.
+  const NAV_COL = { white: [1, 0.9, 0.74], red: [1, 0.07, 0.035], green: [0.1, 1, 0.42], amber: [1, 0.5, 0.06], warm: [1, 0.58, 0.26], flood: [1, 0.93, 0.82] };
+  const DEG = Math.PI / 180, ARC = 112.5 * DEG, SUB_RISE = 10;
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  // the arcs a light shows over (rel: bearing of the viewer from the bow, + to starboard): masthead 225° ahead,
+  // sidelights from dead ahead to 22.5° abaft the beam, stern light 135° astern
+  const arc = (kind, rel) => {
+    const fore = 1 - smooth(ARC - 2 * DEG, ARC + 2 * DEG, Math.abs(rel));
+    if (kind === "ahead") return fore;
+    if (kind === "stern") return 1 - fore;
+    if (kind === "stbd") return fore * smooth(-2 * DEG, 2 * DEG, rel);
+    if (kind === "port") return fore * smooth(-2 * DEG, 2 * DEG, -rel);
+    return 1;
+  };
+  // hulls take a thinner haze than the scene fog (uHazeK scales its density) so they read as silhouettes; uHaze fades them in
+  const hullMat = (params, hazeK) => {
+    const m = new THREE.MeshStandardMaterial(params), hu = { uHaze: { value: 1 }, uHazeK: { value: hazeK } };
+    m.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, hu);
+      sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nuniform float uHaze, uHazeK;")
+        .replace("#include <fog_fragment>", `#ifdef USE_FOG
+          float fogFactor = 1.0 - exp(-fogDensity * fogDensity * uHazeK * vFogDepth * vFogDepth);
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, mix(fogFactor, 1.0, uHaze));
+          #endif`);
+    };
+    m.hu = hu;
+    return m;
+  };
+  const box = (g, m, sx, sy, sz, x, y, z, rz = 0) => { const b = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); b.position.set(x, y, z); b.rotation.z = rz; g.add(b); };
+  // a side profile (bow toward +x, waterline at y = 0) extruded to the beam and pinched in toward the stem from x0
+  const hull = (g, m, pts, beam, x0, x1) => {
+    const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y))), { depth: beam, bevelEnabled: false });
+    geo.translate(0, 0, -beam / 2);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i); if (x > x0) p.setZ(i, p.getZ(i) * (1 - 0.88 * Math.pow(Math.min(1, (x - x0) / (x1 - x0)), 1.5))); }
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, m));
+  };
+  // lights: [x, y, z, colour, arc, intensity, halo size, flashing]
+  const KINDS = {
+    coaster: {           // a small cargo ship, bridge and accommodation aft
+      len: 74, beam: 11, speed: 6, lane: [320, 450],
+      build(g, m) {
+        hull(g, m, [[-35, -3], [30, -3], [37.5, 7.6], [28, 7.6], [27.5, 5.6], [-27, 5.6], [-27, 6.6], [-36.5, 6.6], [-36.5, 1.8]], 11, 18, 37.5);
+        box(g, m, 44, 1.6, 8.6, 2, 6.4, 0);                                      // hatch covers
+        box(g, m, 9, 8, 10, -31.5, 10.6, 0);                                     // accommodation
+        box(g, m, 6, 2.6, 13.4, -28.5, 15.9, 0);                                 // bridge and wings
+        box(g, m, 3, 5, 2.6, -34.5, 17.1, 0, -0.12);                             // funnel
+        box(g, m, 0.5, 6, 0.5, -29, 20.2, 0); box(g, m, 0.3, 0.3, 5, -29, 21.6, 0);
+        box(g, m, 0.6, 10, 0.6, 31, 12.6, 0);                                    // foremast
+        for (const x of [-8, 12]) { box(g, m, 1.2, 8, 1.2, x, 10.4, 0); box(g, m, 16, 0.7, 0.7, x + 7.3, 12.9, 0, 0.32); }   // cranes
+      },
+      lights: [
+        [31, 17.9, 0, "white", "ahead", 1], [-29, 23.5, 0, "white", "ahead", 1],
+        [-28.5, 16.3, 6.9, "green", "stbd", 1], [-28.5, 16.3, -6.9, "red", "port", 1], [-36.8, 6.2, 0, "white", "stern", 0.8],
+        [-26.9, 12.6, 3.5, "warm", "all", 0.25, 0.4], [-26.9, 9.6, -2, "warm", "all", 0.2, 0.4], [-26.9, 12.6, -3.5, "warm", "all", 0.22, 0.4],
+      ],
+    },
+    trawler: {           // a stern trawler at work: green over white, deck lights blazing
+      len: 32, beam: 7.5, speed: 4.2, lane: [280, 380],
+      build(g, m) {
+        hull(g, m, [[-15, -2.4], [12.5, -2.4], [16.8, 5.6], [10.5, 5.0], [9, 3.6], [-15.6, 3.0], [-15.6, 0.6]], 7.5, 4, 16.8);
+        box(g, m, 6, 3.8, 6, 6, 5.4, 0); box(g, m, 6.6, 0.3, 6.6, 6, 7.45, 0);  // wheelhouse
+        box(g, m, 0.4, 8.5, 0.4, 6.5, 11.6, 0);                                 // mast
+        for (const z of [-3, 3]) box(g, m, 0.6, 7, 0.6, -14, 6.4, z);           // stern gantry
+        box(g, m, 0.6, 0.6, 6.6, -14, 9.9, 0); box(g, m, 3, 2, 5, -9, 4, 0);    // and net drum
+      },
+      lights: [
+        [6.5, 16.0, 0, "green", "all", 0.9], [6.5, 14.0, 0, "white", "all", 0.9],
+        [8.8, 6.6, 3.3, "green", "stbd", 0.8], [8.8, 6.6, -3.3, "red", "port", 0.8], [-15.9, 4.2, 0, "white", "stern", 0.7],
+        [-14, 10.4, 0, "flood", "all", 1.5, 1.8], [6, 8.0, 0, "flood", "all", 0.7, 1.2], [9.1, 6.0, 0, "warm", "all", 0.3, 0.4],
+      ],
+    },
+    sub: {               // hull axis at y = 0; she rides with ~2 m of hull above the water
+      len: 64, beam: 7.2, speed: 2.6,
+      build(g, m) {
+        const prof = [[0, -32], [0.5, -31.5], [1.4, -28], [2.7, -22], [3.5, -15], [3.6, -8], [3.6, 22], [3.4, 26], [2.8, 29], [1.8, 31], [0, 32.2]];
+        const hg = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 40); hg.rotateZ(-Math.PI / 2);
+        g.add(new THREE.Mesh(hg, m));
+        box(g, m, 40, 0.5, 2.2, 2, 3.45, 0);                                    // deck casing
+        const sail = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 6.6, 32), m);
+        sail.scale.set(4.4, 1, 1.15); sail.position.set(12, 6.3, 0); g.add(sail);
+        box(g, m, 2.4, 0.18, 7.4, 13.2, 7.0, 0);                                // fairwater planes
+        for (const [x, h] of [[10.6, 2.4], [11.8, 1.6], [13.6, 1.1]]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, h, 8), m); p.position.set(x, 9.6 + h / 2, 0); g.add(p); }
+        box(g, m, 4.6, 4.6, 0.3, -28.6, 2.6, 0, -0.25);                         // upper rudder
+        box(g, m, 3.6, 0.25, 8.6, -28, 0, 0);                                   // stern planes
+      },
+      lights: [
+        [13.6, 10.8, 0, "white", "ahead", 0.8], [14.6, 8.4, 1.15, "green", "stbd", 0.8], [14.6, 8.4, -1.15, "red", "port", 0.8],
+        [-29.5, 5.1, 0, "white", "stern", 0.7], [10.6, 12.1, 0, "amber", "all", 1.2, 1, true],   // a submarine's amber quick flash
+      ],
+    },
+  };
+  const crafts = [];
+  const makeCraft = (kind) => {
+    const K = KINDS[kind], sub = kind === "sub";
+    const mat = hullMat(sub
+      ? { color: 0x141619, roughness: 0.3, metalness: 0.2, envMap: envTex, envMapIntensity: 0.9 }
+      : { color: 0x0a0c0f, roughness: 0.75, metalness: 0.1, envMap: envTex, envMapIntensity: 0.25 }, sub ? 1 : 0.6);
+    if (sub) wetMats.push([mat, 0.9]);
+    const group = new THREE.Group(); K.build(group, mat); group.visible = false; scene.add(group);
+    const lights = K.lights.map(([x, y, z, col, arcK, i, halo = 1, flash = false]) => {
+      const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true }));
+      const glow = new THREE.Sprite(core.material.clone());
+      core.renderOrder = glow.renderOrder = 4; core.visible = glow.visible = false;
+      scene.add(core, glow);
+      return { p: new THREE.Vector3(x, y, z), w: new THREE.Vector3(), col: NAV_COL[col], arcK, i, halo, flash, core, glow };
+    });
+    const c = { kind, K, sub, group, mat, lights, pos: new THREE.Vector2(), dir: new THREE.Vector2(), age: 0, vis: 0, lane: 0, travel: 0, active: false };
+    crafts.push(c);
+    return c;
+  };
+  const camV = new THREE.Vector3();
+  const view = () => {   // the camera's forward and right on the water, and tan of half the horizontal field of view
+    camera.getWorldDirection(camV);
+    const l = Math.hypot(camV.x, camV.z);
+    return { fx: camV.x / l, fz: camV.z / l, rx: -camV.z / l, rz: camV.x / l, tanH: Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect };
+  };
+  let shipN = 0;
+  const ship = () => {
+    const kind = shipN++ % 3 === 1 ? "trawler" : "coaster", own = crafts.filter((o) => o.kind === kind);
+    const c = own.find((o) => !o.active) || (own.length < 3 ? makeCraft(kind) : own.sort((a, b) => b.age - a.age)[0]);
+    // a lane as far as possible from the other ships', somewhere in the middle of the view, heading left or right
+    const v = view(), others = crafts.filter((o) => o.active && !o.sub && o !== c).map((o) => o.lane);
+    let D = 0, best = -1;
+    for (let i = 0; i < 8; i++) {
+      const d = c.K.lane[0] + Math.random() * (c.K.lane[1] - c.K.lane[0]), gap = Math.min(1e3, ...others.map((o) => Math.abs(o - d)));
+      if (gap > best) { best = gap; D = d; }
+    }
+    const side = (Math.random() - 0.5) * 1.2 * D * v.tanH, sgn = Math.random() < 0.5 ? -1 : 1;
+    c.pos.set(camera.position.x + v.fx * D + v.rx * side, camera.position.z + v.fz * D + v.rz * side);
+    c.dir.set(v.rx * sgn, v.rz * sgn).rotateAround(new THREE.Vector2(), (Math.random() - 0.5) * 0.5);
+    Object.assign(c, { lane: D, age: reduced ? 8 : 0, travel: 0, active: true });
+    c.group.visible = true;
+    if (reduced) frame(0);
+    return { kind, dist: D };
+  };
+  const surface = () => {
+    const c = crafts.find((o) => o.sub) || makeCraft("sub");
+    if (c.active) return null;
+    const v = view(), D = 85, sgn = Math.random() < 0.5 ? -1 : 1;
+    c.dir.set(v.rx * sgn + v.fx * 0.15, v.rz * sgn + v.fz * 0.15).normalize();
+    c.pos.set(camera.position.x + v.fx * D, camera.position.z + v.fz * D).addScaledVector(c.dir, -10);
+    Object.assign(c, { age: reduced ? SUB_RISE + 6 : 0, travel: 0, splash: false, active: true });
+    c.group.visible = true;
+    if (reduced) frame(0);
+    return { dist: D };
+  };
+  const toCamV = new THREE.Vector3();
+  function traffic(dt, t, ang) {
+    let nN = 0, v = null;
+    for (const c of crafts) {
+      if (!c.active) {
+        if (c.group.visible) {
+          c.group.visible = false;
+          for (const L of c.lights) L.core.visible = L.glow.visible = false;
+          if (c.sub) OU.uSubK.value.set(0, 0, 0, 0);
+        }
+        continue;
+      }
+      v ||= view();
+      const { K } = c, a = (c.age += dt), hx = c.dir.x, hz = c.dir.y;
+      let rise = 1, speed = K.speed, pitch0 = 0;
+      if (c.sub) {
+        rise = 1 - Math.pow(1 - Math.min(1, a / SUB_RISE), 3);
+        speed *= 0.45 + 0.55 * smooth(0, 16, a);
+        pitch0 = 0.07 * Math.sin(Math.PI * Math.min(1, a / (SUB_RISE * 1.2)));   // bow up as she comes up
+      }
+      c.pos.addScaledVector(c.dir, speed * dt); c.travel += speed * dt;
+      // ride the swell: heave, pitch and roll from the sea under the bow, stern and either side
+      const ex = c.pos.x - camera.position.x, ez = c.pos.y - camera.position.z;
+      const fade = 1 - smooth(260, 650, Math.hypot(ex, ez));      // the ocean flattens its swell with distance the same way
+      const L2 = K.len * 0.4, B2 = K.beam * 0.5, sea = (x, z) => waveHeight(c.pos.x + x, c.pos.y + z, t);
+      const hC = sea(0, 0), hB = sea(hx * L2, hz * L2), hS = sea(-hx * L2, -hz * L2), hP = sea(hz * B2, -hx * B2), hSb = sea(-hz * B2, hx * B2);
+      const k = (c.sub ? 0.85 : 0.6) * fade * rise;
+      c.group.position.set(c.pos.x, hC * k + (c.sub ? THREE.MathUtils.lerp(-16, -1.7, rise) : 0), c.pos.y);
+      c.group.rotation.set(Math.atan2(hP - hSb, K.beam) * k * 0.7, Math.atan2(-hz, hx), pitch0 + Math.atan2(hB - hS, L2 * 2) * k * 0.8, "YXZ");
+      c.group.updateMatrixWorld();
+
+      if (c.sub) {
+        c.vis = smooth(SUB_RISE * 0.5, SUB_RISE + 3, a);          // her lights come on once she is up
+        c.mat.hu.uHaze.value = 0;
+        OU.uSub.value.set(c.pos.x, c.pos.y, hx, hz);
+        OU.uSubK.value.set(smooth(0.3, 0.75, rise) * Math.exp(-Math.max(0, a - SUB_RISE) / 7),
+          smooth(SUB_RISE * 0.5, SUB_RISE + 5, a) * (1 - smooth(95, 150, c.travel)), K.len * 0.47, K.beam * 0.5);
+        // water pours off her as the sail and then the hull break the surface
+        const y = c.group.position.y;
+        if (!c.splash && y + 9.6 > 0) { c.splash = true; burst(c.pos.x + hx * 12, 0.3, c.pos.y + hz * 12, 160, 6, 0, 0); }
+        if (a < SUB_RISE + 2 && y + 3.6 > -1.2) {
+          for (let i = 0; i < 3; i++) {
+            const s = (Math.random() - 0.5) * K.len * 0.85, sd = Math.random() < 0.5 ? -1 : 1, nx = -hz * sd, nz = hx * sd;
+            burst(c.pos.x + hx * s + nx * 3.4, 0.2, c.pos.y + hz * s + nz * 3.4, 8, 3.5, -nx, -nz);
+          }
+        }
+        if (c.travel > 150) c.active = false;
+      } else {
+        // fade in out of the rain, sail on until out of frame (or fade back into it after a while)
+        const fwd = ex * v.fx + ez * v.fz, lat = ex * v.rx + ez * v.rz;
+        c.vis = smooth(0, 6, a) * (1 - smooth(150, 158, a));
+        c.mat.hu.uHaze.value = 1 - c.vis;
+        if (a > 158 || Math.abs(lat) > fwd * v.tanH + K.len) c.active = false;
+      }
+      // the lighthouse beam catches her as it sweeps past (close in it passes high over the low submarine)
+      const hd = Math.hypot(c.pos.x, c.pos.y), bt = Math.atan2(c.pos.y, c.pos.x);
+      const dA = Math.min(Math.abs(wrap(bt - ang)), Math.abs(wrap(bt - ang - Math.PI)));
+      c.mat.emissive.setRGB(1, 0.85, 0.6).multiplyScalar(Math.exp(-((dA / 0.08) ** 2)) * 2 / (hd * 0.12 + 6) * (c.sub ? 0.2 : c.vis));
+
+      // navigation lights: a hot point and a halo in the haze, and their glitter on the sea
+      const lx = -ex, lz = -ez, rel = Math.atan2(-lx * hz + lz * hx, lx * hx + lz * hz);
+      for (const L of c.lights) {
+        let s = L.i * arc(L.arcK, rel) * c.vis;
+        if (L.flash && (t * 1.6) % 1 > 0.16) s = 0;
+        L.core.visible = L.glow.visible = s > 0.002;
+        if (!L.core.visible) continue;
+        L.w.copy(L.p).applyMatrix4(c.group.matrixWorld);
+        const d = L.w.distanceTo(camera.position), att = Math.exp(-d * 0.0019);
+        toCamV.subVectors(camera.position, L.w).multiplyScalar(0.6 / d);     // nudged toward the camera so the fittings don't clip it
+        L.core.position.copy(L.w).add(toCamV); L.glow.position.copy(L.core.position);
+        L.core.scale.setScalar(Math.max(0.3, d * 0.0045));
+        L.glow.scale.setScalar(d * 0.04 * L.halo);
+        L.core.material.color.setRGB(...L.col).multiplyScalar(s * 7 * (0.35 + 0.65 * att));
+        L.glow.material.color.setRGB(...L.col).multiplyScalar(s * 0.3 * att);
+        if (nN < NAV_MAX && L.i >= 0.5) {
+          OU.uNavP.value[nN].set(L.w.x, L.w.y, L.w.z, 0.004 + d * 0.00002);
+          OU.uNavC.value[nN++].set(...L.col).multiplyScalar(s * att * 0.02);
+        }
+      }
+    }
+    OU.uNavN.value = nN;
+  }
+
   // ---- sizing, input, loop
   const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
   addEventListener("pointermove", (e) => { mouse.tx = (e.clientX / innerWidth - 0.5) * 2; mouse.ty = -(e.clientY / innerHeight - 0.5) * 2; }, { passive: true });
@@ -1044,6 +1303,7 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
     const wx = 3 + gust * 5;
     SP.update(dt, wx, 0.8, 9.0, 0);
     MI.update(dt, wx * 0.9, 0.6, 0.6, 0.9);
+    if (crafts.length) traffic(dt, t, ang);
 
     post.U.uTime.value = t;
     post.render(scene, camera);
@@ -1062,5 +1322,5 @@ export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {})
   io.observe(canvasEl);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
   if (reduced) { frame(0.016); } else raf = requestAnimationFrame((n) => { last = n; loop(n); });
-  return { renderer, frame, scene, camera, U, strike };
+  return { renderer, frame, scene, camera, U, strike, ship, surface, crafts };
 }
