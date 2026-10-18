@@ -28,12 +28,24 @@
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
+    <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
     <button id="bolt" type="button" title="Lightning (L)">Lightning</button>
   </nav>
   <script type="module">
     import { startHero3D } from "../js/hero3d.js";
+    import { createStormAudio } from "../js/storm-audio.js";
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const hero = window.__hero = startHero3D(document.getElementById("storm"), { reduced });
+    let audio = null;
+    const hero = window.__hero = startHero3D(document.getElementById("storm"), { reduced, onStrike: (s) => audio?.thunder(s) });
+
+    const snd = document.getElementById("snd");
+    const setSound = async (v) => {
+      audio ||= createStormAudio();
+      await audio.set(v);
+      snd.textContent = "Sound: " + (v ? "on" : "off");
+      snd.setAttribute("aria-pressed", String(v));
+    };
+    snd.onclick = () => setSound(!(audio && audio.on));
 
     const ui = document.getElementById("ui"), fs = document.getElementById("fs");
     if (!document.documentElement.requestFullscreen) fs.hidden = true;
@@ -44,6 +56,7 @@
     addEventListener("keydown", (e) => {
       if (e.key === "f" || e.key === "F") toggleFs();
       if (e.key === "l" || e.key === "L") hero.strike();
+      if (e.key === "m" || e.key === "M") snd.click();
     });
 
     // controls fade out after a few still seconds

@@ -294,7 +294,7 @@ function normalFromHeight(hctx, W, H, k) {
 }
 
 // ---------------------------------------------------------------- the scene
-export function startHero3D(canvasEl, { reduced = false } = {}) {
+export function startHero3D(canvasEl, { reduced = false, onStrike = null } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: false, powerPreference: "high-performance" });
   let pr = Math.min(window.devicePixelRatio || 1, 1.5);
   renderer.setPixelRatio(pr);
@@ -1027,6 +1027,7 @@ export function startHero3D(canvasEl, { reduced = false } = {}) {
     seq = [[0, k], [0.06, 0.15 * k], [0.11, 0.9 * k], [0.19, 0.05], [0.3, 0.55 * k], [0.45, 0.08], [0.7, 0]];
     seqT = 0;
     seq.big = big;
+    if (onStrike) onStrike({ big, dist });
   };
 
   // ---- sizing, input, loop
