@@ -26,7 +26,7 @@ export const worlds = [
     play: "hearth/",
     label: "Enter",
     shots: [
-      { src: "hearth-1.webp", alt: "A glowing A-frame cabin in a misty spruce forest at dusk, smoke rising from its chimney, a flagstone path leading to it", caption: "Through the trunks at dusk" },
+      { src: "hearth-1.webp", alt: "A glowing A-frame cabin in a misty spruce forest at dusk, smoke rising from its chimney, a trodden path leading to it through rusty bracken", caption: "Through the trunks at dusk" },
       { src: "hearth-2.webp", alt: "The front of the A-frame up close: a string of lights over the deck, lit windows, pumpkins on the steps, a chopping block with an axe", caption: "Up close: string lights over the deck" },
       { src: "hearth-3.webp", alt: "The back of the cabin: a stone gable wall with a stone chimney rising above the roof", caption: "The stone wall and chimney at the back" },
       { src: "hearth-4.webp", alt: "The cabin at night, only its windows lit, glowing in the mist", caption: "Nightfall" },
