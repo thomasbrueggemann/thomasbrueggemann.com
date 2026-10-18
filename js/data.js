@@ -22,7 +22,7 @@ export const worlds = [
     tags: ["three.js", "GLSL", "procedural", "WebAudio"],
     highlights: [
       "One turn a minute gives about 1 g on the floor; close in, the camera rides along with the spin and the stars wheel past",
-      "Some 54,000 people, 5,000 animals, 550 cars, ten trains and eight markets, all moving on the GPU",
+      "Some 54,000 people, 5,000 animals, 564 cars, buses and vans, 70 boats, ten trains, five stations and eight markets, all moving",
       "Earth at its true size from 8,000 km, and sound synthesised live: a rumble, machinery hum, the structure groaning under the spin",
     ],
     play: "torus/",
@@ -32,7 +32,8 @@ export const worlds = [
       { src: "torus-1.webp", alt: "A glazed ring station with spokes and a hub seen from below, the half-lit Earth behind it", caption: "The wheel from below, Earth rising behind it" },
       { src: "torus-2.webp", alt: "The city inside the ring seen through its glass: a river, a monorail, blocks and parks", caption: "The land on the far side, upright through the inner glass" },
       { src: "torus-3.webp", alt: "Close view of blocks, a river with a monorail, and a market square with striped stalls and a big tree", caption: "A market square by the river" },
-      { src: "torus-4.webp", alt: "Rooftop height over the river: crowds on both promenades, a boat, ducks, and market stalls", caption: "Inside, over the rooftops: promenades, a boat, the market" },
+      { src: "torus-4.webp", alt: "From 60 m over the river: a monorail station with planted canopies, boats, crowds on the promenades and a market", caption: "Over the river: a monorail station, boats and the market" },
+      { src: "torus-5.webp", alt: "Street level beside the river: a monorail station on its piers, a river bus and a rowing boat, people walking under the trees", caption: "Down by the river, under the monorail" },
     ],
   },
   {
