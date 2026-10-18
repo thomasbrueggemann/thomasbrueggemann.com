@@ -14,7 +14,7 @@ export const worlds = [
     kicker: "A cabin in the spruces",
     tagline: "A cabin in the woods on a cold autumn evening.",
     description:
-      "An A-frame in an old spruce forest, with the fire going and the lights on. Walk around it, look in through the windows, stoke the fire. Deer, a fox and hares come by now and then.",
+      "An A-frame in an old spruce forest. Cold and misty outside, warm and cosy inside, with the fire going and the lights on. Walk around it, look in through the windows, stoke the fire. Deer, a fox and hares come by now and then.",
     date: "2026-10",
     genre: "Scene",
     tags: ["three.js", "GLSL", "procedural", "WebAudio"],
@@ -38,7 +38,7 @@ export const worlds = [
     kicker: "A lighthouse in a gale",
     tagline: "A lighthouse on a rock, at night, in a full gale.",
     description:
-      "The lighthouse from the top of this page, full screen. Waves break over the rocks and rain blows through the beam. You can call in lightning, a passing ship or the foghorn.",
+      "The lighthouse from the top of this page, full screen. Waves break over the rocks and rain blows through the beam, but behind the windows it's warm and cosy, with the stove going. You can call in lightning, a passing ship or the foghorn.",
     date: "2026-10",
     genre: "Scene",
     tags: ["three.js", "GLSL", "WebAudio"],
