@@ -13,10 +13,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">
   <style>
     html, body { margin: 0; height: 100%; background: #0a0c10; overflow: hidden; }
-    canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; }
+    canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
     .ui { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
       display: flex; gap: 8px; font: 500 14px/1 "Inter Tight", system-ui, sans-serif; transition: opacity .6s; }
     .ui.idle { opacity: 0; }
+    .ui .hint { align-self: center; color: rgba(232,230,225,.7); padding: 0 6px; }
     .ui a, .ui button { color: #e8e6e1; background: rgba(10,12,16,.55); border: 1px solid rgba(232,230,225,.25);
       padding: 10px 14px; border-radius: 999px; text-decoration: none; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
     .ui a:hover, .ui button:hover, .ui a:focus-visible, .ui button:focus-visible { border-color: #e0a96d; color: #e0a96d; outline: none; }
@@ -28,6 +29,7 @@
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
+    <span class="hint">Move down to descend</span>
   </nav>
   <script type="module">
     import { startShade3D } from "../js/shade3d.js";

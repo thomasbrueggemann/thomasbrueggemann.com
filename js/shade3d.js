@@ -10,6 +10,8 @@ import { makePost } from "./post.js";
 
 const TAU = Math.PI * 2;
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const h1 = (n) => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+const vnoise = (x) => { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return h1(i) + (h1(i + 1) - h1(i)) * u; };
 function rng(seed) {
   return () => {
     seed = (seed + 0x6d2b79f5) | 0;
@@ -22,7 +24,8 @@ function rng(seed) {
 // ---------------------------------------------------------------- layout (metres; the avenue runs along -z)
 const AVE = 44, CANAL = 7, PITCH = 92, BLOCK = 74;
 const CAM = new THREE.Vector3(-6, 56, 78), LOOK = new THREE.Vector3(4, 36, -300);
-const SUN_DIR = new THREE.Vector3(-0.55, 0.6, -0.58).normalize();
+const STREET = { x: 0, y: 3.2, ly: 66 };                        // the low end of the mouse drop: over the canal, looking up
+const SUN_DIR = new THREE.Vector3(0.17, 0.2, -0.96).normalize();     // low, ahead: the avenue runs into the sun
 const WIND = new THREE.Vector2(0.75, 0.66).normalize();       // blowing from the sun side toward the camera's right
 const CABLE_Z = -150, CABLE_Y = 104;
 const ARCOLOGY = { x: 24, z: -1150, w: 270, d: 210, h: 440 };
@@ -45,8 +48,8 @@ float fbm(vec2 p){ float s = 0., a = .5; for(int i=0;i<5;i++){ s += a*vnoise(p);
 float fbm3(vec2 p){ float s = 0., a = .5; for(int i=0;i<3;i++){ s += a*vnoise(p); p = ROT * p * 2.03 + vec2(1.7, 9.2); a *= .5; } return s / .875; }
 
 // heat haze: a pale, warm veil that brightens toward the sun (forward scattering)
-vec3 halo(vec3 rd){ float s = max(dot(rd, uSunDir), 0.); return uSunCol * (pow(s, 4.) * 0.10 + pow(s, 24.) * 0.22 + pow(s, 200.) * 0.5); }
-vec3 hazeCol(vec3 rd){ return vec3(0.60, 0.56, 0.47) + halo(rd); }
+vec3 halo(vec3 rd){ float s = max(dot(rd, uSunDir), 0.); return uSunCol * (pow(s, 3.) * 0.03 + pow(s, 16.) * 0.11 + pow(s, 120.) * 0.4 + pow(s, 2000.) * 1.6); }
+vec3 hazeCol(vec3 rd){ return vec3(0.30, 0.32, 0.34) + halo(rd); }
 // exponential height fog, integrated along the view ray
 vec3 applyHaze(vec3 col, vec3 wp){
   vec3 rd = wp - cameraPosition; float d = length(rd); rd /= d;
@@ -64,8 +67,8 @@ float cloudShade(vec3 wp){
 const GLSL_SKY = /* glsl */`
 vec3 skyCol(vec3 d, float full){
   float h = d.y;
-  vec3 zen = vec3(0.10, 0.19, 0.36);
-  vec3 col = mix(vec3(0.60, 0.56, 0.47), zen, pow(smoothstep(-0.01, 0.45, h), 0.6));
+  vec3 zen = vec3(0.06, 0.12, 0.24);
+  vec3 col = mix(vec3(0.30, 0.32, 0.34), zen, pow(smoothstep(-0.01, 0.5, h), 0.6));
   col += halo(d);
   float s = max(dot(d, uSunDir), 0.);
   col += uSunCol * smoothstep(0.99988, 0.99993, s) * 9.;                  // the disc, softened by the haze
@@ -91,8 +94,8 @@ vec3 skyCol(vec3 d, float full){
 // world-space varyings, optional vertex wind, a custom colour/normal stage, cloud shadow on the sun,
 // translucency after lighting, and height fog in place of three's fog.
 const SU = {
-  uTime: { value: 0 }, uSunDir: { value: SUN_DIR.clone() }, uSunCol: { value: new THREE.Vector3(5.2, 4.3, 3.2) },
-  uWind: { value: WIND.clone() }, uFogA: { value: 0.00062 }, uFogH: { value: 320 }, uCloud: { value: 0.42 },
+  uTime: { value: 0 }, uSunDir: { value: SUN_DIR.clone() }, uSunCol: { value: new THREE.Vector3(6.6, 4.4, 2.5) },
+  uWind: { value: WIND.clone() }, uFogA: { value: 0.0007 }, uFogH: { value: 320 }, uCloud: { value: 0.42 },
 };
 const LIGHTS_BEGIN = (() => {
   const c = THREE.ShaderChunk.lights_fragment_begin, i = c.indexOf("#if ( NUM_DIR_LIGHTS > 0 )");
@@ -132,7 +135,7 @@ function patch(mat, key, { vert = "", wind = "", frag = "", color = "", normal =
 
 // fake sky reflection for glass and water (the sky has no env map)
 const GLSL_REFL = /* glsl */`
-vec3 skyRefl(vec3 r){ float h = max(r.y, 0.); return mix(vec3(0.60, 0.56, 0.47), vec3(0.10, 0.19, 0.36), pow(smoothstep(0., 0.7, h), 0.55)) + halo(r) * 0.6; }
+vec3 skyRefl(vec3 r){ float h = max(r.y, 0.); return mix(vec3(0.30, 0.32, 0.34), vec3(0.06, 0.12, 0.24), pow(smoothstep(0., 0.7, h), 0.55)) + halo(r) * 0.6; }
 `;
 
 // ---------------------------------------------------------------- facades: windows, grime, vines, planters, moss
@@ -179,12 +182,12 @@ float leafN(vec2 q){ return vnoise(q * 1.9) * 0.55 + vnoise(q * 5.3 + 7.) * 0.45
     // greenery: vines hanging from each tier top, climbers from its base, planter rows, moss
     float dTop = vB.y - vW.y, dBot = vW.y - vB.z;
     float strand = vnoise(vec2(u * 0.33 + seed * 17., 0.5));
-    float len = gr * (4. + 58. * strand * strand) * (0.35 + 0.65 * hash12(vec2(floor(u / 0.7), seed * 31.)));   // stringy curtains
+    float len = gr * (10. + 120. * pow(strand, 1.5)) * (0.35 + 0.65 * hash12(vec2(floor(u / 0.7), seed * 31.)));   // stringy curtains
     float hang = 1. - smoothstep(len * 0.55, len, dTop + (vnoise(vec2(u * 1.6, vW.y * 0.35)) - 0.5) * 7.);
-    float clen = gr * (2. + 26. * vnoise(vec2(u * 0.21 + 3.1, seed * 5.)));
+    float clen = gr * (6. + 70. * vnoise(vec2(u * 0.21 + 3.1, seed * 5.)));
     float climb = 1. - smoothstep(clen * 0.5, clen, dBot + (vnoise(vec2(u * 2.1, vW.y * 0.5)) - 0.5) * 5.);
     float planter = (style > 2.5 || fract(seed * 9.1) > 0.55) ? step(mod(c.y, 3.), 0.5) * (1. - smoothstep(0.16, 0.3 + 0.2 * vnoise(vec2(u * 1.3, c.y)), f.y)) : 0.;
-    float moss = smoothstep(0.72, 0.8, fbm3(q * 0.11 + seed * 7.)) * gr;
+    float moss = smoothstep(0.52, 0.66, fbm3(q * 0.07 + seed * 7.)) * gr;
     gMask = max(max(hang, climb), max(planter * (1. - lod * 0.5), moss));
   }
   float ln = leafN(q);
@@ -321,18 +324,17 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = false;                 // the city does not move; render the sun's shadow map once
-  const post = makePost(renderer, { comp: COMP_FRAG, bloom: 0.26, thresh: 0.55, uniforms: { uHorizon: { value: 0.45 } } });
-  post.U.uExposure.value = 0.92;
+  const post = makePost(renderer, { comp: COMP_FRAG, bloom: 0.3, thresh: 0.7, uniforms: { uHorizon: { value: 0.45 }, uSunUV: { value: new THREE.Vector2(0.5, 0.7) }, uRays: { value: 1 } } });
+  post.U.uExposure.value = 1.12;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, 1, 1, 9000);
   const target = LOOK.clone();
 
   // ---- light
-  const sun = new THREE.DirectionalLight(new THREE.Color(1.0, 0.84, 0.64), 5.6);
-  SU.uSunCol.value.set(5.6, 4.6, 3.4);
+  const sun = new THREE.DirectionalLight(new THREE.Color(1.0, 0.68, 0.40), 6.5);
   scene.add(sun, sun.target);
-  const hemi = new THREE.HemisphereLight(new THREE.Color(0.62, 0.68, 0.74), new THREE.Color(0.16, 0.19, 0.09), 0.55);
+  const hemi = new THREE.HemisphereLight(new THREE.Color(0.50, 0.58, 0.66), new THREE.Color(0.20, 0.22, 0.10), 1.15);
   scene.add(hemi);
 
   // ---- sky
@@ -353,7 +355,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   const dist = (x, z) => Math.hypot(x - CAM.x, z - CAM.z);
   const box = (x0, y0, z0, x1, y1, z1, seed, green) => boxes.push([x0, y0, z0, x1, y1, z1, seed, green]);
   const inArc = (x, z) => Math.abs(x - ARCOLOGY.x) < ARCOLOGY.w / 2 + 4 && Math.abs(z - ARCOLOGY.z) < ARCOLOGY.d / 2 + 4;
-  const tree = (x, y, z, rc, th, pal) => { if (y > 0 || !inArc(x, z)) trees.push([x, y, z, rc, th, pal]); };
+  const tree = (x, y, z, rc, th, pal) => { if (y > 0 || (!inArc(x, z) && !(Math.abs(x) < rc + 2 && z > CAM.z - 40))) trees.push([x, y, z, rc, th, pal]); };
   const palette = () => { const r = D(); return r < 0.018 ? 4 : r < 0.03 ? 5 : r < 0.3 ? 1 : r < 0.48 ? 2 : r < 0.6 ? 3 : 0; };
 
   // trees on a flat roof or terrace, leaving out the footprint of the tier above
@@ -373,6 +375,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
 
   // hedges spilling over every parapet and, on the greenest buildings near the camera, planted balconies
   const shrubs = [];         // x, y, z, radius, y radius, palette
+  const vines = [];          // x, y (top), z, length, width: hanging strands that sway
   const hedge = (ax, az, bx, bz, nx, nz, y, rMin, rMax, prob, out, drop) => {
     const L = Math.hypot(bx - ax, bz - az);
     for (let u = D() * rMin; u < L; u += (rMin + rMax) * 0.55 * (0.8 + D() * 0.5)) if (D() < prob) {
@@ -382,19 +385,29 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   };
   function overgrow([x0, x1, z0, z1, y0, y1], green, always = false) {
     const d = dist((x0 + x1) / 2, (z0 + z1) / 2);
-    if (d > 900 && !always) return;
+    if (d > 1100 && !always) return;
     const k = 1 + d / 260;
     const sides = [[x0, z0, x1, z0, 0, -1], [x1, z1, x0, z1, 0, 1], [x0, z1, x0, z0, -1, 0], [x1, z0, x1, z1, 1, 0]];
-    const balconies = d < 520 && green > 0.62 && D() < 0.5, every = 3.6 * (2 + Math.floor(D() * 3));
+    const balconies = d < 600 && D() < 0.45, every = 3.6 * (2 + Math.floor(D() * 3));
     for (const [ax, az, bx, bz, nx, nz] of sides) {
       if (nx * (CAM.x - (ax + bx) / 2) + nz * (CAM.z - (az + bz) / 2) < 0) continue;     // faces the camera never sees
-      hedge(ax, az, bx, bz, nx, nz, y1, 1.3 * k, 2.6 * k, green, 0.25, 0.5);
+      hedge(ax, az, bx, bz, nx, nz, y1, 1.5 * k, 3.2 * k, Math.min(1, green + 0.2), 0.25, 0.6);
+      // curtains of vines down the facade from the parapet, in clumps
+      if (d < 650 && y1 - y0 > 6) {
+        const L = Math.hypot(bx - ax, bz - az), ph = D() * 50;
+        for (let u = 0.5; u < L; u += 0.9 + d / 300) {
+          if (vnoise(u * 0.15 + ph) < 0.45 - green * 0.2) continue;
+          const t = u / L, len = Math.min(y1 - 2, 2 + Math.pow(D(), 1.6) * (8 + 70 * green));
+          vines.push([ax + (bx - ax) * t + nx * (0.4 + D() * 0.8), y1, az + (bz - az) * t + nz * (0.4 + D() * 0.8), len, (0.07 + D() * 0.1) * (1 + d / 250)]);
+        }
+      }
       if (!balconies || Math.hypot(bx - ax, bz - az) < 18) continue;
       for (let y = y0 + every; y < y1 - 4; y += every) {
+        if (D() < 0.35) continue;
         // a slab sticking out of the facade with a hedge along its edge
         const ox = nx * 1.8, oz = nz * 1.8;
         box(Math.min(ax, bx, ax + ox, bx + ox), y - 0.5, Math.min(az, bz, az + oz, bz + oz), Math.max(ax, bx, ax + ox, bx + ox), y, Math.max(az, bz, az + oz, bz + oz), 0.06, 1);
-        hedge(ax + ox * 0.6, az + oz * 0.6, bx + ox * 0.6, bz + oz * 0.6, nx, nz, y + 0.9, 0.9, 1.7, 0.85, 0.1, 0.3);
+        hedge(ax + ox * 0.6, az + oz * 0.6, bx + ox * 0.6, bz + oz * 0.6, nx, nz, y + 0.9, 0.9, 2.0, 0.6, 0.1, 0.3);
       }
     }
   }
@@ -402,7 +415,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   // one building on a lot: a stack of tiers, planted on every setback
   const fronts = [];         // side, avenue-facing x, z0, z1, y0, y1 of every tier on the avenue
   function building(x0, x1, z0, z1, front, forced) {
-    const seed = R(), green = 0.45 + R() * 0.55;
+    const seed = R(), green = 0.6 + R() * 0.4;
     const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, far = dist(cx, cz);
     if (forced) {                                            // gondola station: one tall block flush with the avenue
       box(x0, 0, z0, x1, forced, z1, seed, green);
@@ -448,7 +461,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
       if (front) fronts.push([Math.sign(cx), cx > 0 ? t[0] : t[1], t[2], t[3], t[4], t[5]]);
       overgrow(t, green);
       const nx = tiers[i + 1];
-      plant(t[0], t[2], t[1], t[3], t[5], nx ? [nx[0], nx[1], nx[2], nx[3]] : null, nx ? 0.8 : 0.6);
+      plant(t[0], t[2], t[1], t[3], t[5], nx ? [nx[0], nx[1], nx[2], nx[3]] : null, nx ? 0.9 : 0.85);
     });
   }
 
@@ -476,7 +489,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
 
   // arches of growth: braided lianas that left one facade and rooted in the opposite one, leafy along their backs,
   // hung with vines. Big ones span the avenue; smaller ones bridge the towers across every side street.
-  const archGeos = [], archBlobs = [], vines = [];   // vines: x, y(top), z, length, width
+  const archGeos = [], archBlobs = [];
   const up = new THREE.Vector3(0, 1, 0);
   // the avenue-facing facade nearest the avenue around (z, y); steps along z in the direction dz, then down
   function anchor(side, z, y, dz = [0, 4, -4, 8, -8, 12, -12]) {
@@ -500,7 +513,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     for (let i = 0; i < 40; i++) len += P(i / 40, a).distanceTo(P((i + 1) / 40, b));
     const d = dist((A.x + B.x) / 2, (A.z + B.z) / 2), N = Math.ceil(len / 2.5), T = new THREE.Vector3(), n1 = new THREE.Vector3(), n2 = new THREE.Vector3();
     // the woody braid: strands twist around the arch and fan out where they grip the facades
-    const strands = thick > 1.5 ? 5 : 3;
+    const strands = Math.min(8, Math.round(2 + thick * 1.3));
     for (let k = 0; k < strands; k++) {
       const sp = D() * TAU, turns = (1 + D() * 2) * len / 60, ro = thick * (0.4 + D() * 0.5), rad = thick * (0.22 + D() * 0.16);
       const pts = [];
@@ -513,34 +526,70 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
       }
       archGeos.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), N * 2, rad, 5));
     }
-    // leaves along the back, heaviest at the roots
-    const step = 2.0 * (1 + d / 700);
-    for (let u = 0; u < len; u += step * (0.7 + D() * 0.6)) {
-      const t = u / len, s = Math.sin(Math.PI * t), c = P(t, a), r = (1.3 + D() * 1.5) * (thick / 1.6) * (1 + (1 - s) * 0.7) * (1 + d / 900);
-      if (D() < s * 0.22) continue;                                  // gaps along the span show the braid
-      archBlobs.push([c.x + (D() - 0.5) * r, c.y + r * (0.25 + D() * 0.35), c.z + (D() - 0.5) * r, r, r * 0.7, palette() & 3]);
-      if (D() < 0.35) archBlobs.push([c.x + (D() - 0.5) * r * 2, c.y - r * 0.4, c.z + (D() - 0.5) * r * 2, r * 0.7, r * 0.6, palette() & 3]);
+    // leaves wrapped around the braid, heaviest at the roots: many modest clumps, so a thick arch stays textured
+    const rk = Math.min(thick / 1.6, 1.5) * (1 + d / 900);
+    for (let u = 0; u < len; u += 1.6 * rk * (0.6 + D() * 0.5)) {
+      const t = u / len, s = Math.sin(Math.PI * t), c = P(t, a);
+      if (D() < s * 0.2) continue;                                   // gaps along the span show the braid
+      T.subVectors(P(Math.min(1, t + 0.01), b), P(Math.max(0, t - 0.01), n2)).normalize();
+      n1.crossVectors(T, up).normalize(); n2.crossVectors(n1, T);
+      const ring = thick * (0.6 + (1 - s) * 0.8), per = 1 + Math.round(thick / 1.8);
+      for (let j = 0; j < per; j++) {
+        const an = D() * TAU, w = Math.sin(an) > -0.3 ? 1 : 0.6;   // mostly on the back and the flanks
+        const r = (1.0 + D() * 1.3) * rk * (1 + (1 - s) * 0.6) * w;
+        const q = c.clone().addScaledVector(n1, Math.cos(an) * ring).addScaledVector(n2, Math.abs(Math.sin(an)) * ring * 0.8 + r * 0.2);
+        archBlobs.push([q.x, q.y, q.z, r, r * 0.72, palette() & 3]);
+      }
     }
     // vines hanging from the underside
-    for (let u = 1; u < len; u += 0.5 + d / 500) {
-      const t = u / len; if (t < 0.05 || t > 0.95 || D() < 0.25) continue;
-      const c = P(t, a), L = Math.min(c.y - 3, 1 + Math.pow(D(), 2.5) * 30 * Math.sin(Math.PI * t) * (thick / 1.6));
+    for (let u = 1; u < len; u += 1.1 + d / 400) {
+      const t = u / len; if (t < 0.05 || t > 0.95 || vnoise(u * 0.18 + ph) < 0.4) continue;   // in clustered curtains
+      const c = P(t, a), L = Math.min(c.y - 3, 1 + Math.pow(D(), 2.2) * 42 * Math.sin(Math.PI * t) * Math.min(2, thick / 1.6));
       if (L > 0.8) vines.push([c.x + (D() - 0.5) * thick * 2.4, c.y - thick * 0.2, c.z + (D() - 0.5) * thick * 2.4, L, (0.05 + D() * 0.08) * (1 + d / 250)]);
     }
   }
-  // across the avenue: [z on the left, z on the right, height left, height right, rise, sideways sway, thickness]
+  // across the avenue: [z on the left, z on the right, height left, height right, rise, sideways sway, thickness].
+  // The first frames the whole picture; diagonals cross each other so the vault reads as woven, not as a row of gates.
+  // Every span also sends a root-trunk down its facade to the ground, so the growth visibly comes from the street.
+  const root = (A, side, th) => A && A.y > 12 && arch(new THREE.Vector3(A.x, 0, A.z + (D() - 0.5) * 10), A, 0, new THREE.Vector3(-side * (2 + D() * 3), 0, 0), th);
   for (const [zl, zr, yl, yr, lift, sway, th] of [
-    [-22, -48, 24, 34, 50, 10, 2.1], [-238, -206, 62, 46, 38, -14, 1.9], [-520, -548, 30, 56, 62, 12, 2.1],
-    [-652, -640, 92, 84, 28, -6, 1.6], [-860, -905, 58, 70, 72, 16, 2.4], [-975, -990, 26, 40, 40, 0, 1.8],
-  ]) arch(anchor(-1, zl, yl), anchor(1, zr, yr), lift, new THREE.Vector3(0, 0, sway), th);
+    [-18, -42, 30, 22, 66, 6, 4.4],
+    [-105, -140, 44, 28, 52, 10, 3.4], [-210, -168, 22, 62, 82, -18, 4.0], [-250, -385, 38, 84, 58, 0, 3.0],
+    [-335, -298, 104, 92, 40, 10, 2.6], [-430, -470, 28, 40, 96, 0, 4.2], [-520, -610, 72, 48, 52, -10, 3.0],
+    [-640, -600, 124, 140, 44, 0, 2.8], [-700, -790, 40, 58, 112, 15, 4.6], [-860, -905, 58, 72, 74, 16, 3.2],
+    [-960, -1000, 30, 50, 118, 0, 4.2],
+    [-150, -255, 150, 172, 36, 0, 2.6], [-485, -415, 182, 160, 48, 0, 3.0], [-780, -700, 200, 176, 40, 0, 3.0],   // between the crowns
+  ]) {
+    const A = anchor(-1, zl, yl), B = anchor(1, zr, yr);
+    if (!A || !B) continue;
+    arch(A, B, lift, new THREE.Vector3(0, 0, sway), th);
+    root(A, -1, th * 0.75); root(B, 1, th * 0.75);
+  }
   // along the canyon walls: across each side street, from one tower to the next
-  for (let k = -1; k < 11; k++) {
+  for (let k = 0; k < 12; k++) {                     // not right beside the lens
     const zc = -k * PITCH;
-    for (const side of [-1, 1]) for (let n = 0; n < 2; n++) {
-      if (D() > (n ? 0.2 : 0.55)) continue;
-      const y = 14 + D() * 90;
-      arch(anchor(side, zc - BLOCK / 2 + 1, y, [0, 3, 6, 10]), anchor(side, zc - PITCH + BLOCK / 2 - 1, y + (D() - 0.5) * 16, [0, -3, -6, -10]),
-        4 + D() * 8, new THREE.Vector3(-side * (2 + D() * 4), 0, 0), 0.8 + D() * 0.5);
+    for (const side of [-1, 1]) for (let n = 0; n < 3; n++) {
+      if (D() > [0.95, 0.75, 0.5][n]) continue;
+      const y = 12 + D() * 120;
+      arch(anchor(side, zc - BLOCK / 2 + 1, y, [0, 3, 6, 10]), anchor(side, zc - PITCH + BLOCK / 2 - 1, y + (D() - 0.5) * 20, [0, -3, -6, -10]),
+        4 + D() * 10, new THREE.Vector3(-side * (2 + D() * 5), 0, 0), 1.2 + D() * 1.2);
+    }
+  }
+
+  // megatrees standing in the avenue forest: braided trunks, vast crowns, aerial roots dropping to the ground
+  for (const [x, z, H, Rc] of [[-30, -175, 84, 24], [33, -300, 104, 28], [-34, -470, 96, 26], [36, -655, 112, 30], [-30, -840, 90, 26]]) {
+    const top = new THREE.Vector3(x + (D() - 0.5) * 8, H, z + (D() - 0.5) * 8);
+    arch(new THREE.Vector3(x, 0, z), top, 0, new THREE.Vector3(-Math.sign(x) * 4, 0, 4), 4.2);
+    for (let i = 0; i < 4; i++) {                                  // buttress roots
+      const a = i / 4 * TAU + D();
+      arch(new THREE.Vector3(x + Math.cos(a) * 14, 0, z + Math.sin(a) * 14), new THREE.Vector3(x, H * (0.3 + D() * 0.25), z), 2, new THREE.Vector3(Math.cos(a) * 3, 0, Math.sin(a) * 3), 1.8);
+    }
+    const d = dist(x, z);
+    for (let i = 0; i < 130; i++) {                                // the crown: wide, flat-bottomed, domed on top
+      const a = D() * TAU, r = Math.sqrt(D()) * Rc, h = (1 - (r / Rc) ** 2) * Rc * 0.35;
+      const s = (4 + D() * 4.5) * (1 + d / 900);
+      archBlobs.push([top.x + Math.cos(a) * r, H + h * D() - 2, top.z + Math.sin(a) * r, s, s * 0.7, palette() & 3]);
+      if (D() < 0.85) vines.push([top.x + Math.cos(a) * r, H - 4, top.z + Math.sin(a) * r, (H - 4) * (D() < 0.3 ? 1 : 0.2 + D() * 0.6), (0.12 + D() * 0.25) * (1 + d / 250)]);
     }
   }
 
@@ -898,15 +947,20 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   };
   addEventListener("resize", resize); resize();
 
-  let last = performance.now(), raf = 0, visible = true, slow = 0, tNow = reduced ? 40 : 0;
+  let last = performance.now(), raf = 0, visible = true, slow = 0, tNow = reduced ? 40 : 0, drop = 0;
   function frame(dt) {
     tNow += dt;
     const t = tNow;
     SU.uTime.value = t;
     mouse.x += (mouse.tx - mouse.x) * 0.03; mouse.y += (mouse.ty - mouse.y) * 0.03;
+    // the lower half of the screen lowers the camera: at the bottom edge you stand by the canal, looking up into the vault
+    const dt0 = clamp(-mouse.ty / 0.85, 0, 1);
+    drop += (dt0 * dt0 * (3 - 2 * dt0) - drop) * 0.022;
+    const camY = CAM.y + (STREET.y - CAM.y) * drop, camX = CAM.x + (STREET.x - CAM.x) * drop;
     // a tripod in a light breeze: the frame barely moves
-    camera.position.set(CAM.x + mouse.x * 5 + Math.sin(t * 0.13) * 0.6, CAM.y + mouse.y * 1.6 + Math.sin(t * 0.21) * 0.2, CAM.z);
-    camera.lookAt(target.x + mouse.x * 3, target.y + mouse.y * 2 + Math.sin(t * 0.17) * 0.3, target.z);
+    camera.position.set(camX + mouse.x * 5 * (1 - drop * 0.6) + Math.sin(t * 0.13) * 0.6, camY + Math.max(0, mouse.y) * 1.6 + Math.sin(t * 0.21) * 0.2 * (1 - drop * 0.7), CAM.z);
+    camera.lookAt(target.x + mouse.x * 3, target.y + (STREET.ly - target.y) * drop + Math.max(0, mouse.y) * 2 + Math.sin(t * 0.17) * 0.3, target.z);
+    moteU.uBox0.value.set(camera.position.x - 60, camera.position.y - 30, CAM.z - 150);
     sky.position.copy(camera.position);
 
     for (const c of cables) {
@@ -922,6 +976,8 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     camera.updateMatrixWorld();
     horizon.set(camera.position.x, 0, camera.position.z - 2600).project(camera);
     post.U.uHorizon.value = horizon.y * 0.5 + 0.5;
+    horizon.copy(camera.position).addScaledVector(SUN_DIR, 1000).project(camera);
+    post.U.uSunUV.value.set(horizon.x * 0.5 + 0.5, horizon.y * 0.5 + 0.5);
     post.U.uTime.value = t;
     post.render(scene, camera);
   }
@@ -939,14 +995,16 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   io.observe(canvasEl);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
   if (reduced) frame(0.016); else raf = requestAnimationFrame((n) => { last = n; loop(n); });
-  return { renderer, frame, scene, camera, SU, stats: { boxes: boxes.length, trees: trees.length, blobs: nBlobs, shrubs: nShrubs, arches: archGeos.length, vines: vines.length } };
+  const setDrop = (v) => { drop = v; mouse.ty = mouse.y = -0.85 * v; };   // for screenshots: jump to a height without the easing
+  return { renderer, frame, setDrop, scene, camera, SU, stats: { boxes: boxes.length, trees: trees.length, blobs: nBlobs, shrubs: nShrubs, arches: archGeos.length, vines: vines.length } };
 }
 
 // ---------------------------------------------------------------- composite: heat shimmer, ACES, warm grade, lens
 const COMP_FRAG = /* glsl */`
 uniform sampler2D tScene, tBloom;
 uniform vec2 uRes;
-uniform float uTime, uExposure, uBloom, uHorizon;
+uniform float uTime, uExposure, uBloom, uHorizon, uRays;
+uniform vec2 uSunUV;
 varying vec2 vUv;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
@@ -972,11 +1030,21 @@ void main(){
   vec2 ca = q * dot(q, q) * 0.006;
   vec3 col = vec3(texture2D(tScene, uv - ca).r, texture2D(tScene, uv).g, texture2D(tScene, uv + ca).b);
   col += texture2D(tBloom, uv).rgb * uBloom;
+  // crepuscular rays: march toward the sun and gather the blazing sky between towers, arches and vines
+  vec2 dl = (uSunUV - uv) / 64.;
+  vec2 sp = uv + dl * 0.5;
+  float acc = 0., dec = 1.;
+  for (int i = 0; i < 64; i++) {
+    vec2 c = clamp(sp, 0.001, 0.999);
+    acc += smoothstep(1.4, 5.0, dot(texture2D(tScene, c).rgb, vec3(0.3, 0.5, 0.2))) * dec;
+    dec *= 0.972; sp += dl;
+  }
+  col += vec3(1.0, 0.66, 0.36) * acc / 64. * uRays * 1.5;
   vec3 c = toSRGB(aces(col));
   float l = dot(c, vec3(0.299, 0.587, 0.114));
   c += vec3(-0.010, 0.004, 0.006) * (1.0 - l) * (1.0 - l);   // cool green in the deep shade
   c += vec3(0.03, 0.012, -0.03) * l * l;                     // warm, bleached highlights
-  c = mix(c, c * c * (3.0 - 2.0 * c), 0.12);
+  c = mix(c, c * c * (3.0 - 2.0 * c), 0.3);
   float vig = smoothstep(1.1, 0.3, length(q * vec2(1.0, 1.15)));
   c *= mix(0.72, 1.0, vig);
   c += (h21(vUv * uRes + fract(uTime * 7.31) * 113.) - 0.5) * 0.014;
