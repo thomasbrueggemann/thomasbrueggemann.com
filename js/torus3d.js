@@ -2,8 +2,10 @@
 // gives about 1 g on the floor inside. The tube is glazed from the edges of the land round over the top, the inner
 // face and the bottom, so you look in on a dense, green city: a river round the whole ring with a monorail over it,
 // boats and people on the promenades, quarters of mid-rise blocks with roof gardens, parks, and terraced houses
-// climbing the sides of the valley to the glass. Earth and Moon swing past in the background as the station orbits;
-// a shuttle comes in to the hub now and then. Drag to orbit, scroll or pinch to zoom: from afar you watch the whole
+// climbing the sides of the valley to the glass. The station orbits Earth some 8,000 km up, in an orbit that never
+// enters Earth's shadow: every four minutes the planet rolls through the background, a quarter of the sky across and
+// always half lit, day on one side of the terminator and city lights on the other; the Moon is a small disc at its
+// true size that Earth swallows as it passes. A shuttle comes in to the hub now and then. Drag to orbit, scroll or pinch to zoom: from afar you watch the whole
 // wheel turn; close in, the camera rides along with the spin, so the city holds still and the stars wheel past.
 // Everything is procedural and seeded, the same on every load. Only dependency: three.js.
 
@@ -31,7 +33,21 @@ const RF = R + F0;                         // the floor's radius at the valley's
 const OMEGA = TAU / 60;                    // one turn a minute
 const PSI_GLASS = 65 * Math.PI / 180;      // the tube is glass from here round the top, the inner face and the bottom
 const TERR = { s0: 66, step: 7 };          // terraces from |s| = 66 m out to the glass
-const SUN = new THREE.Vector3(0.42, 0.62, 0.66).normalize();
+// the opening view (azimuth and elevation of the camera round the station); the sun stands off to its right
+const VIEW0 = { az: 1.18, el: 0.7 };
+const E_ANG = 26 * Math.PI / 180;            // Earth's angular radius from 8,000 km up
+const E_PERIOD = 240;                        // seconds per orbit (the real one takes four and a half hours)
+const { SUN, ORBIT_U, ORBIT_W, MOON_DIR } = (() => {
+  const { az, el } = VIEW0;
+  const d = new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+  const V = d.clone().negate(), right = new THREE.Vector3(Math.sin(az), 0, -Math.cos(az)), up = new THREE.Vector3().crossVectors(right, V);
+  const sun = right.clone().multiplyScalar(0.72).addScaledVector(up, 0.55).addScaledVector(d, 0.1).normalize();
+  // a dawn-dusk orbit: its plane is square to the sun, so Earth is always seen half lit and never eclipses the station.
+  // In the opening view Earth rises from the lower right, passes behind the wheel and sets at the upper left.
+  const u = V.clone().addScaledVector(sun, -V.dot(sun)).normalize(), w = new THREE.Vector3().crossVectors(sun, u);
+  const moon = V.clone().addScaledVector(right, Math.tan(-0.38)).addScaledVector(up, Math.tan(0.25)).normalize();
+  return { SUN: sun, ORBIT_U: u, ORBIT_W: w, MOON_DIR: moon };
+})();
 const floorF = (s) => { const k = (s / SMAX) ** 2; return F0 - FDIP * k * k; };
 const wallF = (s) => Math.sqrt(Math.max(0, RT * RT - s * s));
 const landF = (s) => {
@@ -50,7 +66,7 @@ const BLVD = 46;                           // a boulevard runs 46 m out from eac
 // ---------------------------------------------------------------- GLSL shared by everything on the station
 const GLSL_COMMON = /* glsl */`
 uniform float uTime;
-uniform vec3 uSunL, uCamL;          // the sun's direction and the camera, in the station's own spinning frame
+uniform vec3 uSunL, uCamL, uEarthL; // the sun's direction, the camera and the direction to Earth, in the station's own spinning frame
 uniform mat4 uInvSt;                // world -> station frame
 const float RR = ${R}., RT = ${RT}., SMAX = ${SMAX}, F0 = ${F0}., FDIP = ${FDIP}, RF = ${RF}.;
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -70,6 +86,9 @@ vec3 upAt(vec3 p){ return -normalize(vec3(p.x, 0., p.z)); }
 // light inside: daylight let in through the glass vault, mostly from overhead, a little from one side
 vec3 lightAt(vec3 p){ vec3 up = upAt(p); return normalize(up * .7 + vec3(0., .55, 0.) + vec3(up.z, 0., -up.x) * .35); }
 const vec3 LCOL = vec3(2.3, 2.12, 1.82), SKYC = vec3(.24, .30, .39), BOUNCE = vec3(.08, .09, .05), AIR = vec3(.46, .58, .74);
+// what a mirror facing along r sees of Earth: its disc, day on the sun side of the terminator
+vec3 earthSeen(vec3 r){ float c = dot(r, uEarthL); if (c < ${Math.cos(E_ANG).toFixed(4)}) return vec3(0.);
+  return mix(vec3(.002, .004, .01), vec3(.09, .13, .22), smoothstep(-.04, .06, dot(r - uEarthL * c, uSunL))); }
 float sdTube(vec3 p){ return length(vec2(length(p.xz) - RR, p.y)) - RT; }
 // how much air the view ray crossed inside the tube before reaching p: trace back toward the camera to the glass
 float airPath(vec3 p, float t){ vec3 rd = normalize(uCamL - p);
@@ -159,24 +178,31 @@ void main(){
     float lit = step(.72, hash12(floor(c) + seed * 17.));
     vec3 glass = mix(vec3(.05, .07, .08), AIR * .35, .4) + vec3(1., .78, .5) * lit * .25;
     col = mix(base, glass, win);
-    float greenF = step(.5, fract(seed * 3.7));
+    float greenF = step(.45, fract(seed * 3.7));
     float planter = greenF * step(f.y, .24) * step(.5, fract(c.y * .5)) * step(.25, vnoise(c * vec2(1.3, .7) + seed));
     vec3 leaf = mix(vec3(.035, .09, .02), vec3(.09, .17, .035), vnoise(g * 1.3));
     col = mix(col, leaf, planter);
-    float vine = smoothstep(.15, .05, g.y / 30. - vnoise(vec2(g.x * .3, seed * 9.)) * .9 - .1) * greenF;
-    col = mix(col, leaf * (.7 + .5 * vnoise(g * 2.3)), vine * smoothstep(.5, .65, vnoise(g * vec2(.25, .12) + seed * 3.)));
+    // vines: strands climbing from the ground to a ragged height
+    float reach = 3. + 22. * vnoise(vec2(g.x * .12, seed * 5.)) * vnoise(vec2(g.x * .5, seed * 9.));
+    float vine = smoothstep(.5, .7, vnoise(vec2(g.x * .8, seed * 7.))) * smoothstep(reach, reach - 2.5, g.y + vnoise(g * 1.7) * 2.) * greenF;
+    col = mix(col, leaf * (.7 + .5 * vnoise(g * 2.3)), vine);
     vec3 avg = mix(mix(base, glass, .31), leaf, (planter > 0. ? .2 : .1) * greenF);
     col = mix(col, avg, aa);
     emis = vec3(1., .72, .42) * .35 * win * lit * (1. - aa);
     ao = smoothstep(-2., 12., g.y) * .7 + .3;
   } else if (kind < 1.5 || kind > 2.5) {
-    // roof garden: lawn and beds, shrubs, a paved path; or a paved terrace edged with planters
-    float nz = vnoise(g * .45 + seed * 11.), shrub = smoothstep(.55, .7, vnoise(g * .7 + seed * 23.));
-    col = mix(vec3(.035, .085, .02), vec3(.09, .15, .04), nz);
-    col = mix(col, vec3(.02, .05, .012), shrub);
-    col = mix(col, vec3(.42, .39, .34), step(abs(fract(g.x / 7. + seed) - .5), .07));
-    float terr = step(.6, fract(seed * 9.1)) * step(kind, 1.5);
-    col = mix(col, mix(vec3(.46, .43, .38) * (.9 + .2 * hash12(floor(g / 1.2))), vec3(.04, .1, .025), shrub * .8), terr);
+    // roof gardens: planted beds on a grid with paths between, a plain lawn, or a paved terrace with planter strips
+    float ty = fract(seed * 9.1), cs = 3.2;
+    vec2 cell = floor(g / cs), f = fract(g / cs);
+    float hb = hash12(cell + seed * 13.);
+    float aa = smoothstep(.25, .7, max(fwidth(g.x), fwidth(g.y)) / cs);
+    vec3 leafy = mix(vec3(.03, .07, .018), vec3(.075, .13, .032), vnoise(g * 2.2 + seed * 7.)) * (.8 + .4 * hb);
+    vec3 pave = vec3(.40, .38, .34) * (.9 + .15 * hash12(floor(g / .8)));
+    float bed = ty < .45 ? step(.25, hb) * step(.12, f.x) * step(f.x, .88) * step(.12, f.y) * step(f.y, .88)
+              : ty < .8 ? 1. - step(abs(fract(g.x / 9. + seed) - .5), .05)
+              : step(abs(fract(g.y / 4.) - .5), .14);
+    float avgBed = ty < .45 ? .45 : ty < .8 ? .9 : .28;
+    col = mix(mix(pave, leafy, bed), mix(pave, leafy * .9, avgBed), aa);
     if (kind > 2.5) col = mix(col, vec3(.55, .28, .20), step(.6, fract(seed * 5.3)));        // some terrace houses keep a tiled roof
   } else {
     // solar roof
@@ -308,11 +334,12 @@ void main(){
   vec2 g = vec2(th / 6.2831853 * 480., psi / 6.2831853 * 48.);
   vec2 fw = fwidth(g);
   float frame = max(line(g.x, .018, fw.x), line(g.y, .022, fw.y)) * .8;
-  frame = max(frame, max(line(g.x / 4., .012, fw.x / 4.), line(g.y / 2., .02, fw.y / 2.)));   // the heavier main frames
+  frame = max(frame, max(line(g.x / 4., .008, fw.x / 4.), line(g.y / 2., .014, fw.y / 2.)));   // the heavier main frames
   float ndl = max(dot(n, uSunL), 0.);
   float fr = .04 + .96 * pow(1. - max(dot(n, V), 0.), 5.);
-  vec3 refl = vec3(.004, .006, .01) + vec3(5., 4.8, 4.5) * pow(max(dot(reflect(-V, n), uSunL), 0.), 4000.) * 12.;
-  vec3 metal = vec3(.07, .075, .08) * (vec3(3.4, 3.25, 3.0) * ndl + vec3(.03, .035, .05)) + AIR * .03;
+  vec3 R = reflect(-V, n);
+  vec3 refl = vec3(.004, .006, .01) + earthSeen(R) + vec3(5., 4.8, 4.5) * pow(max(dot(R, uSunL), 0.), 4000.) * 12.;
+  vec3 metal = vec3(.16, .165, .17) * (vec3(3.4, 3.25, 3.0) * ndl + vec3(.03, .035, .05) + LCOL * .12 * max(dot(n, -upAt(p)), 0.)) + AIR * .04;
   float a = mix(clamp(fr + .05, 0., 1.), .97, frame);
   vec3 c = mix(refl * fr / max(fr + .05, 1e-3) + AIR * .06, metal, frame);
   gl_FragColor = vec4(c, a);
@@ -368,7 +395,9 @@ void main(){
   }
   float ndl = max(dot(n, uSunL), 0.);
   vec3 H = normalize(uSunL + V);
-  vec3 c = alb * (vec3(3.4, 3.25, 3.0) * ndl + vec3(.02, .025, .04)) + vec3(3.4, 3.25, 3.0) * pow(max(dot(n, H), 0.), 60.) * .1 * ndl + emis;
+  // sunlight, a little earthshine from the planet's day side, a hard metallic highlight
+  vec3 c = alb * (vec3(3.4, 3.25, 3.0) * ndl + vec3(.012, .015, .025) + vec3(.07, .10, .16) * max(dot(n, uEarthL), 0.))
+    + vec3(3.4, 3.25, 3.0) * pow(max(dot(n, H), 0.), 60.) * .1 * ndl + earthSeen(reflect(-V, n)) * .25 + emis;
   gl_FragColor = vec4(c, 1.);
 }`;
 
@@ -432,47 +461,66 @@ float fbm3(vec3 p, int oct){ float s = 0., a = .5, t = 0.; for (int i = 0; i < 7
 vec3 spin(vec3 n, float a, float tilt){ float c = cos(a), s = sin(a); n = vec3(c * n.x + s * n.z, n.y, -s * n.x + c * n.z);
   float ct = cos(tilt), st = sin(tilt); return vec3(n.x, ct * n.y - st * n.z, st * n.y + ct * n.z); }
 `;
+// Earth from 8,000 km: warped-noise continents with ragged coasts, biomes by latitude and moisture, mountains with
+// snow, shallow shelves, cloud bands (storm tracks, the tropics, clear subtropics) with cumulus texture, the sun's glint,
+// a thin blue atmosphere thickening to the limb, a red twilight band at the terminator, and cities on the night side
 const EARTH_FRAG = /* glsl */`
 uniform vec3 uSunW; uniform float uSpin, uTime;
 varying vec3 vN, vW;
 ${NOISE3}
+float clouds(vec3 cq, float lat, int oct){
+  vec3 cw = cq * 1.8 + (vec3(fbm3(cq * 2.3, 3), fbm3(cq * 2.3 + 2.1, 3), fbm3(cq * 2.3 + 7.3, 3)) - .5) * 1.4;
+  float base = fbm3(cw, 3), det = fbm3(cw * 5.5 + 3.3, oct), cell = n3(cq * 90.) * .6 + n3(cq * 210.) * .4;
+  float band = .12 * exp(-pow(lat / .1, 2.)) + .1 * exp(-pow((lat - .62) / .16, 2.)) - .16 * exp(-pow((lat - .3) / .1, 2.));
+  float d = base * .4 + det * .7 + band * .7 + (cell - .5) * .12 - .07;
+  return smoothstep(.55, .66, d) * (.55 + .45 * smoothstep(.55, .8, d)) * (.75 + .25 * cell);
+}
 void main(){
-  vec3 n = normalize(vN), V = normalize(cameraPosition - vW);
+  vec3 n = normalize(vN), V = normalize(cameraPosition - vW), S = uSunW;
   vec3 q = spin(n, uSpin, .41);
-  // continents and seas, with ragged coasts
-  vec3 w = q * 1.6 + (vec3(n3(q * 2.1), n3(q * 2.1 + 5.2), n3(q * 2.1 + 9.4)) - .5) * .8;
-  float c = fbm3(w, 7);
-  float land = smoothstep(.538, .546, c);
   float lat = abs(q.y);
-  float dry = smoothstep(.48, .66, n3(q * 3.1 + 4.)) * smoothstep(.5, .15, abs(lat - .35));
-  float tex = fbm3(q * 24., 4);
-  vec3 lc = mix(vec3(.025, .055, .018), vec3(.075, .085, .035), smoothstep(.35, .7, tex));
-  lc = mix(lc, mix(vec3(.30, .21, .11), vec3(.42, .33, .20), tex), dry);
-  float hi = smoothstep(.6, .7, c);                                            // mountains: paler, browner
-  lc = mix(lc, vec3(.18, .15, .12), hi * .6);
-  vec3 sea = mix(vec3(.003, .009, .03), vec3(.006, .028, .055), smoothstep(.50, .538, c));
-  float ice = smoothstep(.9, .94, lat + (n3(q * 8.) - .5) * .1);
-  vec3 alb = mix(mix(sea, lc, land), vec3(.75, .78, .82), ice);
-  // clouds: broad weather systems, torn into streaks and curls
-  vec3 cq = spin(n, uSpin * 1.15 + uTime * .002, .41);
-  vec3 cw = cq * 2. + (vec3(n3(cq * 4.), n3(cq * 4. + 2.), n3(cq * 4. + 7.)) - .5) * .9;
-  float big = fbm3(cq * 1.4 + 11., 3), det = fbm3(cw * 3.2, 6);
-  float cl = smoothstep(.5, .78, det * .7 + big * .5 - .2) * .9;
-  float ndl = dot(n, uSunW);
-  float day = smoothstep(-.08, .15, ndl);
-  vec3 sunC = mix(vec3(1., .45, .2), vec3(1.), smoothstep(-.02, .35, ndl)) * 3.;
-  vec3 col = mix(alb, vec3(.78, .80, .83), cl) * sunC * max(ndl, 0.) * day;
-  // the sun's glint on open sea
-  vec3 H = normalize(uSunW + V);
-  col += sunC * pow(max(dot(n, H), 0.), 140.) * (1. - land) * (1. - cl) * .7 * day;
-  // cities on the night side
-  float city = smoothstep(.6, .8, n3(q * 80.)) * smoothstep(.45, .65, n3(q * 9.)) * land * (1. - ice);
-  col += vec3(1., .62, .28) * city * (1. - day) * (1. - cl * .85) * .35;
-  // the atmosphere: blue haze over the day side, thick at the limb
-  float mu = max(dot(n, V), 0.);
-  float rim = pow(1. - mu, 2.5);
-  float litA = smoothstep(-.25, .3, ndl);
-  col = col * (1. - rim * .5) + vec3(.10, .24, .62) * (rim * 1.4 + .06) * litA * 1.3;
+  // land and sea
+  vec3 wq = q * 1.25;
+  vec3 warp = vec3(fbm3(wq * 1.9, 4), fbm3(wq * 1.9 + 5.2, 4), fbm3(wq * 1.9 + 9.4, 4)) - .5;
+  float c = fbm3(wq + warp * .85, 8);
+  const float COAST = .535;
+  float land = smoothstep(COAST, COAST + .003, c), elev = clamp((c - COAST) / .18, 0., 1.);
+  float moist = fbm3(q * 2.4 + 4., 5);
+  float dry = smoothstep(.5, .66, (1. - moist) * .75 + .45 * exp(-pow((lat - .37) / .13, 2.)) - .2 * exp(-pow(lat / .12, 2.)));
+  float tex = fbm3(q * 40., 4);
+  vec3 forest = mix(vec3(.018, .042, .014), vec3(.035, .06, .02), smoothstep(.3, .7, tex));
+  vec3 plain = vec3(.07, .075, .035) * (.8 + .4 * tex);
+  vec3 desert = mix(vec3(.30, .20, .10), vec3(.46, .36, .22), smoothstep(.3, .75, fbm3(q * 22. + 3., 4)));
+  vec3 lc = mix(forest, plain, smoothstep(.45, .7, moist * .4 + lat * .9));
+  lc = mix(lc, desert, dry);
+  lc = mix(lc, vec3(.12, .10, .08), smoothstep(.45, .8, elev) * .7);                 // bare mountains
+  lc = mix(lc, vec3(.7, .72, .75), smoothstep(.75, .9, elev + lat * .25) * .9);        // snow on the highest
+  vec3 sea = mix(vec3(.002, .007, .022), vec3(.006, .03, .05), smoothstep(COAST - .03, COAST, c));
+  float ice = smoothstep(.9, .93, lat + (fbm3(q * 14., 4) - .5) * .1);
+  vec3 alb = mix(mix(sea, lc, land), vec3(.6, .64, .7) * (.75 + .35 * tex), ice);
+  // clouds, and their shadows a little way off from the sun
+  vec3 cq = spin(n, uSpin + uTime * .0005, .41);
+  float cl = clouds(cq, lat, 5);
+  vec3 tS = S - n * dot(S, n);
+  float sh = clouds(spin(normalize(n - tS * .006), uSpin + uTime * .0005, .41), lat, 2);
+  float ndl = dot(n, S), mu = max(dot(n, V), 0.);
+  float day = smoothstep(-.03, .12, ndl);
+  vec3 sunC = mix(vec3(1., .42, .16), vec3(1., .98, .95), smoothstep(0., .1, ndl)) * 3.;
+  vec3 col = alb * (1. - sh * .45 * (1. - cl)) * sunC * max(ndl, 0.);
+  col = mix(col, vec3(.8, .81, .84) * sunC * max(ndl + .03, 0.) * smoothstep(-.05, .1, ndl), cl);
+  // the glint on open water
+  vec3 H = normalize(S + V);
+  float nh = max(dot(n, H), 0.);
+  col += sunC * (pow(nh, 400.) * .8 + pow(nh, 40.) * .03) * (1. - land) * (1. - ice) * (1. - cl) * day;
+  // cities at night, mostly near coasts, none in deserts or ice
+  float city = smoothstep(.55, .75, n3(q * 26.)) * (smoothstep(.62, .9, n3(q * 420.)) + .25 * smoothstep(.5, .8, n3(q * 120.))) * land * (1. - dry * .85) * (1. - ice) * (1. - elev * .8);
+  col += vec3(1., .62, .28) * city * (1. - day) * (1. - cl * .85) * .5;
+  // the atmosphere: in-scattered blue that thickens toward the limb, extinction, and twilight over the terminator
+  float path = 1. / max(mu, .03);
+  float lit = smoothstep(-.12, .25, ndl);
+  col *= exp(-.02 * path);
+  col += vec3(.06, .14, .38) * (1. - exp(-.035 * path)) * lit * 1.4;
+  col += vec3(.7, .28, .08) * exp(-pow(ndl / .06, 2.)) * (1. - exp(-.03 * path)) * .9;
   gl_FragColor = vec4(col, 1.);
 }`;
 const HALO_FRAG = /* glsl */`
@@ -484,8 +532,9 @@ void main(){
   vec3 cp = cameraPosition + rd * tca;
   float b = length(cp - uEC), x = (b - uER) / uER;
   if (x < 0.) discard;
-  float lit = smoothstep(-.4, .5, dot(normalize(cp - uEC), uSunW));
-  gl_FragColor = vec4(vec3(.25, .5, 1.) * exp(-x / .016) * lit * 1.6, 1.);
+  float lit = smoothstep(-.15, .35, dot(normalize(cp - uEC), uSunW));
+  float tw = exp(-pow(dot(normalize(cp - uEC), uSunW) / .12, 2.));                 // the twilight arc over the terminator
+  gl_FragColor = vec4((vec3(.22, .45, 1.) * lit + vec3(.9, .4, .15) * tw * .5) * exp(-x / .007) * 2. + vec3(.05, .25, .1) * exp(-x / .002) * (1. - lit) * .15, 1.);
 }`;
 const MOON_FRAG = /* glsl */`
 uniform vec3 uSunW; uniform float uSpin;
@@ -561,7 +610,7 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
   const station = new THREE.Group();
   scene.add(station);
 
-  const SU = { uTime: { value: 0 }, uSunL: { value: SUN.clone() }, uCamL: { value: new THREE.Vector3() }, uInvSt: { value: new THREE.Matrix4() } };
+  const SU = { uTime: { value: 0 }, uSunL: { value: SUN.clone() }, uCamL: { value: new THREE.Vector3() }, uEarthL: { value: new THREE.Vector3(0, -1, 0) }, uInvSt: { value: new THREE.Matrix4() } };
   const mat = (vert, frag, { uniforms = {}, ...rest } = {}) => new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: frag, uniforms: { ...SU, ...uniforms }, ...rest });
   const add = (geo, m, order = 0) => { const o = geo.isObject3D ? geo : new THREE.Mesh(geo, m); o.frustumCulled = false; o.renderOrder = order; station.add(o); return o; };
 
@@ -827,23 +876,22 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
   }));
   sky.renderOrder = -2; sky.frustumCulled = false; scene.add(sky);
   const bodyU = { uSunW: SKY.uSunW, uTime: SU.uTime };
-  const earthU = { ...bodyU, uSpin: { value: 0 } }, moonU = { ...bodyU, uSpin: { value: 2.1 } };
+  const earthU = { ...bodyU, uSpin: { value: 2.3 } }, moonU = { ...bodyU, uSpin: { value: 2.1 } };
   const sphere = new THREE.SphereGeometry(1, 160, 80);
   const earth = new THREE.Mesh(sphere, new THREE.ShaderMaterial({ vertexShader: BODY_VERT, fragmentShader: EARTH_FRAG, uniforms: earthU }));
   const moon = new THREE.Mesh(sphere, new THREE.ShaderMaterial({ vertexShader: BODY_VERT, fragmentShader: MOON_FRAG, uniforms: moonU }));
   const haloU = { uSunW: SKY.uSunW, uEC: { value: new THREE.Vector3() }, uER: { value: 1 } };
   const halo = new THREE.Mesh(sphere, new THREE.ShaderMaterial({ vertexShader: BODY_VERT, fragmentShader: HALO_FRAG, uniforms: haloU, side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
   [earth, moon, halo].forEach((m) => { m.frustumCulled = false; scene.add(m); });
-  // the station orbits: Earth comes round every 150 s, low in the sky; the Moon every 110 s, higher, the other way
-  const E_D = 15000, E_R = E_D * Math.sin(THREE.MathUtils.degToRad(12.5)), M_D = 19000, M_R = M_D * Math.sin(THREE.MathUtils.degToRad(5));
-  const E_EL = THREE.MathUtils.degToRad(-44), M_EL = THREE.MathUtils.degToRad(-23);
-  const bodyDir = (el, az, out) => out.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+  // both are drawn round the camera, far enough out that only their angular sizes matter: Earth 52° across, the Moon 0.7°
+  const E_D = 15000, E_R = E_D * Math.sin(E_ANG), M_D = 19000, M_R = M_D * Math.sin(THREE.MathUtils.degToRad(0.36));
+  const E_PHI0 = reduced ? -0.12 : -0.8;                    // Earth's limb is already in the corner of the opening view
+  const earthDir = (t, out) => { const ph = E_PHI0 + t / E_PERIOD * TAU; return out.copy(ORBIT_U).multiplyScalar(Math.cos(ph)).addScaledVector(ORBIT_W, Math.sin(ph)); };
 
   // ---- the view: orbit (az, el) round a target that slides from the station's centre (far) to the land on the far side of the ring (close)
   const LN_FAR = Math.log(7000), LN_NEAR = Math.log(190);
-  const AZ0 = 1.18, EL0 = 0.7, Z0 = 0.31;
+  const AZ0 = VIEW0.az, EL0 = VIEW0.el, Z0 = 0.31;
   let az = AZ0, el = EL0, zoom = Z0, azT = az, elT = el, zoomT = zoom;
-  const E_AZ0 = AZ0 + Math.PI - 0.95, M_AZ0 = AZ0 + Math.PI + 2.6;     // Earth comes into view soon after load, the Moon a little later
   const target = new THREE.Vector3(), dir = new THREE.Vector3(), tmp = new THREE.Vector3(), inv = new THREE.Matrix4();
   function place(dt) {
     const k = dt > 0 ? 1 - Math.exp(-dt * 6) : 1;
@@ -938,12 +986,11 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     }
 
     sky.position.copy(camera.position);
-    const eAz = E_AZ0 + t / 150 * TAU, mAz = M_AZ0 - t / 110 * TAU;
-    bodyDir(E_EL, eAz, tmp); earth.position.copy(camera.position).addScaledVector(tmp, E_D); earth.scale.setScalar(E_R);
-    halo.position.copy(earth.position); halo.scale.setScalar(E_R * 1.08);
+    earthDir(t, tmp); earth.position.copy(camera.position).addScaledVector(tmp, E_D); earth.scale.setScalar(E_R);
+    SU.uEarthL.value.copy(tmp).transformDirection(inv);
+    halo.position.copy(earth.position); halo.scale.setScalar(E_R * 1.04);
     haloU.uEC.value.copy(earth.position); haloU.uER.value = E_R;
-    bodyDir(M_EL, mAz, tmp); moon.position.copy(camera.position).addScaledVector(tmp, M_D); moon.scale.setScalar(M_R);
-    earthU.uSpin.value = t * 0.004;
+    moon.position.copy(camera.position).addScaledVector(MOON_DIR, M_D); moon.scale.setScalar(M_R);
     SKY.uPx.value = pxPerRad();
 
     post.U.uTime.value = t;

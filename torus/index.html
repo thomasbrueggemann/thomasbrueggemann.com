@@ -33,13 +33,26 @@
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
+    <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
     <button id="out" class="sq" type="button" title="Zoom out (−)" aria-label="Zoom out">−</button>
     <button id="in" class="sq" type="button" title="Zoom in (+)" aria-label="Zoom in">+</button>
   </nav>
   <script type="module">
     import { startTorus3D } from "../js/torus3d.js";
+    import { createTorusAudio } from "../js/torus-audio.js";
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const torus = window.__torus = startTorus3D(document.getElementById("torus"), { reduced });
+
+    let audio = null;
+    const snd = document.getElementById("snd");
+    const setSound = async (v) => {
+      audio ||= createTorusAudio();
+      await audio.set(v);
+      snd.textContent = "Sound: " + (v ? "on" : "off");
+      snd.setAttribute("aria-pressed", String(v));
+    };
+    snd.onclick = () => setSound(!(audio && audio.on));
+    setInterval(() => { if (audio?.on) audio.near = torus.zoom; }, 250);     // closer in, the machinery and the groans come nearer
 
     document.getElementById("in").onclick = () => torus.zoomBy(0.12);
     document.getElementById("out").onclick = () => torus.zoomBy(-0.12);
@@ -50,6 +63,7 @@
     document.addEventListener("fullscreenchange", () => { fs.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"; });
     addEventListener("keydown", (e) => {
       if (e.key === "f" || e.key === "F") toggleFs();
+      if (e.key === "m" || e.key === "M") snd.click();
       if (e.key === "+" || e.key === "=") torus.zoomBy(0.08);
       if (e.key === "-" || e.key === "_") torus.zoomBy(-0.08);
     });
