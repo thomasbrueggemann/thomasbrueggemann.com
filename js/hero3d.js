@@ -261,7 +261,7 @@ function makePost(renderer) {
     let mw = w >> 1, mh = h >> 1;
     for (let i = 0; i < W.length && mw >= 4 && mh >= 4; i++, mw >>= 1, mh >>= 1) mips.push(new THREE.WebGLRenderTarget(mw, mh, opts));
     norm = 0; for (let i = 0; i < mips.length; i++) norm += W[i];
-    compU.uRes.value.set(w, h); compU.tScene.value = sceneRT.texture; compU.tBloom.value = mips[0].texture;
+    compU.uRes.value.set(w, h); compU.tScene.value = sceneRT.texture; compU.tBloom.value = mips[0]?.texture;
   }
   const pass = (m, target) => { quad.material = m; renderer.setRenderTarget(target); renderer.render(quad, cam); };
   function render(scene, camera) {
