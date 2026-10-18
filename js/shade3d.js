@@ -583,7 +583,7 @@ ${GLSL_REFL}
 // what a car body mirrors: the sky through the canopy, broken by leaves, and below the horizon the dark road and trees
 vec3 vEnv(vec3 r){
   vec3 c = skyRefl(r);
-  c = mix(c, vec3(0.02, 0.032, 0.014), smoothstep(0.12, 0.45, r.y) * 0.8 * smoothstep(0.35, 0.6, vnoise(r.xz / max(r.y, 0.08) * 2.5)));
+  c = mix(c, vec3(0.02, 0.032, 0.014), smoothstep(0.12, 0.45, r.y) * 0.55 * smoothstep(0.35, 0.6, vnoise(r.xz / max(r.y, 0.08) * 2.5)));
   return mix(c, vec3(0.022, 0.026, 0.02), smoothstep(0.0, -0.05, r.y));
 }
 float box2(vec2 p, vec2 a, vec2 b, float w){ vec2 s = smoothstep(a - w, a + w, p) * (1. - smoothstep(b - w, b + w, p)); return s.x * s.y; }`,
@@ -685,7 +685,7 @@ float box2(vec2 p, vec2 a, vec2 b, float w){ vec2 s = smoothstep(a - w, a + w, p
   float fres = 0.04 + 0.96 * pow(1. - max(dot(N0, V), 0.), 5.);
   vec3 env = vEnv(R0);
   emis = env * mix(vec3(fres) * 0.8, paint * 0.6 + fres * 0.5, metallic) * (1. - trim) * (1. - gls) * (1. - lamp);   // clear coat over the paint
-  emis += env * (0.06 + 0.94 * fres) * gls + env * fres * 0.4 * lamp;                                 // glass, lamp covers
+  emis += env * (0.1 + 0.9 * fres) * gls + env * fres * 0.4 * lamp;                                 // glass, lamp covers
   emis += vec3(0.012, 0.011, 0.01) * gls * (1. - fres) * smoothstep(belt + 0.5, belt + 0.1, p.y);    // seats and headrests behind the glass
   emis += em;`,
 };
@@ -980,6 +980,7 @@ function cardShell(n, size, seed) {
 export function startShade3D(canvasEl, { reduced = false } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: false, powerPreference: "high-performance" });
   let pr = Math.min(window.devicePixelRatio || 1, 1.5);
+  const LITE = matchMedia("(pointer: coarse)").matches;    // phones and tablets: leaf cards, leafy vines and grass reach less far
   renderer.setPixelRatio(pr);
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.shadowMap.enabled = true;
@@ -1546,7 +1547,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     // a smooth closed loft along x: at every station a superellipse ring (exponent p) from bottom to top, narrowing toward
     // the top by `tumble`; stations [x, bottom, top, half width] are resampled and smoothed so the body has no kinks
     const P = [], A = [], I = [];
-    const loft = (pts, p, tumble, part, n = 34, ns = 28) => {
+    const loft = (pts, p, tumble, part, n = 26, ns = 22) => {
       let st = [];
       for (let i = 0; i < n; i++) {
         const x = pts[0][0] + (pts[pts.length - 1][0] - pts[0][0]) * i / (n - 1);
@@ -1582,32 +1583,32 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
       g.computeVertexNormals(); P.length = A.length = I.length = 0;
       return g;
     };
-    const mirrors = (x, y, hw) => { for (const s of [-1, 1]) block(x - 0.12, y, s * hw - 0.02 + (s > 0 ? 0 : -0.2), x + 0.04, y + 0.13, s * hw + 0.02 + (s > 0 ? 0.2 : 0), 0); };
+    const mirrors = (x, y, hw) => { for (const s of [-1, 1]) { block(x - 0.12, y + 0.03, s * hw - 0.02 + (s > 0 ? 0 : -0.15), x + 0.03, y + 0.14, s * hw + 0.02 + (s > 0 ? 0.15 : 0), 0); block(x - 0.06, y, s * hw - 0.03 + (s > 0 ? 0 : -0.06), x + 0.01, y + 0.04, s * hw + 0.03 + (s > 0 ? 0.06 : 0), 2); } };
     // [geometry, uAx (front axle, rear axle, wheel radius, half track), uB (front, rear, belt, kind), uLt (lamp bands), uD (door lines, handle height), length, width, height]
     const TYPES = [];
     const type = (g, ax, b, lt, d, wheelW) => TYPES.push({ g, ax, b, lt, d, wheelW, len: b[0] - b[1], hw: ax[3] + wheelW / 2, hgt: 0 });
     // hatchback
     loft([[-2.02, 0.44, 0.84, 0.70], [-1.96, 0.32, 0.96, 0.85], [-1.8, 0.26, 0.99, 0.89], [-1.3, 0.24, 1.0, 0.9], [0, 0.24, 0.98, 0.9], [1.0, 0.24, 0.94, 0.9], [1.5, 0.25, 0.88, 0.88], [1.85, 0.28, 0.8, 0.84], [1.98, 0.34, 0.72, 0.77], [2.03, 0.42, 0.62, 0.66]], 5, 0.04, 0);
-    loft([[-1.95, 0.84, 0.95, 0.72], [-1.9, 0.84, 1.3, 0.74], [-1.72, 0.84, 1.44, 0.75], [-1.2, 0.84, 1.5, 0.76], [0.1, 0.84, 1.51, 0.76], [0.5, 0.83, 1.46, 0.76], [0.85, 0.82, 1.24, 0.76], [1.12, 0.8, 0.98, 0.75], [1.18, 0.8, 0.86, 0.72]], 4.5, 0.2, 1, 30);
+    loft([[-1.95, 0.84, 0.95, 0.72], [-1.9, 0.84, 1.3, 0.74], [-1.72, 0.84, 1.44, 0.75], [-1.2, 0.84, 1.5, 0.76], [0.1, 0.84, 1.51, 0.76], [0.5, 0.83, 1.46, 0.76], [0.85, 0.82, 1.24, 0.76], [1.12, 0.8, 0.98, 0.75], [1.18, 0.8, 0.86, 0.72]], 4.5, 0.2, 1, 24);
     mirrors(0.95, 0.95, 0.86);
     type(build(), [1.3, -1.27, 0.33, 0.79], [2.03, -2.02, 0.98, 0], [0.68, 0.8, 0.8, 0.92], [0.98, -0.15, -1.3, 0.86], 0.22);
     // saloon
     loft([[-2.4, 0.44, 0.86, 0.72], [-2.33, 0.32, 0.95, 0.86], [-2.1, 0.27, 0.98, 0.9], [-1.4, 0.24, 0.98, 0.92], [0, 0.23, 0.96, 0.92], [1.2, 0.23, 0.92, 0.92], [1.8, 0.24, 0.85, 0.9], [2.2, 0.27, 0.77, 0.86], [2.35, 0.34, 0.7, 0.78], [2.4, 0.42, 0.6, 0.66]], 5, 0.04, 0);
-    loft([[-1.6, 0.82, 0.93, 0.72], [-1.45, 0.82, 1.12, 0.74], [-1.15, 0.82, 1.36, 0.76], [-0.6, 0.82, 1.44, 0.77], [0.25, 0.82, 1.44, 0.77], [0.75, 0.81, 1.3, 0.77], [1.15, 0.8, 1.04, 0.76], [1.38, 0.79, 0.9, 0.74]], 4.5, 0.2, 1, 30);
+    loft([[-1.6, 0.82, 0.93, 0.72], [-1.45, 0.82, 1.12, 0.74], [-1.15, 0.82, 1.36, 0.76], [-0.6, 0.82, 1.44, 0.77], [0.25, 0.82, 1.44, 0.77], [0.75, 0.81, 1.3, 0.77], [1.15, 0.8, 1.04, 0.76], [1.38, 0.79, 0.9, 0.74]], 4.5, 0.2, 1, 24);
     mirrors(1.15, 0.93, 0.88);
     type(build(), [1.45, -1.4, 0.33, 0.8], [2.4, -2.4, 0.96, 0], [0.66, 0.78, 0.76, 0.88], [1.2, -0.05, -1.0, 0.84], 0.23);
     // crossover
     loft([[-2.27, 0.5, 0.98, 0.76], [-2.22, 0.38, 1.1, 0.88], [-2.05, 0.33, 1.12, 0.93], [-1.4, 0.32, 1.12, 0.95], [0, 0.32, 1.1, 0.95], [1.2, 0.32, 1.04, 0.95], [1.75, 0.33, 1.0, 0.93], [2.1, 0.36, 0.92, 0.88], [2.24, 0.42, 0.84, 0.8], [2.28, 0.5, 0.74, 0.7]], 5, 0.04, 0);
-    loft([[-2.18, 0.98, 1.1, 0.76], [-2.12, 0.98, 1.48, 0.79], [-1.9, 0.98, 1.64, 0.8], [0, 0.98, 1.68, 0.81], [0.55, 0.97, 1.62, 0.81], [0.95, 0.96, 1.4, 0.8], [1.25, 0.95, 1.13, 0.79], [1.32, 0.95, 1.0, 0.76]], 4.5, 0.18, 1, 30);
+    loft([[-2.18, 0.98, 1.1, 0.76], [-2.12, 0.98, 1.48, 0.79], [-1.9, 0.98, 1.64, 0.8], [0, 0.98, 1.68, 0.81], [0.55, 0.97, 1.62, 0.81], [0.95, 0.96, 1.4, 0.8], [1.25, 0.95, 1.13, 0.79], [1.32, 0.95, 1.0, 0.76]], 4.5, 0.18, 1, 24);
     mirrors(1.1, 1.08, 0.92);
     for (const s of [-1, 1]) block(-1.9, 1.69, s * 0.62 - 0.03, 0.6, 1.73, s * 0.62 + 0.03, 2);   // roof rails
     type(build(), [1.4, -1.35, 0.37, 0.82], [2.28, -2.27, 1.1, 0], [0.78, 0.9, 0.9, 1.02], [1.15, -0.1, -1.3, 0.98], 0.24);
     // van
-    loft([[-2.65, 0.4, 2.0, 0.88], [-2.6, 0.32, 2.12, 0.98], [-2.4, 0.3, 2.18, 1.0], [1.2, 0.3, 2.18, 1.0], [1.7, 0.3, 2.1, 1.0], [2.15, 0.31, 1.62, 0.99], [2.45, 0.33, 1.2, 0.96], [2.6, 0.38, 1.0, 0.9], [2.66, 0.45, 0.82, 0.8]], 6, 0.03, 0, 40);
+    loft([[-2.65, 0.4, 2.0, 0.88], [-2.6, 0.32, 2.12, 0.98], [-2.4, 0.3, 2.18, 1.0], [1.2, 0.3, 2.18, 1.0], [1.7, 0.3, 2.1, 1.0], [2.15, 0.31, 1.62, 0.99], [2.45, 0.33, 1.2, 0.96], [2.6, 0.38, 1.0, 0.9], [2.66, 0.45, 0.82, 0.8]], 6, 0.03, 0, 30);
     mirrors(1.75, 1.3, 0.99);
     type(build(), [1.75, -1.65, 0.36, 0.86], [2.66, -2.65, 1.2, 1], [0.7, 0.9, 1.0, 1.28], [1.5, 0.35, -2.0, 1.1], 0.24);
     // bus, with battery pods on its roof
-    loft([[-6.0, 0.4, 3.0, 1.15], [-5.95, 0.32, 3.12, 1.24], [-5.8, 0.3, 3.18, 1.25], [5.7, 0.3, 3.18, 1.25], [5.92, 0.32, 3.1, 1.24], [6.0, 0.4, 2.9, 1.15]], 10, 0.02, 0, 40, 32);
+    loft([[-6.0, 0.4, 3.0, 1.15], [-5.95, 0.32, 3.12, 1.24], [-5.8, 0.3, 3.18, 1.25], [5.7, 0.3, 3.18, 1.25], [5.92, 0.32, 3.1, 1.24], [6.0, 0.4, 2.9, 1.15]], 10, 0.02, 0, 20, 24);
     block(1.6, 3.12, -0.85, 4.6, 3.42, 0.85, 2); block(-5.6, 3.12, -0.7, -3.4, 3.38, 0.7, 2);
     mirrors(5.9, 2.4, 1.24);
     type(build(), [4.2, -2.7, 0.5, 1.0], [6.0, -6.0, 1.0, 2], [0.5, 0.78, 0.6, 1.0], [0, 0, 0, 0], 0.32);
@@ -1644,7 +1645,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     // wheels: one lathe per size; the spin follows each vehicle's speed
     const wheelGeo = (R, w) => {
       const Rr = R * 0.62, h = w / 2, pts = [[0.001, h - 0.03], [Rr * 0.25, h - 0.025], [Rr, h - 0.01], [Rr + 0.012, h - 0.025], [R - 0.045, h], [R - 0.012, h - 0.03], [R, h - 0.06], [R, -h + 0.06], [R - 0.012, -h + 0.03], [R - 0.045, -h], [Rr, -h], [0.001, -h + 0.01]];
-      return new THREE.LatheGeometry(pts.reverse().map(([a, b]) => new THREE.Vector2(a, b)), 22);     // bottom to top, so the faces point out
+      return new THREE.LatheGeometry(pts.reverse().map(([a, b]) => new THREE.Vector2(a, b)), 18);     // bottom to top, so the faces point out
     };
     const wheelSets = [];
     for (const R of [0.33, 0.36, 0.37, 0.5]) {
@@ -1762,10 +1763,10 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   }
   blobs.push(...archBlobs);
   nBlobs = blobs.length;
-  const CARD_R = 260;
+  const CARD_R = LITE ? 160 : 260;
   const foliageMat = patch(new THREE.MeshStandardMaterial({ roughness: 0.62 }), "shade-foliage", { ...FOLIAGE, uniforms: { uCardR: { value: CARD_R } } });
   // near crowns keep the finer blob; far ones and the facade shrubs use a low-poly one (the leaf shading hides it)
-  const lowGeo = new THREE.IcosahedronGeometry(1, 1);
+  const lowGeo = new THREE.IcosahedronGeometry(1, 1), farGeo = new THREE.SphereGeometry(1, 7, 4);
   const shellA = cardShell(56, 0.5, 11), shellB = cardShell(120, 0.34, 12);
   const TILE = [0, 1, 3, 0, 1, 1];          // per palette: broad, small, heart, broad; the flowering trees small-leaved
   // map and alphaTest are there for the shadow pass (three gives them to its depth material); the colour pass reads the texture itself
@@ -1806,9 +1807,11 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
       }
     }
   }
-  const isNear = (b) => dist(b[0], b[2]) < 420;
-  foliageMesh(blobs.filter(isNear), blobGeo, true);
-  foliageMesh(blobs.filter((b) => !isNear(b)).concat(shrubs), lowGeo, true);
+  const mid = (b) => { const d = dist(b[0], b[2]); return d >= CARD_R * 0.72 && d < 420; };    // nearer, the leaf cards make the silhouette
+  foliageMesh(blobs.filter(mid), blobGeo, true);
+  const far = (b) => dist(b[0], b[2]) > 1000;
+  foliageMesh(blobs.filter((b) => !mid(b) && !far(b)).concat(shrubs), lowGeo, true);
+  foliageMesh(blobs.filter(far), farGeo, true);
   nShrubs = shrubs.length;
 
   // trunks (only for trees near enough to show one) and the arches' braids share one bark
@@ -1864,7 +1867,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     }
   }
   {
-    const vineGeo = new THREE.CylinderGeometry(1, 0.5, 1, 5, 8, true).translate(0, -0.5, 0), m = new THREE.Matrix4();
+    const vineGeo = new THREE.CylinderGeometry(1, 0.5, 1, 4, 6, true).translate(0, -0.5, 0), m = new THREE.Matrix4();
     const vineMat = patch(new THREE.MeshStandardMaterial({ roughness: 0.75, side: THREE.DoubleSide }), "shade-vine", VINE);
     // near the camera a vine is two crossed ribbons of leaves; further off, a plain strand
     const ribbonGeo = (() => {
@@ -1882,7 +1885,7 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     const vineTex = vineStrand();
     const ribbonMat = patch(new THREE.MeshStandardMaterial({ roughness: 0.45, side: THREE.DoubleSide, blending: THREE.NoBlending, alphaToCoverage: true, map: vineTex, alphaTest: 0.5 }), "shade-vineleaf",
       { ...VINELEAF, uniforms: { uVineTex: { value: vineTex } }, strip: CUTOUT });
-    const RIB_R = 210;
+    const RIB_R = LITE ? 120 : 210;
     for (const ribbon of [false, true]) for (const [sec, list] of bySector(vines.filter((v) => (dist(v[0], v[2]) < RIB_R) === ribbon))) {
       const vm = new THREE.InstancedMesh(ribbon ? ribbonGeo : vineGeo, ribbon ? ribbonMat : vineMat, list.length);
       list.forEach(([x, y, z, L, w], i) => { const W = ribbon ? clamp(0.4 + w * 2.6, 0.45, 1.0) : w; vm.setMatrixAt(i, m.makeScale(W, L, W).setPosition(x, y, z)); });
@@ -1934,20 +1937,20 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   // ---- ground cover near the camera: grass down to the water, reeds standing in the shallows, ferns and broad-leaved
   // plants on the forest floor. Their own generator, so nothing else moves.
   {
-    const G = rng(8080), grass = [], plants = [];
+    const G = rng(8080), grass = [], plants = [], GN = LITE ? 0.4 : 1;
     const zNear = () => CAM.z + 50 - Math.pow(G(), 1.7) * 330;            // densest near the camera
-    for (let i = 0; i < 17000; i++) {                                       // grass on the banks and up into the forest
+    for (let i = 0; i < 17000 * GN; i++) {                                       // grass on the banks and up into the forest
       const z = zNear(), side = G() < 0.5 ? -1 : 1, dn = 1.08 + Math.pow(G(), 2) * 2.2, x = riverX(z) + side * riverW(z) * dn;
       if (Math.abs(x) > AVE - 1 || vn2(x * 0.15, z * 0.15) < 0.2 + 0.15 * (dn - 1)) continue;
       const h = (0.35 + G() * 0.5) * (1.25 - 0.2 * dn);
       grass.push([x, groundY(x, z) - 0.08, z, 1.0 + G() * 0.8, h, 0]);
     }
-    for (let i = 0; i < 2600; i++) {                                        // reeds in clumps at the waterline
+    for (let i = 0; i < 2600 * GN; i++) {                                        // reeds in clumps at the waterline
       const z = zNear(), side = G() < 0.5 ? -1 : 1, dn = 0.9 + G() * 0.24, x = riverX(z) + side * riverW(z) * dn;
       if (vn2(x * 0.08 + 3, z * 0.08) < 0.52) continue;
       grass.push([x, Math.min(groundY(x, z), -0.3) - 0.1, z, 0.5 + G() * 0.4, 1.3 + G() * 1.1, 1]);
     }
-    for (let i = 0; i < 4200; i++) {                                        // the forest floor
+    for (let i = 0; i < 4200 * GN; i++) {                                        // the forest floor
       const z = CAM.z + 40 - Math.pow(G(), 1.4) * 260, x = (G() * 2 - 1) * (AVE - 2);
       if (Math.abs(x - riverX(z)) < riverW(z) * 1.3) continue;
       const y = groundY(x, z);
@@ -2175,12 +2178,21 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   }
 
   // ---- sizing, input, loop
-  const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
-  addEventListener("pointermove", (e) => { mouse.tx = (e.clientX / innerWidth - 0.5) * 2; mouse.ty = -(e.clientY / innerHeight - 0.5) * 2; }, { passive: true });
-  // turning: drag the picture, the arrow keys, or let it pan by itself; yaw 0 faces the sun down the avenue
-  let yawT = 0, yaw = 0, autoPan = false, keyTurn = 0, dragX = null;
-  canvasEl.addEventListener("pointerdown", (e) => { dragX = e.clientX; autoPan = false; canvasEl.style.cursor = "grabbing"; });
-  const endDrag = () => { dragX = null; canvasEl.style.cursor = ""; };
+  const mouse = { y: 0, ty: 0 };
+  addEventListener("pointermove", (e) => { mouse.ty = -(e.clientY / innerHeight - 0.5) * 2; }, { passive: true });
+  // turning: moving the mouse turns the view (the window's full width is a full turn; it follows the movement, not the
+  // position, so nothing jumps when the pointer arrives), on a touch screen the picture is dragged round, and the arrow
+  // keys or the Pan button turn it on their own. yaw 0 faces the sun down the avenue.
+  let yawT = 0, yaw = 0, autoPan = false, keyTurn = 0, dragX = null, hx = null;
+  addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse") return;
+    const x = e.clientX / innerWidth * TAU;
+    if (hx !== null) yawT += x - hx;
+    hx = x;
+  }, { passive: true });
+  document.addEventListener("mouseout", (e) => { if (!e.relatedTarget) hx = null; });
+  canvasEl.addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") { dragX = e.clientX; autoPan = false; } });
+  const endDrag = () => { dragX = null; };
   addEventListener("pointerup", endDrag); addEventListener("pointercancel", endDrag);
   addEventListener("pointermove", (e) => { if (dragX !== null) { yawT -= (e.clientX - dragX) * 0.0042; dragX = e.clientX; } }, { passive: true });
   addEventListener("keydown", (e) => { if (e.key === "ArrowLeft") keyTurn = -1; if (e.key === "ArrowRight") keyTurn = 1; if (keyTurn) autoPan = false; });
@@ -2209,18 +2221,18 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
       SU.uGustK.value = Math.min(1, gustT / 2) * (1 - smooth(14, 20, gustT)) * 1.6;
       if (gustT > 20) gustT = -1;
     }
-    mouse.x += (mouse.tx - mouse.x) * 0.03; mouse.y += (mouse.ty - mouse.y) * 0.03;
+    mouse.y += (mouse.ty - mouse.y) * 0.03;
     if (autoPan) yawT += dt * 0.105;                    // a full turn in a minute
     yawT += keyTurn * dt * 1.1;
-    yaw += (yawT - yaw) * (dt > 0 ? 1 - Math.exp(-dt * 7) : 1);
+    yaw += (yawT - yaw) * (dt > 0 ? 1 - Math.exp(-dt * 4.5) : 1);
     // the lower half of the screen lowers the camera: at the bottom edge you stand by the canal, looking up into the vault
     const dt0 = descend ?? clamp(-mouse.ty / 0.85, 0, 1);
     drop += (dt0 * dt0 * (3 - 2 * dt0) - drop) * 0.022;
     const camY = CAM.y + (STREET.y - CAM.y) * drop, camX = CAM.x + (STREET.x - CAM.x) * drop;
     // a tripod in a light breeze: the frame barely moves
-    const sy = Math.sin(yaw), cyw = Math.cos(yaw), ox = mouse.x * 5 * (1 - drop * 0.6) + Math.sin(t * 0.13) * 0.6;
+    const sy = Math.sin(yaw), cyw = Math.cos(yaw), ox = Math.sin(t * 0.13) * 0.6;
     camera.position.set(camX + cyw * ox, camY + Math.max(0, mouse.y) * 1.6 + Math.sin(t * 0.21) * 0.2 * (1 - drop * 0.7), CAM.z + sy * ox);
-    const lx = target.x + mouse.x * 3 - (camX + ox), lz = target.z - CAM.z;           // where the camera looks, turned about the vertical by yaw
+    const lx = target.x - (camX + ox), lz = target.z - CAM.z;           // where the camera looks, turned about the vertical by yaw
     camera.lookAt(camera.position.x + lx * cyw - lz * sy, target.y + (STREET.ly - target.y) * drop + Math.max(0, mouse.y) * 2 + Math.sin(t * 0.17) * 0.3, camera.position.z + lz * cyw + lx * sy);
     if (dbgCam) { camera.position.copy(dbgCam[0]); camera.lookAt(dbgCam[1]); }
     moteU.uBox0.value.set(camera.position.x + sy * 70 - 70, camera.position.y - 30, camera.position.z - cyw * 70 - 70);
@@ -2274,11 +2286,11 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
   const setDrop = (v) => { drop = v; mouse.ty = mouse.y = -0.85 * v; };   // for screenshots: jump to a height without the easing
   // the page's buttons: send a gust rolling over the city; go down to the river and back up without the pointer
   const gust = () => { gustT = 0; };
-  let px = 0, py = 0, lockX = 0, lockY = 0;
-  const toggleDescend = () => { descend = drop > 0.5 ? 0 : 1; lockX = px; lockY = py; return descend === 1; };
+  let py = 0, lockY = 0;
+  const toggleDescend = () => { descend = drop > 0.5 ? 0 : 1; lockY = py; return descend === 1; };
   addEventListener("pointermove", (e) => {                     // the pointer takes over again once it really moves
-    px = e.clientX; py = e.clientY;
-    if (descend !== null && Math.hypot(px - lockX, py - lockY) > 160) descend = null;
+    py = e.clientY;
+    if (descend !== null && Math.abs(py - lockY) > 160) descend = null;   // up or down: sideways is turning
   }, { passive: true });
   const setYaw = (deg) => { yawT = yaw = THREE.MathUtils.degToRad(deg); };
   const pan = (v) => { autoPan = v ?? !autoPan; return autoPan; };
