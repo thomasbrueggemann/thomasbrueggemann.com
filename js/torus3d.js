@@ -33,8 +33,10 @@ const RF = R + F0;                         // the floor's radius at the valley's
 const OMEGA = TAU / 60;                    // one turn a minute
 const PSI_GLASS = 65 * Math.PI / 180;      // the tube is glass from here round the top, the inner face and the bottom
 const TERR = { s0: 66, step: 7 };          // terraces from |s| = 66 m out to the glass
-// the opening view (azimuth and elevation of the camera round the station); the sun stands off to its right
-const VIEW0 = { az: 1.18, el: 0.7 };
+// the opening view (azimuth and elevation of the camera round the station); the sun stands off to its right.
+// Inside, "up" points at the axis, so the city reads upright only from below the ring plane: from there the section
+// the zoom dives into sits at the bottom of the picture with the hub above it. (From above, it hangs upside down.)
+const VIEW0 = { az: 1.18, el: -0.7 };
 const E_ANG = 26 * Math.PI / 180;            // Earth's angular radius from 8,000 km up
 const E_PERIOD = 240;                        // seconds per orbit (the real one takes four and a half hours)
 const { SUN, ORBIT_U, ORBIT_W, MOON_DIR } = (() => {
@@ -61,7 +63,10 @@ const landF = (s) => {
 const riverS = (a) => 14 * Math.sin(3 * a + 0.5) + 8 * Math.sin(7 * a + 2) + 4 * Math.sin(13 * a);
 const riverW = (a) => 9 + 3 * Math.sin(5 * a + 1);
 const urban = (a) => clamp(0.55 + 0.3 * Math.sin(3 * a + 0.7) + 0.2 * Math.sin(7 * a + 2.3) + 0.12 * Math.sin(17 * a + 1.1), 0, 1);
-const BLVD = 46;                           // a boulevard runs 46 m out from each bank
+const BLVD = 46;                           // a boulevard runs 46 m out from each bank: a road with a lane each way, sidewalks and trees
+// eight market squares along the river, alternating banks: 72 m along the ring, from 12 to 42 m out from the bank
+const MARKETS = Array.from({ length: 8 }, (_, k) => ({ th: k * TAU / 8 + 0.31, side: k % 2 ? 1 : -1 }));
+const inMarket = (th, side, e) => e > 10 && e < 43 && MARKETS.some((m) => m.side === side && Math.abs(((th - m.th) % TAU + 3 * Math.PI) % TAU - Math.PI) * RF < 36);
 
 // ---------------------------------------------------------------- GLSL shared by everything on the station
 const GLSL_COMMON = /* glsl */`
@@ -81,18 +86,28 @@ float fbm(vec2 p){ float s = 0., a = .5; for(int i=0;i<4;i++){ s += a*vnoise(p);
 float floorF(float s){ float k = s / SMAX; k *= k; return F0 - FDIP * k * k; }
 float riverS(float a){ return 14. * sin(3. * a + .5) + 8. * sin(7. * a + 2.) + 4. * sin(13. * a); }
 float riverW(float a){ return 9. + 3. * sin(5. * a + 1.); }
+float market(float th, float q, float e){       // 1 on a market square (q: signed offset from the river's line, e: from its edge)
+  float m = 0.;
+  for (int k = 0; k < 8; k++) {
+    float d = mod(th - float(k) * .785398 - .31 + 3.14159265, 6.2831853) - 3.14159265;
+    float sd = mod(float(k), 2.) < .5 ? -1. : 1.;
+    m = max(m, step(abs(d) * RF, 36.) * step(0., q * sd) * step(10., e) * step(e, 43.));
+  }
+  return m;
+}
 float urban(float a){ return clamp(.55 + .3 * sin(3. * a + .7) + .2 * sin(7. * a + 2.3) + .12 * sin(17. * a + 1.1), 0., 1.); }
 vec3 upAt(vec3 p){ return -normalize(vec3(p.x, 0., p.z)); }
 // light inside: daylight let in through the glass vault, mostly from overhead, a little from one side
-vec3 lightAt(vec3 p){ vec3 up = upAt(p); return normalize(up * .7 + vec3(0., .55, 0.) + vec3(up.z, 0., -up.x) * .35); }
+vec3 lightAt(vec3 p){ vec3 up = upAt(p); return normalize(up * .7 + vec3(0., -.55, 0.) + vec3(up.z, 0., -up.x) * .35); }
 const vec3 LCOL = vec3(2.3, 2.12, 1.82), SKYC = vec3(.24, .30, .39), BOUNCE = vec3(.08, .09, .05), AIR = vec3(.46, .58, .74);
 // what a mirror facing along r sees of Earth: its disc, day on the sun side of the terminator
 vec3 earthSeen(vec3 r){ float c = dot(r, uEarthL); if (c < ${Math.cos(E_ANG).toFixed(4)}) return vec3(0.);
   return mix(vec3(.002, .004, .01), vec3(.09, .13, .22), smoothstep(-.04, .06, dot(r - uEarthL * c, uSunL))); }
 float sdTube(vec3 p){ return length(vec2(length(p.xz) - RR, p.y)) - RT; }
 // how much air the view ray crossed inside the tube before reaching p: trace back toward the camera to the glass
-float airPath(vec3 p, float t){ vec3 rd = normalize(uCamL - p);
-  for (int i = 0; i < 18; i++){ float d = -sdTube(p + rd * t); if (d < .25) break; t += d + .05; } return t; }
+// (or to the camera itself, once the zoom has taken it inside)
+float airPath(vec3 p, float t){ vec3 rd = uCamL - p; float tm = length(rd); rd /= tm;
+  for (int i = 0; i < 18; i++){ if (t >= tm) return tm; float d = -sdTube(p + rd * t); if (d < .25) break; t += d + .05; } return min(t, tm); }
 float airT(vec3 p){ return exp(-airPath(p, 0.) / 950.); }
 vec3 inAir(vec3 c, vec3 p){ float T = airT(p); return c * T + AIR * (1. - T); }
 vec3 shadeIn(vec3 alb, vec3 n, vec3 p, float ao){
@@ -137,8 +152,19 @@ void main(){
   vec3 pave = vec3(.40, .38, .34) * (.85 + .25 * hash12(floor(g / 2.5)));
   col = mix(col, pave, paved * .9);
   // promenades along both banks and the two boulevards
-  float path = smoothstep(2.2, 1.6, abs(aq - w - 4.)) + smoothstep(4.6, 3.8, abs(aq - w - ${BLVD}.)) * step(abs(s), 64.);
+  float bd = abs(aq - w - ${BLVD}.), onB = step(abs(s), 64.);
+  float path = smoothstep(2.2, 1.6, abs(aq - w - 4.)) + smoothstep(4.8, 4.2, bd) * onB;
   col = mix(col, vec3(.48, .45, .40) * (.9 + .2 * nz2), clamp(path, 0., 1.));
+  // the boulevard's road: asphalt, a dashed centre line, kerbs
+  float road = smoothstep(3.3, 3.1, bd) * onB;
+  vec3 asph = vec3(.075, .075, .08) * (.85 + .3 * vnoise(g * 1.3));
+  asph = mix(asph, vec3(.7, .66, .5), smoothstep(.12, .06, bd) * step(.5, fract(u / 6.)));
+  col = mix(col, asph, road);
+  // market squares: warm paving in a pattern of squares
+  float mk = market(th, q, aq - w);
+  vec2 mg = vec2(u, s) / 2.2;
+  vec3 mp = mix(vec3(.52, .44, .34), vec3(.44, .36, .28), step(.5, fract((floor(mg.x) + floor(mg.y)) * .5))) * (.9 + .15 * hash12(floor(mg * 2.)));
+  col = mix(col, mp, mk);
   // terrace walls, overgrown
   float wall = smoothstep(.93, .75, slope);
   col = mix(col, mix(vec3(.30, .28, .25), vec3(.08, .18, .05), smoothstep(.35, .6, vnoise(g * vec2(.4, 1.5)))), wall);
@@ -169,7 +195,18 @@ void main(){
   base *= .85 + .3 * fract(seed * 31.7);
   vec3 col; float ao = 1.; vec3 emis = vec3(0.);
   vec2 g = vF.xy;
-  if (kind < .5) {
+  if (kind > 3.5) {
+    // market stalls: striped awnings in many colours over wooden counters piled with goods
+    float pk = fract(seed * 13.7);
+    vec3 cA = pk < .2 ? vec3(.7, .1, .08) : pk < .4 ? vec3(.85, .5, .08) : pk < .6 ? vec3(.1, .3, .6) : pk < .8 ? vec3(.12, .45, .2) : vec3(.8, .7, .15);
+    if (kind < 4.5) col = mix(cA, vec3(.85, .82, .75), step(.5, fract(g.x / .7)));
+    else {
+      vec2 gc = floor(g / .35);
+      float hg = hash12(gc + seed * 7.);
+      vec3 goods = hg < .25 ? vec3(.7, .15, .05) : hg < .5 ? vec3(.8, .6, .1) : hg < .7 ? vec3(.2, .45, .1) : vec3(.5, .3, .15);
+      col = mix(vec3(.30, .19, .10), goods, step(.35, g.y) * step(.3, hash12(gc * 1.3)));
+    }
+  } else if (kind < .5) {
     // facade: floors of 3.4 m, windows every 2.8 m; planters along every second floor; vines climbing from the ground
     vec2 c = vec2(g.x / 2.8, g.y / 3.4);
     vec2 f = fract(c), fw = fwidth(c);
@@ -246,18 +283,20 @@ void main(){
   float a = (vS.w > .5 ? smoothstep(1., .82, max(abs(q.x), abs(q.y))) : smoothstep(1., .25, length(q))) * vS.z;
   gl_FragColor = vec4(vec3(mix(1., 1. - a, airT(vP))), 1.);
 }`;
-const SHADOW_DIR = [-0.5, -0.786];         // ground offset per metre of height, along the ring and across, opposite the light
+const SHADOW_DIR = [-0.5, 0.786];         // ground offset per metre of height, along the ring and across, opposite the light
 
 // ---------------------------------------------------------------- things that move round the ring: monorail (and its track), boats
 // Geometry is given in ring coordinates (x along the ring in metres, y across from the river's line, z up); the
 // vertex shader bends it round the ring, so a train follows the river's curves.
 const MOVER_VERT = /* glsl */`
 ${GLSL_COMMON}
-attribute vec4 aV;           // start angle, speed along the ring (m/s), offset across as a fraction of the river's width, kind
-varying vec3 vP, vN; varying vec4 vM;
+attribute vec4 aV;           // start angle, speed along the ring (m/s), offset across (|z| < 1.5: a fraction of the river's width; else metres from the bank + 2, signed by side), kind
+varying vec3 vP, vN; varying vec4 vM; varying float vHide;
 void main(){
   float th = aV.x + (aV.y * uTime + position.x) / RF;
-  float s = riverS(th) + aV.z * riverW(th) + position.y;
+  float s0 = riverS(th) + (abs(aV.z) < 1.5 ? aV.z * riverW(th) : sign(aV.z) * (riverW(th) + abs(aV.z) - 2.));
+  float s = s0 + position.y;
+  vHide = step(64., abs(s0)) * step(2.5, aV.w);          // cars keep to the boulevards inside the quarters
   float c = cos(th), sn = sin(th);
   vec3 up = vec3(-c, 0., -sn), fw = vec3(-sn, 0., c);
   vec3 p = (RR + floorF(s)) * vec3(c, 0., sn) + vec3(0., s, 0.) + up * position.z;
@@ -267,8 +306,9 @@ void main(){
 }`;
 const MOVER_FRAG = /* glsl */`
 ${GLSL_COMMON}
-varying vec3 vP, vN; varying vec4 vM;
+varying vec3 vP, vN; varying vec4 vM; varying float vHide;
 void main(){
+  if (vHide > .5) discard;
   vec3 p = vP, n = normalize(vN);
   float kind = vM.w; vec3 col = vec3(.55, .54, .52), emis = vec3(0.);
   if (kind > .5 && kind < 1.5) {           // monorail car: white, a band of windows
@@ -277,6 +317,10 @@ void main(){
     col = mix(vec3(.80, .80, .78), vec3(.04, .06, .08), win);
     col = mix(col, vec3(.75, .45, .15), step(abs(vM.z - 13.6), .18));
     emis = vec3(1., .85, .6) * win * .2;
+  } else if (kind > 2.5) {                 // cars: painted bodies, dark glass on the cabin
+    float sd = fract(kind * 37.1);
+    vec3 paint = sd < .25 ? vec3(.75, .74, .72) : sd < .4 ? vec3(.06, .06, .07) : sd < .55 ? vec3(.5, .08, .06) : sd < .7 ? vec3(.08, .2, .45) : sd < .85 ? vec3(.12, .3, .2) : vec3(.8, .6, .1);
+    col = vM.z > 1.02 && abs(dot(n, upAt(p))) < .5 ? vec3(.03, .04, .05) : paint;
   } else if (kind > 1.5) {                 // boats: painted hulls, white cabins
     float sd = fract(sin(floor(vM.w * 100.) * 7.1) * 43758.);
     col = vM.z < .6 ? (sd < .5 ? vec3(.45, .12, .08) : vec3(.10, .18, .30)) : vec3(.80, .78, .72);
@@ -285,40 +329,74 @@ void main(){
   gl_FragColor = vec4(inAir(c, p), 1.);
 }`;
 
-// ---------------------------------------------------------------- people: walkers on the promenades and boulevards, drawn as tiny figures
-const PEOPLE_VERT = /* glsl */`
+// ---------------------------------------------------------------- life: people, dogs, sheep, cows, ducks, birds, drawn as tiny figures
+// Each is a point that moves on its own in the vertex shader: along the ring (promenades, sidewalks, the river),
+// across it (the cross streets, back and forth), wandering round a spot (market crowds, grazing herds), or flying.
+const LIFE_VERT = /* glsl */`
 ${GLSL_COMMON}
-attribute vec4 aP;           // start angle, walking speed (m/s, signed), offset from the river's edge (signed by bank), seed
+attribute vec4 aP;           // start angle, speed (m/s, signed), offset (mode 0/1: signed metres from the river's edge; 2/3: s), seed
+attribute vec4 aQ;           // mode (0 along, 1 across, 2 wander, 3 fly), species (0 person, 1 dog, 2 sheep, 3 cow, 4 bird, 5 duck), radius / inward shift, height
 uniform float uScale; uniform vec2 uRes;
-varying vec3 vP, vCol; varying vec2 vUp; varying float vA, vSz;
+varying vec3 vP, vCol; varying vec2 vUp; varying float vA, vSz, vSp, vPh, vSeed, vTilt;
 void main(){
-  float th = aP.x + aP.y * uTime / RF;
-  float s = riverS(th) + sign(aP.z) * (riverW(th) + abs(aP.z));
-  vec3 p = (RR + floorF(s) - .95) * vec3(cos(th), 0., sin(th)) + vec3(0., s, 0.);
+  float mode = aQ.x, sp = aQ.y, t = uTime, th, s, h = 0., ground = 1.;
+  if (mode < .5) { th = aP.x + aP.y * t / RF; s = riverS(th) + sign(aP.z) * (riverW(th) + abs(aP.z) - aQ.z); }
+  else if (mode < 1.5) { th = aP.x; float e = 12. + 48. * abs(fract(abs(aP.y) * t / 96. + aP.w) * 2. - 1.); s = riverS(th) + sign(aP.z) * (riverW(th) + e) + (fract(aP.w * 7.) - .5) * 3.; }
+  else if (mode < 2.5) { float a = t * aP.y / max(aQ.z, 1.) + aP.w * 40.;
+    vec2 o = vec2(sin(a) + .5 * sin(a * 2.3 + 1.), cos(a * .8) + .5 * sin(a * 1.7)) * aQ.z * .6; th = aP.x + o.x / RF; s = aP.z + o.y; }
+  else { th = aP.x + aP.y * t / RF; s = aP.z + 8. * sin(t * .21 + aP.w * 30.); h = aQ.w + 5. * sin(t * .17 + aP.w * 17.); ground = 0.; }
+  float bodyH = sp < .5 ? .95 : sp < 1.5 ? .4 : sp < 2.5 ? .55 : sp < 3.5 ? .85 : sp < 4.5 ? 0. : .12;
+  float size = sp < .5 ? 2.3 : sp < 1.5 ? 1.3 : sp < 2.5 ? 1.9 : sp < 3.5 ? 3. : sp < 4.5 ? .9 : 1.1;
+  vec3 p = (RR + floorF(s) - h - bodyH) * vec3(cos(th), 0., sin(th)) + vec3(0., s, 0.);
   vP = p;
   mat4 mvp = projectionMatrix * viewMatrix * modelMatrix;
   gl_Position = mvp * vec4(p, 1.);
   vec4 q = mvp * vec4(p + upAt(p), 1.);
   vec2 d = (q.xy / q.w - gl_Position.xy / gl_Position.w) * uRes;
   vUp = length(d) > 1e-6 ? normalize(d) : vec2(0., 1.);
-  float sz = 2.3 * uScale / gl_Position.w;
-  vSz = sz;
-  vA = smoothstep(.6, 2.4, sz) * step(abs(s), 64.);
-  gl_PointSize = clamp(sz, 1.5, 64.);
-  float h = fract(aP.w * 91.7);
-  vCol = h < .2 ? vec3(.75, .2, .15) : h < .35 ? vec3(.85, .8, .7) : h < .5 ? vec3(.15, .25, .5) : h < .65 ? vec3(.9, .6, .15) : h < .8 ? vec3(.2, .2, .22) : vec3(.3, .55, .5);
+  float sz = size * uScale / gl_Position.w;
+  vTilt = clamp(length(d) * .5 / max(uScale / gl_Position.w, 1e-3), .2, 1.);   // 1 seen from the side, toward 0 from straight above
+  vSz = sz; vSp = sp; vSeed = aP.w;
+  vPh = t * (mode > 1.5 && mode < 2.5 ? 1.5 : abs(aP.y) * 2.6) + aP.w * 31.;
+  vA = smoothstep(.6, 2.4, sz) * (mode < 1.5 && sp < 4.5 ? step(abs(s), 64.) : 1.);
+  gl_PointSize = clamp(sz, 1.5, 72.);
+  float k = fract(aP.w * 91.7);
+  vCol = sp < .5 ? (k < .2 ? vec3(.75, .2, .15) : k < .35 ? vec3(.85, .8, .7) : k < .5 ? vec3(.15, .25, .5) : k < .65 ? vec3(.9, .6, .15) : k < .8 ? vec3(.2, .2, .22) : vec3(.3, .55, .5))
+       : sp < 1.5 ? (k < .5 ? vec3(.35, .22, .12) : vec3(.12, .1, .08)) : sp < 2.5 ? vec3(.85, .83, .78) : sp < 3.5 ? (k < .5 ? vec3(.4, .24, .12) : vec3(.9, .88, .85)) : sp < 4.5 ? vec3(.06, .06, .07) : vec3(.92, .9, .85);
 }`;
-const PEOPLE_FRAG = /* glsl */`
+const LIFE_FRAG = /* glsl */`
 ${GLSL_COMMON}
-varying vec3 vP, vCol; varying vec2 vUp; varying float vA, vSz;
+varying vec3 vP, vCol; varying vec2 vUp; varying float vA, vSz, vSp, vPh, vSeed, vTilt;
+float seg(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0., 1.)); }
 void main(){
   if (hash12(gl_FragCoord.xy) > vA) discard;
   vec2 pc = gl_PointCoord - .5; pc.y = -pc.y;
   vec2 l = vec2(dot(pc, vec2(vUp.y, -vUp.x)), dot(pc, vUp));
-  float body = length((l - vec2(0., -.1)) / vec2(.12, .28)), head = length(l - vec2(0., .3)) / .09;
-  if (vSz > 4. && min(body, head) > 1.) discard;
-  if (vSz <= 4. && length(l / vec2(.35, .5)) > 1.) discard;
-  vec3 col = head < 1. ? vec3(.55, .40, .30) : vCol;
+  vec3 col = vCol;
+  float sw = sin(vPh);
+  // foreshortened when seen from above: the figure shrinks along its up axis toward a head over the shoulders
+  if (vSp < 3.5) l.y /= vTilt;
+  if (vSz <= 4.) {
+    if (length(l / (vSp < .5 ? vec2(.3, .5) : vSp > 3.5 && vSp < 4.5 ? vec2(.45, .2) : vec2(.5, .3))) > 1.) discard;
+  } else if (vSp < .5) {                     // a person: head, body, two legs swinging as they walk
+    float head = length((l - vec2(0., .33 * smoothstep(.2, .6, vTilt))) / vec2(.085, .085 / vTilt * mix(1., vTilt, smoothstep(.2, .6, vTilt)))), body = length((l - vec2(0., .07)) / vec2(.11 + .04 * (1. - vTilt), .19));
+    float legs = min(seg(l, vec2(-.03, -.08), vec2(-.03 + sw * .09, -.46)), seg(l, vec2(.03, -.08), vec2(.03 - sw * .09, -.46)));
+    if (head > 1. && body > 1. && (legs > .035 || vTilt < .45)) discard;
+    col = head < 1. ? vec3(.55, .40, .30) * (.6 + .8 * fract(vSeed * 17.)) : body < 1. ? vCol : vec3(.12, .12, .14);
+  } else if (vSp < 3.5) {                    // four legs: a body, a head, legs
+    float bh = vSp < 1.5 ? .1 : .14;
+    float body = length((l - vec2(0., .02)) / vec2(.3, bh)), head = length((l - vec2(.32, .1)) / vec2(.09, .075));
+    float legs = 1.;
+    for (int i = 0; i < 4; i++) { float x = i < 2 ? -.2 : .2, ph = float(i) * 1.6; legs = min(legs, seg(l, vec2(x, -.04), vec2(x + sin(vPh + ph) * .04, -.26))); }
+    if (body > 1. && head > 1. && legs > .03) discard;
+    col = head < 1. && vSp > 1.5 && vSp < 2.5 ? vec3(.15, .12, .1) : vCol;
+    if (vSp > 2.5 && fract(vSeed * 91.7) >= .5 && body < 1. && vnoise(l * 14. + vSeed * 9.) > .55) col = vec3(.06);   // spotted cows
+  } else if (vSp < 4.5) {                    // a bird, wings beating
+    float f = sin(vPh * 3.) * .14;
+    if (min(seg(l, vec2(0.), vec2(-.4, .12 + f)), seg(l, vec2(0.), vec2(.4, .12 + f))) > .045) discard;
+  } else {                                   // a duck on the water
+    if (length((l + vec2(0., .1)) / vec2(.32, .14)) > 1. && length((l - vec2(.22, .08)) / .08) > 1.) discard;
+  }
   vec3 c = shadeIn(col, normalize(normalize(uCamL - vP) + upAt(vP) * .5), vP, 1.);
   gl_FragColor = vec4(inAir(c, vP), 1.);
 }`;
@@ -333,13 +411,13 @@ void main(){
   float th = atan(p.z, p.x), psi = atan(p.y, length(p.xz) - RR);
   vec2 g = vec2(th / 6.2831853 * 480., psi / 6.2831853 * 48.);
   vec2 fw = fwidth(g);
-  float frame = max(line(g.x, .018, fw.x), line(g.y, .022, fw.y)) * .8;
-  frame = max(frame, max(line(g.x / 4., .008, fw.x / 4.), line(g.y / 2., .014, fw.y / 2.)));   // the heavier main frames
+  float frame = max(line(g.x, .012, fw.x), line(g.y, .015, fw.y)) * .8;
+  frame = max(frame, max(line(g.x / 4., .005, fw.x / 4.), line(g.y / 2., .01, fw.y / 2.)));   // the heavier main frames
   float ndl = max(dot(n, uSunL), 0.);
   float fr = .04 + .96 * pow(1. - max(dot(n, V), 0.), 5.);
   vec3 R = reflect(-V, n);
   vec3 refl = vec3(.004, .006, .01) + earthSeen(R) + vec3(5., 4.8, 4.5) * pow(max(dot(R, uSunL), 0.), 4000.) * 12.;
-  vec3 metal = vec3(.16, .165, .17) * (vec3(3.4, 3.25, 3.0) * ndl + vec3(.03, .035, .05) + LCOL * .12 * max(dot(n, -upAt(p)), 0.)) + AIR * .04;
+  vec3 metal = vec3(.3, .31, .32) * (vec3(3.4, 3.25, 3.0) * ndl + vec3(.03, .035, .05) + LCOL * .12 * max(dot(n, -upAt(p)), 0.)) + AIR * .04;
   float a = mix(clamp(fr + .05, 0., 1.), .97, frame);
   vec3 c = mix(refl * fr / max(fr + .05, 1e-3) + AIR * .06, metal, frame);
   gl_FragColor = vec4(c, a);
@@ -629,7 +707,7 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     S.quad(i0, i0 + 1, i0 + 2, i0 + 3);
   }
   // a box standing on the land at (θ, s): half sizes along the ring and across, from h0 to h1 above the ground
-  function box(th, s, hu, hs, h0, h1, seed, roof) {
+  function box(th, s, hu, hs, h0, h1, seed, roof, W = 0) {
     const { c, s: sn, up, fw } = frameAt(th), rho = R + landF(s);
     const bx = rho * c, by = s, bz = rho * sn;
     const P = (a, b, h) => [bx + fw[0] * a + up[0] * h, by + b, bz + fw[2] * a + up[2] * h];
@@ -638,7 +716,6 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
       pts.forEach((p, k) => B.vert(p[0], p[1], p[2], n[0], n[1], n[2], uv[k][0], uv[k][1], seed, uv[k][2]));
       B.quad(i0, i0 + 1, i0 + 2, i0 + 3);
     };
-    const W = 0;
     face([P(hu, -hs, h0), P(hu, hs, h0), P(hu, hs, h1), P(hu, -hs, h1)], fw, [[0, h0, W], [2 * hs, h0, W], [2 * hs, h1, W], [0, h1, W]]);
     face([P(-hu, hs, h0), P(-hu, -hs, h0), P(-hu, -hs, h1), P(-hu, hs, h1)], [-fw[0], 0, -fw[2]], [[0, h0, W], [2 * hs, h0, W], [2 * hs, h1, W], [0, h1, W]]);
     face([P(-hu, hs, h0), P(hu, hs, h0), P(hu, hs, h1), P(-hu, hs, h1)], [0, 1, 0], [[0, h0, W], [2 * hu, h0, W], [2 * hu, h1, W], [0, h1, W]]);
@@ -682,6 +759,7 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
   }
 
   // the quarters: cells in lanes parallel to the river, from the banks out to the terraces
+  const fields = [];                 // open field cells: the herds graze there
   const dTh = 15 / RF, NC = Math.round(TAU / dTh);
   for (let i = 0; i < NC; i++) {
     const th0 = i * TAU / NC, ub = urban(th0), cross = i % 7 === 0;
@@ -691,7 +769,7 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
         const th = th0 + (L() - 0.5) * 2.5 / RF;
         const s = riverS(th) + side * (riverW(th) + e) + (L() - 0.5) * 2;
         const r = L(), r2 = L(), r3 = L();
-        if (Math.abs(s) > 62) continue;
+        if (Math.abs(s) > 62 || inMarket(th, side, e)) continue;
         if (cross) { if (r < 0.6) tree(th, s, 0, 3 + r2 * 2); continue; }
         const p = ub + (r - 0.5) * 0.55;
         if (p > 0.38) {
@@ -705,11 +783,23 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
             if (fits(s, hs * 0.62, h2)) box(th, s, hu * 0.6, hs * 0.62, h - 0.5, h2, L(), 1);
           }
           if (roof === 1 && D() < 0.65) for (let k = 0; k < 1 + D() * 3; k++) tree(th + (D() - 0.5) * hu * 1.2 / RF, s + (D() - 0.5) * hs * 1.2, h, 1.4 + D() * 1.6);
-        } else if (!(p < 0.2 && r2 < 0.55)) {
+        } else if (p < 0.2 && r2 < 0.55) { fields.push({ th, s }); } else {
           if (r3 < 0.08) tree(th, s, 0, 9 + L() * 4, 0.75);                  // a big old tree in a clearing
           else for (let k = 0; k < 2 + L() * 5; k++) tree(th + (L() - 0.5) * 12 / RF, s + (L() - 0.5) * 12, 0, 2.6 + L() * 3.6, 0.7 + L() * 0.4);
         }
       }
+    }
+  }
+  // the markets: rows of stalls with awnings, a great tree in the middle of each square
+  const Mk = rng(808);
+  for (const m of MARKETS) {
+    tree(m.th, riverS(m.th) + m.side * (riverW(m.th) + 27), 0, 11, 0.8);
+    for (let a = -31; a <= 31; a += 6.5) for (let e = 15; e <= 39; e += 6) {
+      if (Math.abs(a) < 10 && Math.abs(e - 27) < 9) continue;          // round the tree
+      if (Mk() < 0.12) continue;
+      const th = m.th + a / RF, s = riverS(th) + m.side * (riverW(th) + e), seed = Mk();
+      box(th, s, 1.3, 0.8, -0.5, 1.0, seed, 5, 5);                         // counter
+      box(th, s, 1.6, 1.2, 2.3, 2.5, seed, 4, 4);                          // awning
     }
   }
   // trees along the banks and the boulevards
@@ -773,9 +863,21 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
   const CIRC = TAU * RF;
   for (let u = 0; u < CIRC; u += 6) for (const k of [-1, 1]) rbox(u + 3, 3.05, k * 2.4, 0.7, 12.2, 13, [0, 0, 0, 0]);
   for (let u = 0; u < CIRC; u += 40) { rbox(u, 0.9, 0, 0.9, -1.5, 12, [0, 0, 0, 0]); rbox(u, 1.1, 0, 3.4, 11.4, 12.2, [0, 0, 0, 0]); }
-  for (const k of [-1, 1]) for (let t = 0; t < 3; t++) {
-    const th0 = (t / 3 + (k > 0 ? 0.1 : 0.27)) * TAU;
-    for (let car = 0; car < 6; car++) rbox(car * 17 + 8, 8, k * 2.4, 1.45, 13.1, 16.3, [th0, k * 23, 0, 1]);
+  for (const k of [-1, 1]) for (let t = 0; t < 5; t++) {
+    const th0 = (t / 5 + (k > 0 ? 0.1 : 0.27)) * TAU;
+    for (let car = 0; car < 7; car++) rbox(car * 17 + 8, 8, k * 2.4, 1.45, 13.1, 16.3, [th0, k * 23, 0, 1]);
+  }
+  // cars: a lane each way on both boulevards
+  let nCars = 0;
+  const Cr = rng(4242);
+  for (const side of [-1, 1]) for (const [e, dir] of [[BLVD - 1.6, 1], [BLVD + 1.6, -1]]) {
+    for (let u = Cr() * 30; u < CIRC; u += 14 + Cr() * 60) {
+      const sp = dir * (8 + Cr() * 5), kind = 3 + Cr() * 0.99, len = 4 + Cr() * 1.2;
+      const v = [u / RF, sp, side * (e + 2), kind];
+      rbox(0, len / 2, 0, 0.9, 0.15, 1.0, v);
+      rbox(-len * 0.08, len * 0.3, 0, 0.78, 1.0, 1.5, v);
+      nCars++;
+    }
   }
   for (let b = 0; b < 70; b++) {
     const th0 = L() * TAU, sp = (L() < 0.5 ? -1 : 1) * (1.2 + L() * 2.6), fr = (L() - 0.5) * 0.9, len = 5 + L() * 8, kind = 2 + L() * 0.9;
@@ -784,21 +886,37 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
   }
   add(M.geometry(), mat(MOVER_VERT, MOVER_FRAG, { side: THREE.DoubleSide }));
 
-  // people
-  const NPEOPLE = 26000;
-  const peopleU = { uScale: { value: 1 }, uRes: { value: new THREE.Vector2(1, 1) } };
+  // life: people on the promenades, sidewalks and cross streets, crowds at the markets, dogs, herds in the fields,
+  // ducks on the river and birds in the air
+  const lifeU = { uScale: { value: 1 }, uRes: { value: new THREE.Vector2(1, 1) } };
+  const lives = { people: 0, animals: 0 };
   {
-    const a = new Float32Array(NPEOPLE * 4);
-    for (let i = 0; i < NPEOPLE; i++) {
-      const prom = L() < 0.55, side = L() < 0.5 ? -1 : 1;
-      const e = prom ? 2.3 + L() * 3.4 : BLVD - 3.6 + L() * 7.2;
-      const sp = L() < 0.18 ? 0 : (L() < 0.5 ? -1 : 1) * (0.7 + L() * 0.9);
-      a.set([L() * TAU, sp, side * e, L()], i * 4);
+    const A = rng(9090), P = [], Q = [];
+    const add1 = (p, q) => { P.push(...p); Q.push(...q); if (q[1] < 0.5) lives.people++; else lives.animals++; };
+    const side = () => (A() < 0.5 ? -1 : 1), walk = () => (A() < 0.15 ? 0 : (A() < 0.5 ? -1 : 1) * (0.7 + A() * 0.9));
+    for (let i = 0; i < 26000; i++) add1([A() * TAU, walk(), side() * (2.3 + A() * 3.4), A()], [0, 0, 0, 0]);                            // promenades
+    for (let i = 0; i < 16000; i++) add1([A() * TAU, walk(), side() * (BLVD + (A() < 0.5 ? -1 : 1) * (3.7 + A() * 0.9)), A()], [0, 0, 0, 0]);   // sidewalks
+    for (let i = 0; i < NC; i += 7) for (const sd of [-1, 1]) for (let k = 0; k < 60; k++)                                           // cross streets
+      add1([i * TAU / NC + (A() - 0.5) * 2.2 / RF, 0.6 + A() * 0.9, sd, A()], [1, 0, 0, 0]);
+    for (const m of MARKETS) for (let k = 0; k < 650; k++) {                                                                         // market crowds
+      const th = m.th + (A() - 0.5) * 66 / RF, e = 13 + A() * 28;
+      add1([th, 0.2 + A() * 0.5, riverS(th) + m.side * (riverW(th) + e), A()], [2, 0, 1.5 + A() * 3, 0]);
+    }
+    for (let i = 0; i < 1800; i++) add1([A() * TAU, walk() || 1, side() * (2.3 + A() * 3.4), A()], [0, 1, 0, 0]);                       // dogs
+    for (const f of fields) {                                                                                                         // herds
+      const cows = A() < 0.4, n = cows ? 4 + A() * 7 : 8 + A() * 14;
+      for (let k = 0; k < n; k++) add1([f.th + (A() - 0.5) * 10 / RF, 0.05 + A() * 0.08, f.s + (A() - 0.5) * 10, A()], [2, cows ? 3 : 2, 3 + A() * 5, 0]);
+    }
+    for (let i = 0; i < 700; i++) add1([A() * TAU, (A() - 0.5) * 0.6, side() * 1, A()], [0, 5, 2.5 + A() * 5, 0]);                       // ducks
+    for (let f = 0; f < 60; f++) {                                                                                                    // flocks
+      const th = A() * TAU, sp = (A() < 0.5 ? -1 : 1) * (8 + A() * 6), s0 = (A() - 0.5) * 120, h = 25 + A() * 50;
+      for (let k = 0; k < 10 + A() * 25; k++) add1([th + (A() - 0.5) * 30 / RF, sp, s0 + (A() - 0.5) * 14, A()], [3, 4, 0, h + (A() - 0.5) * 8]);
     }
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(NPEOPLE * 3), 3));
-    geo.setAttribute("aP", new THREE.Float32BufferAttribute(a, 4));
-    add(new THREE.Points(geo, mat(PEOPLE_VERT, PEOPLE_FRAG, { uniforms: peopleU })));
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(P.length / 4 * 3), 3));
+    geo.setAttribute("aP", new THREE.Float32BufferAttribute(P, 4));
+    geo.setAttribute("aQ", new THREE.Float32BufferAttribute(Q, 4));
+    add(new THREE.Points(geo, mat(LIFE_VERT, LIFE_FRAG, { uniforms: lifeU })));
   }
 
   // glass vault, and the lit air seen through it
@@ -889,8 +1007,8 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
   const earthDir = (t, out) => { const ph = E_PHI0 + t / E_PERIOD * TAU; return out.copy(ORBIT_U).multiplyScalar(Math.cos(ph)).addScaledVector(ORBIT_W, Math.sin(ph)); };
 
   // ---- the view: orbit (az, el) round a target that slides from the station's centre (far) to the land on the far side of the ring (close)
-  const LN_FAR = Math.log(7000), LN_NEAR = Math.log(190);
-  const AZ0 = VIEW0.az, EL0 = VIEW0.el, Z0 = 0.31;
+  const LN_FAR = Math.log(7000), LN_NEAR = Math.log(70);
+  const AZ0 = VIEW0.az, EL0 = VIEW0.el, Z0 = 0.25;
   let az = AZ0, el = EL0, zoom = Z0, azT = az, elT = el, zoomT = zoom;
   const target = new THREE.Vector3(), dir = new THREE.Vector3(), tmp = new THREE.Vector3(), inv = new THREE.Matrix4();
   function place(dt) {
@@ -904,8 +1022,13 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     dir.set(ce * ca, se, ce * sa);
     camera.position.copy(target).addScaledVector(dir, d);
     // keep clear of the tube, the hub and the spine
-    const p = camera.position, rho = Math.hypot(p.x, p.z), dc = Math.hypot(rho - R, p.y), MIN = RT + 28;
+    // deep in, the camera passes through the glass into the air over the city, staying above the rooftops
+    const p = camera.position, rho = Math.hypot(p.x, p.z), dc = Math.hypot(rho - R, p.y), MIN = (RT + 28) * (1 - smooth(0.86, 0.93, zoom));
     if (dc < MIN) { const k2 = MIN / dc; const nr = R + (rho - R) * k2; p.x *= nr / rho; p.z *= nr / rho; p.y *= k2; }
+    if (Math.hypot(Math.hypot(p.x, p.z) - R, p.y) < RT) {
+      const r2 = Math.hypot(p.x, p.z), top = R + landF(clamp(p.y, -SMAX, SMAX)) - 62;
+      if (r2 > top) { p.x *= top / r2; p.z *= top / r2; }
+    }
     if (rho < 120 && Math.abs(p.y) < 300) { const nr = 120; p.x *= nr / Math.max(rho, 1); p.z *= nr / Math.max(rho, 1); }
     camera.near = clamp(d * 0.04, 1, 120);
     camera.updateProjectionMatrix();
@@ -942,14 +1065,14 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     camera.fov = camera.aspect < 1 ? 62 : 46;
     camera.updateProjectionMatrix();
     const bh = renderer.domElement.height;
-    peopleU.uScale.value = bh * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    peopleU.uRes.value.set(renderer.domElement.width, bh);
+    lifeU.uScale.value = bh * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    lifeU.uRes.value.set(renderer.domElement.width, bh);
     navU.uPx.value = pr;
     post.setSize();
   };
   addEventListener("resize", resize); resize();
   // a star cell's size on screen: the sky shader wants pixels per radian
-  const pxPerRad = () => peopleU.uScale.value;
+  const pxPerRad = () => lifeU.uScale.value;
 
   let last = performance.now(), raf = 0, visible = true, slow = 0, tNow = reduced ? 24 : 0, spin = 0, ride = 0;
   function frame(dt) {
@@ -981,7 +1104,8 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     {
       const c = (t + 20) % 120;                       // in over 50 s, docked 30 s, out over 40 s
       const y = c < 50 ? 2600 - 2378 * smooth(0, 50, c) : c < 80 ? 222 : 222 + 2600 * smooth(80, 120, c) ** 2;
-      shuttle.position.set(0, y + 22, 0);
+      shuttle.position.set(0, -(y + 22), 0);                // it docks on the underside, facing the opening view
+      shuttle.rotation.x = Math.PI;
       shuttle.visible = y < 2500;
     }
 
@@ -1026,7 +1150,7 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
   return {
     renderer, frame, zoomBy, setView, setTime, scene, camera,
     get zoom() { return zoom; }, get view() { return { az: THREE.MathUtils.radToDeg(az), el: THREE.MathUtils.radToDeg(el), zoom }; },
-    stats: { buildings: nBuild, trees: nTrees, people: NPEOPLE },
+    stats: { buildings: nBuild, trees: nTrees, people: lives.people, animals: lives.animals, cars: nCars, markets: MARKETS.length },
   };
 }
 
