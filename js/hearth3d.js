@@ -66,8 +66,8 @@ const GLOW_DIR = new THREE.Vector3(-0.62, 0.1, -0.78).normalize();   // where th
 const GLSL_COMMON = /* glsl */`
 uniform float uTime, uNight, uFlick, uFogA, uFogH, uScat;
 uniform vec3 uSkyA, uSkyG, uGlowDir, uGlowCol, uFogCol;
-uniform vec3 uLp[5], uLn[5], uLc[5];     // the cabin's light: windows, lantern, roof windows (position, facing, colour)
-uniform float uLk[5], uLs[5];            // how tightly each one is aimed, how big it is
+uniform vec3 uLp[6], uLn[6], uLc[6];     // the cabin's light: windows, lantern, roof windows, the string over the deck (position, facing, colour)
+uniform float uLk[6], uLs[6];            // how tightly each one is aimed, how big it is
 uniform vec2 uClear, uWind;
 uniform mat4 uCabInv;
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -91,7 +91,7 @@ vec3 fogSky(vec3 rd){
 }
 vec3 cabinLight(vec3 P, vec3 N, float wrap){
   vec3 c = vec3(0.);
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     vec3 L = uLp[i] - P; float d2 = dot(L, L); L *= inversesqrt(d2);
     float dir = pow(max(dot(-L, uLn[i]), 1e-4), uLk[i]);
     c += uLc[i] * clamp((dot(N, L) + wrap) / (1. + wrap), 0., 1.) * dir / (d2 + 0.6);
@@ -100,7 +100,7 @@ vec3 cabinLight(vec3 P, vec3 N, float wrap){
 }
 vec3 cabinSpec(vec3 P, vec3 N, vec3 V, float shin){
   vec3 c = vec3(0.);
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     vec3 L = uLp[i] - P; float d2 = dot(L, L); L *= inversesqrt(d2);
     float dir = pow(max(dot(-L, uLn[i]), 1e-4), uLk[i]);
     c += uLc[i] * dir * pow(max(dot(N, normalize(L + V)), 0.), shin) * (shin + 2.) / 8. * max(dot(N, L), 0.) / (d2 + 0.6);
@@ -123,7 +123,7 @@ vec3 shade(vec3 alb, vec3 N, vec3 P, float ao, float wrap, float spec){
 // light from the cabin scattered by the mist along the view ray (closed form for a point light in uniform fog)
 vec3 scatter(vec3 ro, vec3 rd, float t){
   vec3 s = vec3(0.);
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     vec3 q = uLp[i] - ro; float s0 = dot(q, rd); float h = sqrt(max(dot(q, q) - s0 * s0, 0.)) + uLs[i];
     float a = (atan((t - s0) / h) + atan(s0 / h)) / h;
     vec3 cp = ro + rd * clamp(s0, 0., t);
@@ -173,10 +173,10 @@ const SU = {
   uTime: { value: 0 }, uNight: { value: 0 }, uFlick: { value: 1 }, uFogA: { value: 0.017 }, uFogH: { value: 14 }, uScat: { value: 0.006 },
   uSkyA: { value: new THREE.Vector3() }, uSkyG: { value: new THREE.Vector3() }, uGlowDir: { value: GLOW_DIR.clone() },
   uGlowCol: { value: new THREE.Vector3() }, uFogCol: { value: new THREE.Vector3() },
-  uLp: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLn: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) },
-  uLc: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLk: { value: [1, 1, 1, 1, 1] },
+  uLp: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3()) }, uLn: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3()) },
+  uLc: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3()) }, uLk: { value: [1, 1, 1, 1, 1, 1] },
   uClear: { value: new THREE.Vector2(...toWorld(0, 3)) }, uWind: { value: new THREE.Vector2(0.8, 0.6).normalize() },
-  uCabInv: { value: new THREE.Matrix4() }, uAtlas: { value: null }, uLs: { value: [1.6, 1.0, 0.3, 0.9, 0.9] },
+  uCabInv: { value: new THREE.Matrix4() }, uAtlas: { value: null }, uLs: { value: [1.6, 1.0, 0.3, 0.9, 0.9, 1.6] },
 };
 function surf({ vert = "", vpre = "", vpost = "", frag = "", body = "", uniforms = {}, defines = {}, side = THREE.FrontSide, inst = false, ...extra } = {}) {
   return new THREE.ShaderMaterial({
@@ -1239,6 +1239,7 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
     { p: cw(1.0, Y0 + 2.15, ZG + 0.3), n: cd(0, -0.3, 1).normalize(), c: [1.0, 0.62, 0.32], i: 3.2, k: 0.4 },   // the lantern
     { p: cw(ROOFWIN[0] - 0.5 * Math.sin(ALPHA), ROOFWIN[1] + 0.5 * Math.cos(ALPHA), ROOFWIN[2]), n: roofN.clone().transformDirection(cabin.matrixWorld), c: [1.0, 0.55, 0.24], i: 7, k: 1.0 },
     { p: cw(-ROOFWIN[0] + 0.5 * Math.sin(ALPHA), ROOFWIN[1] + 0.5 * Math.cos(ALPHA), ROOFWIN[2]), n: cd(Math.sin(ALPHA), Math.cos(ALPHA), 0), c: [1.0, 0.55, 0.24], i: 7, k: 1.0 },
+    { p: cw(0, Y0 + 2.2, ZG + 1.4), n: cd(0, -1, 0), c: [1.0, 0.64, 0.32], i: 3.0, k: 0.3 },          // the string of lights over the deck
   ];
   LIGHTS.forEach((l, i) => { SU.uLp.value[i].copy(l.p); SU.uLn.value[i].copy(l.n); SU.uLk.value[i] = l.k; });
 
@@ -1573,6 +1574,26 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
       instanced(pg, surf(PUMPKIN), pk, false);
     }
     for (const x of [-2.6, -1.4]) add(new THREE.BoxGeometry(0.06, 0.42, 0.34), post, x, Y0 + 0.21, ZG + 0.4);
+    // a string of lights over the deck: two poles at the front corners, a swag between them and strings back to the
+    // gable under the eaves, a bulb every 40 cm hanging just below the cable
+    {
+      const PL = [-(DW - 0.05), Y0 + 2.6, ZG + 2.4], PR = [DW - 0.05, Y0 + 2.6, ZG + 2.4];
+      for (const pp of [PL, PR]) add(new THREE.BoxGeometry(0.09, 2.6, 0.09), post, pp[0], Y0 + 1.3, pp[2]);
+      const W0 = [0, Y0 + 2.5, ZG + 0.04], WL = [-2.3, Y0 + 2.45, ZG + 0.04], WR = [2.3, Y0 + 2.45, ZG + 0.04];
+      const runs = [[PL, PR, 0.32], [W0, PL, 0.24], [W0, PR, 0.24], [WL, PL, 0.18], [WR, PR, 0.18]];
+      const cable = surf({ ...METAL, uniforms: { uCol: { value: new THREE.Vector3(0.02, 0.02, 0.02) } } });
+      const bulbs = [];
+      for (const [a, b, sag] of runs) {
+        const at = (t) => new THREE.Vector3(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t - sag * 4 * t * (1 - t), a[2] + (b[2] - a[2]) * t);
+        const pts = []; for (let i = 0; i <= 16; i++) pts.push(at(i / 16));
+        add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 32, 0.006, 4), cable);
+        const L = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), n = Math.round(L / 0.4);
+        for (let i = 1; i < n; i++) { const q = at(i / n); dummy.position.set(q.x, q.y - 0.07, q.z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1); dummy.updateMatrix(); bulbs.push(dummy.matrix.clone()); }
+      }
+      const bulb = (geo, mat) => { const m = new THREE.InstancedMesh(geo, mat, bulbs.length); bulbs.forEach((b, i) => m.setMatrixAt(i, b)); m.frustumCulled = false; cabin.add(m); };
+      bulb(new THREE.SphereGeometry(0.038, 10, 8), surf({ inst: true, body: "alb = vec3(0.); emis = vec3(1.0, 0.62, 0.28) * (5.5 + 1.5 * hash12(vW.xz * 13.));" }));
+      bulb(new THREE.CylinderGeometry(0.014, 0.014, 0.05, 6).translate(0, 0.05, 0), cable);         // the sockets
+    }
     // the lantern by the door
     const lp = [1.0, Y0 + 2.15, ZG + 0.12];
     add(new THREE.BoxGeometry(0.2, 0.3, 0.2), surf(GLOWMAT), ...lp);
@@ -1879,7 +1900,7 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
     SU.uNight.value = night;
     mixv(SU.uSkyA.value, DUSK.skyA, NIGHT.skyA, night); mixv(SU.uSkyG.value, DUSK.skyG, NIGHT.skyG, night);
     mixv(SU.uGlowCol.value, DUSK.glow, NIGHT.glow, night); mixv(SU.uFogCol.value, DUSK.fog, NIGHT.fog, night);
-    LIGHTS.forEach((l, i) => SU.uLc.value[i].set(...l.c).multiplyScalar(l.i * (i === 2 ? 0.95 + 0.05 * fl : 0.7 + 0.3 * fl)));
+    LIGHTS.forEach((l, i) => SU.uLc.value[i].set(...l.c).multiplyScalar(l.i * (i === 2 ? 0.95 + 0.05 * fl : i === 5 ? 1 : 0.7 + 0.3 * fl)));
     post.U.uExposure.value = 1.2 + night * 0.4;
 
     // walking round the cabin: the circle you are on, then stepped round anything in the way

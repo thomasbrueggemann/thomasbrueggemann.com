@@ -16,7 +16,7 @@ export const worlds = [
     kicker: "A cabin in the spruces",
     tagline: "An A-frame in an old spruce forest on a cold autumn evening.",
     description:
-      "Mist between the trunks, a floor of needles, bracken gone rusty and larches turned gold. In a small clearing an A-frame glows: a lamp hangs in the double-height room, a fire burns in the stone hearth, someone walks past the windows. Smoke rises from the stone chimney, firewood is stacked under a lean-to and in a round stack, and roe deer, a fox and hares wander the trails round the house.",
+      "Mist between the trunks, a floor of needles, bracken gone rusty and larches turned gold. In a small clearing an A-frame glows: a lamp hangs in the double-height room, a fire burns in the stone hearth, someone walks past the windows, and a string of lights hangs over the deck. Smoke rises from the stone chimney, firewood is stacked under a lean-to and in a round stack, and roe deer, a fox and hares wander the trails round the house.",
     date: "2026-10",
     genre: "Scene",
     tags: ["three.js", "GLSL", "procedural", "WebAudio"],
@@ -30,7 +30,7 @@ export const worlds = [
     repo: SRC + "js/hearth3d.js",
     shots: [
       { src: "hearth-1.webp", alt: "A glowing A-frame cabin in a misty spruce forest at dusk, smoke rising from its chimney, a flagstone path leading to it", caption: "Through the trunks at dusk" },
-      { src: "hearth-2.webp", alt: "The side of the A-frame up close: a mossy shingle roof with a lit roof window, firewood stacked under a lean-to, the lit deck beyond", caption: "Round the side: the woodshed and a roof window" },
+      { src: "hearth-2.webp", alt: "The front of the A-frame up close: a string of lights over the deck, lit windows, pumpkins on the steps, a chopping block with an axe", caption: "Up close: string lights over the deck" },
       { src: "hearth-3.webp", alt: "The back of the cabin: a stone gable wall with a stone chimney rising above the roof", caption: "The stone wall and chimney at the back" },
       { src: "hearth-4.webp", alt: "The cabin at night, only its windows lit, glowing in the mist", caption: "Nightfall" },
     ],
