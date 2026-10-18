@@ -380,7 +380,7 @@ varying vec3 vP, vCol; varying vec2 vUp; varying float vA, vSz, vSp, vPh, vSeed,
 float seg(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0., 1.)); }
 void main(){
   if (hash12(gl_FragCoord.xy) > vA) discard;
-  vec2 pc = gl_PointCoord - .5; pc.y = -pc.y;
+  vec2 pc = gl_PointCoord - .5;             // its y already runs up the figure (rendered into the post target)
   vec2 l = vec2(dot(pc, vec2(vUp.y, -vUp.x)), dot(pc, vUp));
   vec3 col = vCol;
   float sw = sin(vPh);
