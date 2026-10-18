@@ -100,7 +100,7 @@ python3 -m http.server 8090
 
 ## Deploy
 
-Push to `master`; GitHub Pages serves the repo root. `CNAME` holds `thomasbrueggemann.com`, and `.nojekyll` disables Jekyll processing. Never delete either file.
+Pushing to `master` runs `.github/workflows/pages.yml`, which publishes the repo root to GitHub Pages (Settings > Pages > Source is "GitHub Actions"). `CNAME` holds `thomasbrueggemann.com`, and `.nojekyll` disables Jekyll processing. Never delete either file. Check a deploy with `gh run list --limit 3`.
 
 ## History
 
