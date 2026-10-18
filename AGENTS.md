@@ -39,7 +39,7 @@ python3 -m http.server 8090   # then open http://localhost:8090
 The look is deliberately **quiet and minimal**: one near-black background, one warm accent used only for hover/focus, serif headings, plain sans body. The site shows **only the Worlds**, and the Worlds are **only the three scenes on this site** (Torus, Shade, Skerryhead Storm). Earlier versions also had smaller games, tools, hardware and archive sections, and later the browser games (Windward, Skerryhead Light, Containership, Canopy, Halcyon Ring, Wildfire Response, One More Lane, Gemify) in the gallery; all were removed on request ("keep it simple", then "only the new scenes"), and remain in git history. Do not add them back unless asked. Do not reintroduce decorative effects (grain, glows, marquee, per-project colours, tilt).
 
 1. **Hero**: live 3D storm scene (`js/hero3d.js`; wave parameters and look follow the Skerryhead Light game), name, one-line lede, one button ("See the work ↓" to the gallery). The scenes are linked from the gallery only, not from the hero. `window.__hero` exposes `{frame, strike, scene, camera}` for debugging (e.g. `__hero.strike()` forces lightning). Camera, rock positions (`ROCKS`) and tower dimensions are constants at the top of the file. Check 1440x900 and 390x844 after any change; text sits bottom-left, the tower right of centre.
-2. **Worlds** (`worlds[]` in `js/data.js`): one chapter each (screenshot, title, tagline, description, Enter/Source, "Details" link). For the scenes, `play` is a path on this site (opens in the same tab), `label` is "Enter", and `repo` points at the scene's source file in this repo. Chapters alternate left/right. Highlights, tags and the screenshot gallery live in the dialog.
+2. **Worlds** (`worlds[]` in `js/data.js`): one chapter each (screenshot, title, tagline, description, Enter button, "Details" link; no links to source code). For the scenes, `play` is a path on this site (opens in the same tab) and `label` is "Enter". Dates are when the idea was first worked on: Torus from the `halcyon-ring` repo (Jul 2026), Shade from the `canopy` repo (Jul 2026), the storm from this site (Oct 2026). Chapters alternate left/right. Highlights, tags and the screenshot gallery live in the dialog.
 
 ## Procedure: add a world
 
@@ -61,7 +61,6 @@ The look is deliberately **quiet and minimal**: one near-black background, one w
      highlights: ["...", "...", "..."],// exactly three, one line each; shown in the dialog
      play: "https://.../",            // or a path on this site ("torus/"), or null if there is no public demo
      label: "Enter",                  // optional text for the play button (default "Play")
-     repo: "https://github.com/thomasbrueggemann/<repo>",
      shots: [{ src: "lighthouse-1.webp", alt: "...", caption: "..." }],  // first = chapter image; alt is required
    }
    ```
