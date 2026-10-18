@@ -254,12 +254,12 @@ vec3 roomCol(vec2 f, vec2 c, float bay, float fl, vec3 d, float seed, float lit)
     // greenery: vines hanging from each tier top, climbers from its base, planter rows, moss
     float dTop = vB.y - vW.y, dBot = vW.y - vB.z;
     float strand = vnoise(vec2(u * 0.33 + seed * 17., 0.5));
-    float len = gr * (10. + 120. * pow(strand, 1.5)) * (0.35 + 0.65 * hash12(vec2(floor(u / 0.7), seed * 31.)));   // stringy curtains
-    float hang = 1. - smoothstep(len * 0.55, len, dTop + (vnoise(vec2(u * 1.6, vW.y * 0.35)) - 0.5) * 7.);
-    float clen = gr * (6. + 70. * vnoise(vec2(u * 0.21 + 3.1, seed * 5.)));
+    float len = gr * (2.5 + 13. * pow(strand, 2.)) * (0.35 + 0.65 * hash12(vec2(floor(u / 0.7), seed * 31.)));   // a short fringe under each parapet
+    float hang = 1. - smoothstep(len * 0.55, len, dTop + (vnoise(vec2(u * 1.6, vW.y * 0.35)) - 0.5) * 3.);
+    float clen = gr * (2. + 7. * vnoise(vec2(u * 0.21 + 3.1, seed * 5.))) * step(0.6, fract(seed * 4.3));   // ivy at street level, on some
     float climb = 1. - smoothstep(clen * 0.5, clen, dBot + (vnoise(vec2(u * 2.1, vW.y * 0.5)) - 0.5) * 5.);
-    float planter = (style > 2.5 || fract(seed * 9.1) > 0.55) ? step(mod(c.y, 3.), 0.5) * (1. - smoothstep(0.16, 0.3 + 0.2 * vnoise(vec2(u * 1.3, c.y)), f.y)) : 0.;
-    float moss = smoothstep(0.52, 0.66, fbm3(q * 0.07 + seed * 7.)) * gr;
+    float planter = style > 2.5 ? step(mod(c.y, 3.), 0.5) * (1. - smoothstep(0.16, 0.3 + 0.2 * vnoise(vec2(u * 1.3, c.y)), f.y)) : 0.;
+    float moss = smoothstep(0.64, 0.74, fbm3(q * 0.07 + seed * 7.)) * gr * 0.6;
     gMask = max(max(hang, climb), max(planter * (1. - lod * 0.5), moss));
   }
   float ln = leafN(q);
@@ -1062,22 +1062,24 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
         const L = Math.hypot(bx - ax, bz - az), ph = D() * 50;
         for (let u = 0.5; u < L; u += 0.9 + d / 300) {
           if (vnoise(u * 0.15 + ph) < 0.45 - green * 0.2) continue;
-          const t = u / L, len = Math.min(y1 - 2, 2 + Math.pow(D(), 1.6) * (8 + 70 * green));
+          const t = u / L, len = Math.min(y1 - 2, 1.5 + Math.pow(D(), 2.2) * (3 + 12 * green));
           vines.push([ax + (bx - ax) * t + nx * (0.4 + D() * 0.8), y1, az + (bz - az) * t + nz * (0.4 + D() * 0.8), len, (0.07 + D() * 0.1) * (1 + d / 250)]);
         }
       }
-      // trees and bushes bursting out of the facade, in clumps, the way growth takes a cliff
+      // bushes spilling out just under the top of each tier: the walls themselves stay walls. (Every candidate still draws
+      // from D, so the rest of the decoration does not move.)
       if (d < 650) {
         const L = Math.hypot(bx - ax, bz - az), sp = 7 + d / 90, ph = D() * 40;
         for (let u = sp * D(); u < L; u += sp * (0.6 + D() * 0.6)) for (let y = y0 + 4 + D() * sp; y < y1 - 3; y += sp * (0.6 + D() * 0.6)) {
           if (vn2(u * 0.06 + ph, y * 0.05) < 0.62 - green * 0.25) continue;
-          const t = u / L, n = 1 + Math.floor(D() * 3), r0 = (1.6 + D() * 2.6) * (1 + d / 400);
+          const t = u / L, n = 1 + Math.floor(D() * 3), r0 = (1.6 + D() * 2.6) * (1 + d / 400), top = y > y1 - 9;
           for (let i = 0; i < n; i++) {
             const r = r0 * (0.6 + D() * 0.5);
-            shrubs.push([ax + (bx - ax) * t + nx * r * (0.5 + D() * 0.6) + (D() - 0.5) * r * Math.abs(nz) * 1.5, y + (D() - 0.3) * r,
-              az + (bz - az) * t + nz * r * (0.5 + D() * 0.6) + (D() - 0.5) * r * Math.abs(nx) * 1.5, r, r * 0.75, palette() & 3]);
+            const e = [ax + (bx - ax) * t + nx * r * (0.5 + D() * 0.6) + (D() - 0.5) * r * Math.abs(nz) * 1.5, y + (D() - 0.3) * r,
+              az + (bz - az) * t + nz * r * (0.5 + D() * 0.6) + (D() - 0.5) * r * Math.abs(nx) * 1.5, r, r * 0.75, palette() & 3];
+            if (top) shrubs.push(e);
           }
-          if (D() < 0.35) vines.push([ax + (bx - ax) * t + nx * r0, y, az + (bz - az) * t + nz * r0, Math.min(y - 1, 3 + D() * 20), (0.06 + D() * 0.08) * (1 + d / 250)]);
+          if (D() < 0.35) { const v = [ax + (bx - ax) * t + nx * r0, y, az + (bz - az) * t + nz * r0, Math.min(y - 1, 3 + D() * 8), (0.06 + D() * 0.08) * (1 + d / 250)]; if (top) vines.push(v); }
         }
       }
     }
@@ -2049,74 +2051,120 @@ export function startShade3D(canvasEl, { reduced = false } = {}) {
     }
   }
 
-  // ---- birds: a flock of swifts over the avenue and storks circling in a thermal
+  // ---- birds: swifts over the avenue ahead and behind, a flock of parakeets flying up the avenue and back close past the
+  // camera, egrets gliding low along the river and under the bridge, storks circling in a thermal
   const birdGeo = (() => {
-    // wings along x, forward is +z; aW is 0 at the body and 1 at the wing tips
-    const P = [0, 0, 0.32, 0.06, 0, 0.04, 0, 0, -0.3, -0.06, 0, 0.04,
-      0.04, 0, 0.12, 0.5, 0, 0.0, 0.04, 0, -0.06, 0.5, 0, 0.0, 1.0, 0, -0.22, 0.48, 0, -0.1,
-      -0.04, 0, 0.12, -0.5, 0, 0.0, -0.04, 0, -0.06, -0.5, 0, 0.0, -1.0, 0, -0.22, -0.48, 0, -0.1];
-    const W = P.filter((_, i) => i % 3 === 0).map((x) => Math.abs(x));
+    // span 2 (wing tips at x = ±1), forward +z. The body is a spindle from beak to tail; each wing is an arm (to the wrist at
+    // |x| = 0.47) and a swept hand, which the shader folds at the shoulder and the wrist
+    const ring = (z, w, h, y = 0) => [[w, y, z], [0, y + h, z], [-w, y, z], [0, y - h, z]];
+    const rings = [ring(0.27, 0.03, 0.025, 0.01), ring(0.08, 0.065, 0.05), ring(-0.18, 0.03, 0.022)];
+    const P = [[0, 0, 0.4], ...rings.flat()], I = [];
+    for (let k = 0; k < 4; k++) I.push(0, 1 + k, 1 + (k + 1) % 4);
+    for (let r = 0; r < 2; r++) for (let k = 0; k < 4; k++) { const a = 1 + r * 4 + k, b = 1 + r * 4 + (k + 1) % 4; I.push(a, a + 4, b, b, a + 4, b + 4); }
+    const tb = P.length; P.push([0.11, 0, -0.42], [0, 0, -0.35], [-0.11, 0, -0.42]);
+    I.push(9, tb, tb + 1, 9, tb + 1, 11, 11, tb + 1, tb + 2);
+    for (const X of [1, -1]) {
+      const w = P.length;
+      P.push([0.05 * X, 0.005, 0.12], [0.47 * X, 0, 0.1], [1.0 * X, 0, -0.12], [0.86 * X, 0, -0.27], [0.47 * X, 0, -0.17], [0.05 * X, 0, -0.1]);
+      I.push(w, w + 1, w + 4, w, w + 4, w + 5, w + 1, w + 2, w + 3, w + 1, w + 3, w + 4);
+    }
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
-    g.setAttribute("aW", new THREE.Float32BufferAttribute(W, 1));
-    g.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    g.setAttribute("position", new THREE.Float32BufferAttribute(P.flat(), 3)); g.setIndex(I);
     return g;
   })();
   const birdMat = new THREE.ShaderMaterial({
     uniforms: SU, side: THREE.DoubleSide,
     vertexShader: `${GLSL_COMMON}
-      attribute float aW; attribute vec3 aF; varying vec3 vW;
+      attribute vec4 aF, aC; attribute float aBu; varying vec3 vW, vN, vCol; varying float vTip;
       void main(){
-        vec3 p = position;
-        float s = sin(uTime * aF.y + aF.x);
-        p.y += s * aW * aF.z; p.x *= 1. - 0.15 * abs(s) * aW;
-        vec4 w = modelMatrix * instanceMatrix * vec4(p, 1.);
-        vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w;
+        vec3 p = position, n;
+        // aF: phase, wingbeat (rad/s), beat amplitude, dihedral. Swifts and storks glide between bursts of beats (aBu)
+        float burst = mix(1., smoothstep(-0.2, 0.5, sin(uTime * 0.8 + aF.x * 7.)), aBu);
+        float s = sin(uTime * aF.y + aF.x), a1 = aF.w + s * aF.z * burst, a2 = a1 + (s * 0.6 + 0.15) * aF.z * burst;
+        float X = sign(p.x), r = p.z > -0.3 ? max(abs(p.x) - 0.05, 0.) : 0.;
+        if (r > 0.) {
+          float ri = min(r, 0.42), ro = max(r - 0.42, 0.);
+          vec2 q = vec2(cos(a1), sin(a1)) * ri + vec2(cos(a2), sin(a2)) * ro;
+          p.x = X * (0.05 + q.x); p.y += q.y;
+          float aa = ro > 0. ? a2 : a1;
+          n = vec3(-X * sin(aa), cos(aa), 0.);
+        } else n = normalize(vec3(p.x * 12., 1. + p.y * 14., 0.));
+        mat4 M = modelMatrix * instanceMatrix;
+        vec4 w = M * vec4(p, 1.);
+        vW = w.xyz; vN = mat3(M) * n; vCol = aC.rgb; vTip = aC.w * smoothstep(0.62, 0.8, r);
+        gl_Position = projectionMatrix * viewMatrix * w;
       }`,
     fragmentShader: `${GLSL_COMMON}
-      varying vec3 vW;
-      void main(){ gl_FragColor = vec4(applyHaze(vec3(0.018, 0.017, 0.016), vW), 1.); }`,
+      varying vec3 vW, vN, vCol; varying float vTip;
+      void main(){
+        vec3 N = normalize(vN), V = normalize(cameraPosition - vW);
+        if (dot(N, V) < 0.) N = -N;                                      // a thin wing: light the side we see
+        float lit = (0.3 + 0.7 * smoothstep(110., 180., vW.y)) * cloudShade(vW);   // under the canopy little sun gets through
+        vec3 alb = mix(vCol, vec3(0.015), vTip);
+        float nl = max(dot(N, uSunDir), 0.), back = pow(max(dot(-V, uSunDir), 0.), 6.);
+        vec3 c = alb * (vec3(0.18, 0.21, 0.24) + uSunCol * 0.31 * nl * lit) + alb * uSunCol * back * 0.05 * lit;   // and glowing through the feathers against the sun
+        gl_FragColor = vec4(applyHaze(c, vW), 1.);
+      }`,
   });
-  const SWIFTS = 46, STORKS = 6;
-  const birds = new THREE.InstancedMesh(birdGeo, birdMat, SWIFTS + STORKS);
-  birds.frustumCulled = false;
+  // kind 0 swift, 1 parakeet, 2 egret, 3 stork: [count, size, colour, dark wing tips, wingbeat, amplitude, dihedral, bursts]
+  const BIRD_KINDS = [[64, 0.7, [0.018, 0.017, 0.016], 0, 15, 0.55, 0.05, 1], [22, 0.5, [0.05, 0.15, 0.02], 0.35, 24, 0.75, 0, 0],
+    [6, 0.85, [0.78, 0.77, 0.72], 0, 5.5, 0.7, 0.05, 0], [6, 1.05, [0.62, 0.6, 0.56], 0.9, 3, 0.12, 0.1, 1]];
+  const birdState = [];
+  BIRD_KINDS.forEach(([n, size, col, tip, beat, amp, dih, bu], kind) => {
+    for (let i = 0; i < n; i++) birdState.push({ kind, i, size, col, tip, beat: beat * (0.9 + D() * 0.2), amp, dih, bu,
+      a: D() * TAU, b: D() * TAU, r: D(), w: 0.6 + D() * 0.5, h: D() * TAU, grp: kind === 0 ? i % 2 : 0, p: new THREE.Vector3() });
+  });
+  const NB = birdState.length;
   {
-    const F = new Float32Array((SWIFTS + STORKS) * 3);
-    for (let i = 0; i < SWIFTS + STORKS; i++) {
-      const stork = i >= SWIFTS;
-      F[i * 3] = D() * TAU; F[i * 3 + 1] = stork ? 3.2 : 15 + D() * 6; F[i * 3 + 2] = stork ? 0.05 : 0.5;
-    }
-    birdGeo.setAttribute("aF", new THREE.InstancedBufferAttribute(F, 3));
+    const F = new Float32Array(NB * 4), C = new Float32Array(NB * 4), Bu = new Float32Array(NB);
+    birdState.forEach((b, i) => {
+      const k = b.kind === 1 ? 0.8 + D() * 0.5 : 1;
+      F.set([D() * TAU, b.beat, b.amp, b.dih], i * 4); C.set([b.col[0] * k, b.col[1] * k, b.col[2] * k, b.tip], i * 4); Bu[i] = b.bu;
+    });
+    birdGeo.setAttribute("aF", new THREE.InstancedBufferAttribute(F, 4));
+    birdGeo.setAttribute("aC", new THREE.InstancedBufferAttribute(C, 4));
+    birdGeo.setAttribute("aBu", new THREE.InstancedBufferAttribute(Bu, 1));
   }
+  const birds = new THREE.InstancedMesh(birdGeo, birdMat, NB);
+  birds.frustumCulled = false;
   scene.add(birds);
-  const birdState = Array.from({ length: SWIFTS + STORKS }, (_, i) => ({
-    a: D() * TAU, b: D() * TAU, r: 6 + D() * 16, w: 0.6 + D() * 0.5, h: D() * TAU, ph: D() * 100,
-    p: new THREE.Vector3(), prev: new THREE.Vector3(), first: true, stork: i >= SWIFTS,
-  }));
-  const dummy = new THREE.Object3D(), vel = new THREE.Vector3();
+  const dummy = new THREE.Object3D(), vA = new THREE.Vector3(), vB = new THREE.Vector3(), pA = new THREE.Vector3(), pB = new THREE.Vector3();
   function birdPos(b, t, out) {
-    if (b.stork) {                                           // wide slow circles, each bird at its own height in the column
+    if (b.kind === 3) {                                      // storks: wide slow circles, each bird at its own height in the column
       const a = t * 0.2 * b.w + b.a;
-      return out.set(30 + Math.cos(a) * (20 + b.r), 172 + b.r * 1.8 + Math.sin(t * 0.07 + b.h) * 4, -330 + Math.sin(a) * (20 + b.r));
+      return out.set(30 + Math.cos(a) * (20 + b.r * 16), 172 + b.r * 29 + Math.sin(t * 0.07 + b.h) * 4, -330 + Math.sin(a) * (20 + b.r * 16));
     }
-    // the flock wanders on a slow figure of eight over the avenue; every swift loops around it at its own pace
-    const cx = 18 * Math.sin(t * 0.11) + 26 * Math.sin(t * 0.047 + 1), cz = -150 + 35 * Math.sin(t * 0.083), cy = 134 + 8 * Math.sin(t * 0.13);
-    const a = t * b.w * 1.4 + b.a, c = t * b.w * 0.9 + b.b;
-    return out.set(cx + Math.cos(a) * b.r * 1.6, cy + Math.sin(c) * b.r * 0.35 + Math.sin(t * 0.5 + b.h) * 2, cz + Math.sin(a) * b.r);
+    if (b.kind === 2) {                                      // egrets: in a loose line low over the river, from behind the camera down the avenue
+      const z = CAM.z + 450 - (((t * 9.5 + b.i * 9) % 1400) + 1400) % 1400;
+      return out.set(riverX(z) + Math.sin(b.i * 2.1) * 2.5 + Math.sin(t * 0.3 + b.h) * 1.5, 7 + b.i * 0.8 + Math.sin(t * 0.5 + b.h) * 0.6, z);
+    }
+    if (b.kind === 1) {                                      // parakeets: a racetrack, away up the left of the avenue, back down the right, close past the camera
+      const zN = CAM.z + 40, S = 520, Rt = 20, L = 2 * S + 2 * Math.PI * Rt;
+      let a = ((t * 19 + b.r * 16) % L + L) % L, x, z;
+      if (a < S) { x = -Rt; z = zN - a; }
+      else if ((a -= S) < Math.PI * Rt) { x = -Rt * Math.cos(a / Rt); z = zN - S - Rt * Math.sin(a / Rt); }
+      else if ((a -= Math.PI * Rt) < S) { x = Rt; z = zN - S + a; }
+      else { a -= S; x = Rt * Math.cos(a / Rt); z = zN + Rt * Math.sin(a / Rt); }
+      return out.set(x + (b.a - Math.PI) * 0.9 + Math.sin(b.h + t * 1.3) * 2, 52 + Math.sin(b.b * 3) * 3 + Math.sin(t * 0.9 + b.h) * 1.2, z);
+    }
+    // swifts: two flocks wandering over the avenue, ahead of the camera and behind it; every swift loops round its flock at its own pace
+    const k = b.grp ? -1 : 1, cx = 4 + 10 * Math.sin(t * 0.11 + b.grp * 2) + 6 * Math.sin(t * 0.047 + 1);
+    const cz = CAM.z + k * (-72 + 15 * Math.sin(t * 0.083 + b.grp)), cy = 66 + 5 * Math.sin(t * 0.13 + b.grp);
+    const a = t * b.w * 1.4 + b.a, c = t * b.w * 0.9 + b.b, R = 4 + b.r * 10;
+    return out.set(cx + Math.cos(a) * R * 1.6, cy + Math.sin(c) * R * 0.35 + Math.sin(t * 0.5 + b.h) * 2, cz + Math.sin(a) * R);
   }
   function updateBirds(t) {
     birdState.forEach((b, i) => {
-      b.prev.copy(b.p);
-      birdPos(b, t + b.ph * 0.02, b.p);
-      if (b.first) { birdPos(b, t + b.ph * 0.02 - 0.05, b.prev); b.first = false; }
-      vel.subVectors(b.p, b.prev);
-      if (vel.lengthSq() < 1e-8) vel.set(0, 0, 1);
+      birdPos(b, t, b.p); birdPos(b, t - 0.05, pA); birdPos(b, t - 0.1, pB);
+      vA.subVectors(b.p, pA); vB.subVectors(pA, pB);
+      if (vA.lengthSq() < 1e-8) vA.set(0, 0, 1);
       dummy.position.copy(b.p);
-      dummy.up.copy(up);
-      dummy.lookAt(vel.add(b.p));
-      const turn = Math.sin(t * b.w * 1.4 + b.a);
-      dummy.rotateZ(b.stork ? 0.55 : 0.6 * turn);         // bank into the turn
-      dummy.scale.setScalar(b.stork ? 2.3 : 0.55);
+      dummy.up.set(0, 1, 0);
+      dummy.lookAt(pA.copy(b.p).add(vA));
+      // bank into the turn, by how fast the heading is changing
+      const dh = Math.atan2(vA.x, vA.z) - Math.atan2(vB.x, vB.z), turn = Math.atan2(Math.sin(dh), Math.cos(dh)) / 0.05;
+      dummy.rotateZ(clamp(-turn * 0.35, -0.9, 0.9));
+      dummy.scale.setScalar(b.size);
       dummy.updateMatrix();
       birds.setMatrixAt(i, dummy.matrix);
     });
