@@ -164,6 +164,10 @@ vec4 atlas(float cell, vec2 uv, vec2 g){
 }
 float cutout(float a, float c){ return clamp((a - c) / max(fwidth(a), 1e-4) + 0.5, 0., 1.); }
 `;
+// thin leaves and needles lit from behind: looking toward where the sun went down they warm up a little
+const GLSL_LEAFLIT = /* glsl */`
+vec3 leafLit(vec3 alb, vec3 V, vec3 P){ return alb * uGlowCol * 2.4 * pow(max(dot(-V, uGlowDir), 0.), 2.) * mix(0.35, 1., openness(P)); }
+`;
 
 // ---------------------------------------------------------------- one material factory for every lit surface
 // vertex: object position vO, world position vW, world normal vN, uv, per-instance data vI (attribute aI if present);
@@ -227,19 +231,24 @@ void main(){
 // aI: kind (0 spruce, 1 pine, 2 larch, 3 dead snag), crown base (fraction of the height), seed
 const TRUNK = {
   inst: true,
-  vert: "varying float vH, vR;",
+  vert: "varying float vH, vR, vFl;",
+  vpre: `
+  float Hh = length(instanceMatrix[1].xyz), ym = position.y * Hh;                   // metres up the trunk
+  vFl = pow(0.5 + 0.5 * sin(atan(position.z, position.x) * (3. + floor(vI.z * 3.)) + vI.z * 60.), 2.) * exp(-ym * 2.6);
+  p.xz *= 1. + vFl * 0.8;                                                           // buttress roots flaring out of the ground`,
   vpost: `
   vH = length(M[1].xyz); vR = length(M[0].xyz);
   vec2 wv = uWind * (0.5 + 0.5 * sin(uTime * 0.45 + vI.z * 40.)) + vec2(sin(uTime * 0.9 + vI.z * 20.), cos(uTime * 0.8 + vI.z * 13.)) * 0.35;
   w.xz += wv * p.y * p.y * vH * 0.005;`,
-  frag: "varying float vH, vR;",
+  frag: "varying float vH, vR, vFl;" + GLSL_LEAFLIT,
   body: `
   float kind = vI.x, hgt = vO.y * vH;
   vec3 q = vec3(vO.x * vR, hgt, vO.z * vR);
   float hb, plates;
-  if (kind < 0.5) {               // spruce: grey-brown, small thin scales
-    plates = n3(q * vec3(16., 5., 16.)) * 0.6 + n3(q * vec3(40., 14., 40.)) * 0.4;
-    alb = mix(vec3(0.09, 0.07, 0.06), vec3(0.24, 0.18, 0.14), smoothstep(0.3, 0.7, plates));
+  if (kind < 0.5) {               // spruce: grey-brown, small thin scales over long shallow furrows
+    float fur = n3(vec3(q.x * 26., hgt * 1.4, q.z * 26.));
+    plates = (n3(q * vec3(16., 5., 16.)) * 0.6 + n3(q * vec3(40., 14., 40.)) * 0.4) * 0.65 + fur * 0.35;
+    alb = mix(vec3(0.08, 0.062, 0.055), vec3(0.25, 0.185, 0.14), smoothstep(0.3, 0.7, plates));
     hb = plates;
   } else if (kind < 1.5) {        // pine: deep grey plates below, thin orange flakes high up
     float f = n3(q * vec3(5., 0.9, 5.)) * 0.7 + n3(q * vec3(13., 3., 13.)) * 0.3;
@@ -247,10 +256,10 @@ const TRUNK = {
     plates = mix(smoothstep(0.38, 0.5, f), n3(q * vec3(22., 9., 22.)), up);
     alb = mix(mix(vec3(0.06, 0.045, 0.035), vec3(0.26, 0.21, 0.17), plates), mix(vec3(0.32, 0.13, 0.05), vec3(0.62, 0.32, 0.14), plates), up);
     hb = plates;
-  } else if (kind < 2.5) {        // larch: reddish brown, deeply furrowed
+  } else if (kind < 2.5) {        // larch: reddish brown, deeply furrowed, the ridges catching the light
     float f = n3(q * vec3(7., 1.3, 7.)) * 0.7 + n3(q * vec3(20., 5., 20.)) * 0.3;
     plates = smoothstep(0.36, 0.52, f);
-    alb = mix(vec3(0.06, 0.03, 0.02), vec3(0.30, 0.15, 0.09), plates);
+    alb = mix(vec3(0.05, 0.026, 0.018), vec3(0.34, 0.165, 0.095), plates);
     hb = plates;
   } else {                        // a dead snag: bark gone, silver wood split along the grain
     plates = n3(q * vec3(30., 1.5, 30.));
@@ -259,15 +268,23 @@ const TRUNK = {
   }
   float cv = n3(q * 1.3 + vI.z * 10.);
   alb *= 0.8 + 0.4 * cv;
+  float tv = fract(vI.z * 37.1);                                                    // every tree its own bark: warm or cold, pale or dark
+  alb *= mix(vec3(1.07, 0.97, 0.88), vec3(0.9, 0.98, 1.08), tv) * (0.8 + 0.4 * fract(vI.z * 91.3)) * (0.85 + 0.3 * n3(vec3(vO.x, hgt * 0.15, vO.z) * 2. + vI.z * 7.));
+  alb *= 1. - 0.45 * smoothstep(0.7, 0., vFl) * smoothstep(0.9, 0., hgt);           // damp and dark between the roots
   // moss creeping up from the roots, more on one side; pale lichen higher up
   float side = dot(normalize(q.xz + 1e-4), normalize(vec2(0.4, 1.)));
   float moss = smoothstep(0.9 + 0.8 * side, 0.1, hgt + (n3(q * 4.) - 0.5) * 0.9) * smoothstep(0.2, 0.5, n3(q * 6. + 3.) + 0.2);
+  moss = clamp(moss + vFl * 0.35 * smoothstep(0.2, 0.5, n3(q * 6. + 3.) + 0.2), 0., 1.);
   alb = mix(alb, vec3(0.08, 0.13, 0.03) * (0.7 + 0.6 * n3(q * 25.)), moss * step(kind, 2.5));
   vec2 dir = q.xz / max(length(q.xz), 1e-4);
   float lich = smoothstep(0.64, 0.74, n3(vec3(dir * 2.2, hgt * 0.9) + 7. + vI.z * 20.) * 0.7 + n3(vec3(dir * 9., hgt * 4.)) * 0.3) * smoothstep(0.8, 2.5, hgt) * (1. - smoothstep(10., 16., hgt));
   alb = mix(alb, vec3(0.36, 0.40, 0.33), lich * 0.75 * step(kind, 1.5));
-  N = bumpN(N, vW, hb * 0.012 + moss * 0.01, 1.);
+  // resin and the odd knot where a branch was shed
+  float knot = smoothstep(0.8, 0.9, n3(vec3(dir * 8., hgt * 5.) + vI.z * 31.)) * step(1.5, hgt) * step(kind, 1.5);
+  alb = mix(alb, vec3(0.04, 0.025, 0.02), knot * 0.6);
+  N = bumpN(N, vW, hb * 0.014 + moss * 0.01 + knot * 0.01, 1.);
   ao = mix(0.5, 1., smoothstep(0., 1.5, hgt)) * mix(1., 0.55, smoothstep(vI.y * vH, vI.y * vH + 4., hgt));
+  emis = alb * uSkyA * (0.12 + 0.7 * pow(1. - abs(dot(N, V)), 2.)) * smoothstep(0.1, 1.2, hgt) + leafLit(alb, V, vW) * 0.3;   // sky on the trunk's edges, so the bark reads against the mist
   wrap = 0.2;`,
 };
 
@@ -290,7 +307,7 @@ const TWIG = {
 // branches are drawn in the fragment shader (rachis, herringbone twigs, ragged needle fringe) and cut out with
 // alpha-to-coverage. aI: kind, height in the crown (0 bottom .. 1 top), seed, sway amplitude
 const WHORL = {
-  inst: true, side: THREE.DoubleSide, frag: GLSL_ATLAS,
+  inst: true, side: THREE.DoubleSide, frag: GLSL_ATLAS + GLSL_LEAFLIT,
   vpost: `
   vec2 wv = uWind * (0.5 + 0.5 * sin(uTime * 0.45 + vI.z * 40.)) + vec2(sin(uTime * 0.9 + vI.z * 20.), cos(uTime * 0.8 + vI.z * 13.)) * 0.35;
   w.xz += wv * vI.w;
@@ -298,19 +315,22 @@ const WHORL = {
   w.xyz += vec3(sin(uTime * 2.3 + w.x * 1.7 + w.y), sin(uTime * 1.9 + w.z * 1.3) * 0.6, cos(uTime * 2.1 + w.z * 1.5 + w.y)) * 0.05 * tip * (0.5 + uWind.x * 0.5);`,
   body: `
   float kind = vI.x;
-  float bi = floor(vUv.x), bh = hash12(vec2(bi, vI.z * 91.7));
+  float bi = floor(vUv.x), bh = hash12(vec2(bi, vI.z * 91.7)), tv = fract(vI.z * 37.1);
   float cell = kind < 0.5 ? step(0.5, bh) : kind < 1.5 ? 3. : 2.;
   vec2 uv = vec2(fract(vUv.x), vUv.y);
   if (fract(bh * 7.3) > 0.5) uv.x = 1. - uv.x;
   vec4 t = atlas(cell, uv, vUv);
   alpha = cutout(t.a, 0.45);
   if (alpha < 0.02) discard;
-  vec3 green = kind < 0.5 ? vec3(0.045, 0.08, 0.05) : kind < 1.5 ? vec3(0.07, 0.09, 0.035) : vec3(0.55, 0.36, 0.07);
+  vec3 green = kind < 0.5 ? mix(vec3(0.04, 0.08, 0.07), vec3(0.06, 0.085, 0.04), tv) : kind < 1.5 ? vec3(0.07, 0.09, 0.035) : vec3(0.55, 0.36, 0.07);
+  if (kind > 1.5) green *= mix(vec3(1.), vec3(1.15, 0.8, 0.5), tv * 0.7);                                  // larches turned at different rates
   green *= (0.8 + 0.4 * bh) * (0.35 + t.r * 1.1);
   alb = mix(green, vec3(0.09, 0.07, 0.055) * (0.5 + t.r), t.g);
-  alb = mix(alb, alb * vec3(1.35, 1.45, 1.1), smoothstep(0.75, 1., vUv.y) * 0.6);          // paler new growth at the tips
+  float tip = smoothstep(0.7, 1., vUv.y);
+  alb = mix(alb, alb * vec3(1.35, 1.45, 1.1), tip * 0.6);                                                  // paler new growth at the tips
   ao = mix(0.4, 1., smoothstep(0., 0.8, vUv.y)) * mix(0.6, 1., vI.y);
   N = normalize(N + vec3(t.r - 0.6, 0., bh - 0.5) * 0.6);
+  emis = alb * uSkyA * 0.35 * (0.3 + 0.7 * tip) * mix(0.5, 1., vI.y) * (1. - t.g) + leafLit(alb, V, vW) * (0.4 + 0.6 * tip) * (kind > 1.5 ? 0.5 : 1.);   // the outer tips catch the sky, backlit needles glow
   wrap = 0.6;`,
   alphaToCoverage: true,
 };
@@ -329,28 +349,46 @@ float pathDist(vec2 p){
   }
   return d;
 }
-float needles(vec2 p, float seed){
-  vec2 c = floor(p), f = fract(p); float m = 0.;
+vec2 needles(vec2 p, float seed){            // cover and a tone per needle
+  vec2 c = floor(p), f = fract(p), m = vec2(0.);
   for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
     vec2 o = vec2(i, j), id = c + o;
     float a = hash12(id + seed) * 6.2832; vec2 dir = vec2(cos(a), sin(a));
     vec2 q = f - o - vec2(hash12(id + seed + 3.1), hash12(id + seed + 7.7));
     float t = clamp(dot(q, dir), -0.85, 0.85);
-    m = max(m, smoothstep(0.1, 0.03, length(q - dir * t)) * (0.5 + 0.5 * hash12(id + seed + 1.3)));
+    float cv = smoothstep(0.1, 0.03, length(q - dir * t)) * (0.5 + 0.5 * hash12(id + seed + 1.3));
+    if (cv > m.x) m = vec2(cv, hash12(id + seed + 5.9));
   }
   return m;
+}
+// fallen birch, rowan and larch leaves: small flat ovals in clumps
+vec4 leaves(vec2 p){
+  vec2 c = p * 7., id = floor(c), f = fract(c) - 0.5;
+  float h = hash12(id + 41.), a = h * 6.2832, sz = 0.6 + 0.8 * hash12(id + 23.);
+  vec2 q = f - (vec2(hash12(id + 13.), hash12(id + 17.)) - 0.5) * 0.4, d = vec2(cos(a), sin(a));
+  float cov = smoothstep(1., 0.6, length(vec2(dot(q, d) / (0.26 * sz), dot(q, vec2(-d.y, d.x)) / (0.14 * sz)))) * step(0.62, hash12(id + 5.));
+  vec3 col = h < 0.35 ? vec3(0.40, 0.27, 0.05) : h < 0.65 ? vec3(0.30, 0.085, 0.035) : vec3(0.19, 0.13, 0.045);
+  return vec4(col * (0.6 + 0.6 * hash12(id + 29.)), cov * smoothstep(0.45, 0.72, vnoise(p * 0.7 + 17.)));
 }`,
   body: `
   vec2 p = vW.xz;
   float dp = pathDist(p) + (vnoise(p * 2.3) - 0.5) * 0.35;
   float path = smoothstep(0.7, 0.3, dp), wear = smoothstep(1.3, 0.5, dp);
+  float trod = smoothstep(1.9, 0.8, dp + (vnoise(p * 6.) - 0.5) * 0.5 + (vnoise(p * 1.7 + 4.) - 0.5) * 0.5);   // the beaten strip either side of the stones, ragged at its edge
   float big = fbm(p * 0.3), mid = vnoise(p * 2.1);
   alb = mix(vec3(0.10, 0.055, 0.03), vec3(0.26, 0.135, 0.06), smoothstep(0.3, 0.7, big * 0.7 + mid * 0.3));
-  // single needles, two sizes, fading out where they shrink below a pixel
+  alb = mix(alb, vec3(0.21, 0.15, 0.105) * (0.7 + 0.5 * mid) * (0.85 + 0.3 * vnoise(p * 14.)), trod * 0.7);   // packed earth showing through, paler than the litter
+  // single needles, two sizes, each its own tone, fading out where they shrink below a pixel; fewer on the trodden strip
   float fw = length(fwidth(p));
-  float nk = smoothstep(0.03, 0.006, fw);
-  float nd = max(needles(p * 22., 0.), needles(p * 37. + 5., 9.) * 0.8);
-  alb *= mix(1., 0.45 + 1.2 * nd, nk);
+  float nk = smoothstep(0.03, 0.006, fw) * (1. - trod * 0.6);
+  vec2 n1 = needles(p * 22., 0.), n2 = needles(p * 37. + 5., 9.);
+  n2.x *= 0.8;
+  vec2 nn = n1.x > n2.x ? n1 : n2;
+  float nd = nn.x;
+  vec3 nc = mix(vec3(0.17, 0.095, 0.06), vec3(0.42, 0.21, 0.08), smoothstep(0.1, 0.8, nn.y));
+  nc = mix(nc, vec3(0.44, 0.34, 0.16), smoothstep(0.9, 0.99, nn.y));                    // the odd pale one, fresh from the spruce
+  alb *= mix(1., 0.5 + 0.5 * nd, nk);
+  alb = mix(alb, nc * (0.75 + 0.5 * big), nd * nk * 0.75);
   float hgt = nd * nk * 0.004 + mid * 0.02 + vnoise(p * 9.) * 0.01;
   // moss cushions on the humps, a little gold from the larches nearer the clearing
   float op = openness(vW);
@@ -360,6 +398,14 @@ float needles(vec2 p, float seed){
   hgt += m * (0.03 + mt * 0.02);
   float gold = smoothstep(0.5, 0.85, vnoise(p * 0.9 + 3.) * 0.5 + op * 0.6) * (1. - m) * (1. - path);
   alb = mix(alb, vec3(0.36, 0.20, 0.05) * (0.6 + nd * 0.6), gold * 0.55);
+  vec4 lf = leaves(p);
+  lf.a *= (1. - m) * smoothstep(0.06, 0.015, fw) * (1. - path * 0.6);
+  alb = mix(alb, lf.rgb, lf.a * 0.9);
+  hgt += lf.a * 0.004;
+  vec2 pc = p * 13., pid = floor(pc), pf = fract(pc) - 0.5;                              // pebbles trodden into the strip
+  float peb = smoothstep(0.2, 0.1, length(pf - (vec2(hash12(pid + 61.), hash12(pid + 67.)) - 0.5) * 0.5)) * step(0.82, hash12(pid + 71.)) * trod * smoothstep(0.05, 0.015, fw);
+  alb = mix(alb, vec3(0.30, 0.27, 0.23) * (0.6 + 0.8 * hash12(pid + 73.)), peb);
+  hgt += peb * 0.012;
   // the path: big flat natural stones bedded in the needles, moss and needles in the joints, rain standing in the hollows
   vec2 sq = p * 1.45, sid = floor(sq), sf = fract(sq), sc = vec2(0.);
   float s1 = 9., s2 = 9.;
@@ -398,13 +444,13 @@ const BLOB = {
   void main(){ vUv = uv; vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
   fragmentShader: `
   varying vec2 vUv; varying vec3 vW;
-  void main(){ float d = length(vUv - 0.5) * 2.; gl_FragColor = vec4(0., 0., 0., smoothstep(1., 0.15, d) * 0.55); }`,
+  void main(){ vec2 c = vUv - 0.5; float d = length(c) * 2. * (1. + 0.14 * sin(atan(c.y, c.x) * 5. + vW.x * 7. + vW.z * 3.)); gl_FragColor = vec4(0., 0., 0., smoothstep(1., 0.15, d) * 0.55); }`,
 };
 
 // ---------------------------------------------------------------- undergrowth
 // bracken gone rusty, the odd frond still green: the painted frond on a curved strip. aI: colour, seed
 const FERN = {
-  inst: true, side: THREE.DoubleSide, frag: GLSL_ATLAS,
+  inst: true, side: THREE.DoubleSide, frag: GLSL_ATLAS + GLSL_LEAFLIT,
   vpost: `w.xz += uWind * sin(uTime * 1.3 + vI.y * 30.) * 0.04 * uv.y * uv.y;`,
   body: `
   vec4 t = atlas(5., vUv, vUv);
@@ -412,10 +458,14 @@ const FERN = {
   if (alpha < 0.02) discard;
   float k = vI.x;
   alb = k < 0.6 ? mix(vec3(0.30, 0.11, 0.03), vec3(0.46, 0.25, 0.06), k / 0.6) : mix(vec3(0.40, 0.32, 0.07), vec3(0.13, 0.18, 0.04), (k - 0.6) / 0.4);
-  alb *= 0.55 + 0.7 * t.r;
+  alb = mix(alb, vec3(0.34, 0.085, 0.035), smoothstep(0.8, 0.95, vI.y) * 0.7 * step(k, 0.6));          // a few gone oxblood,
+  alb = mix(alb, vec3(0.52, 0.36, 0.08), smoothstep(0.2, 0.05, vI.y) * 0.6 * step(k, 0.6));            // a few ginger
+  alb *= (0.55 + 0.7 * t.r) * (0.85 + 0.3 * fract(vI.y * 13.));
   alb = mix(alb, vec3(0.16, 0.09, 0.04), t.g * 0.6);
+  alb = mix(alb, vec3(0.2, 0.11, 0.05), smoothstep(0.8, 1., vUv.y) * 0.5);                             // dry brown tips
   N = normalize(vN + vec3(0., 0.8, 0.));
   ao = mix(0.45, 1., vUv.y);
+  emis = leafLit(alb, V, vW);
   wrap = 0.5;`,
   alphaToCoverage: true,
 };
@@ -426,7 +476,8 @@ const SPRIG = {
   vec4 t = atlas(7., vUv, vUv);
   alpha = cutout(t.a, 0.45);
   if (alpha < 0.02) discard;
-  alb = mix(vec3(0.26, 0.05, 0.04), vec3(0.15, 0.12, 0.035), vI.x) * (0.45 + 0.6 * t.r);
+  alb = mix(vec3(0.26, 0.05, 0.04), vec3(0.15, 0.12, 0.035), vI.x) * (0.45 + 0.6 * t.r) * (0.8 + 0.4 * fract(vI.y * 11.));
+  alb = mix(alb, vec3(0.34, 0.14, 0.04) * (0.5 + 0.6 * t.r), smoothstep(0.7, 0.9, fract(vI.y * 7.)) * 0.6);       // some turned orange
   alb = mix(alb, vec3(0.12, 0.05, 0.03), t.g);
   N = normalize(vN * 0.3 + vec3(0., 1., 0.));
   ao = mix(0.4, 1., vUv.y); wrap = 0.5;`,
@@ -434,7 +485,7 @@ const SPRIG = {
 };
 // saplings of birch and rowan in their autumn colours: the sprig on taller crossed cards. aI: colour, seed
 const SAPLING = {
-  inst: true, side: THREE.DoubleSide, frag: GLSL_ATLAS,
+  inst: true, side: THREE.DoubleSide, frag: GLSL_ATLAS + GLSL_LEAFLIT,
   vpost: `w.xz += uWind * (0.04 + 0.04 * sin(uTime * 1.5 + vI.y * 20.)) * uv.y * uv.y;`,
   body: `
   vec4 t = atlas(7., vUv, vUv);
@@ -443,13 +494,15 @@ const SAPLING = {
   float k = vI.x;
   alb = (k < 0.55 ? mix(vec3(0.50, 0.36, 0.06), vec3(0.42, 0.24, 0.04), k / 0.55) : mix(vec3(0.42, 0.14, 0.03), vec3(0.30, 0.05, 0.03), (k - 0.55) / 0.45)) * (0.45 + 0.65 * t.r);
   alb = mix(alb, vec3(0.10, 0.07, 0.05), t.g);
+  alb *= 0.85 + 0.3 * fract(vI.y * 9.);
   N = normalize(vN * 0.3 + vec3(0., 1., 0.));
-  ao = mix(0.45, 1., vUv.y); wrap = 0.6;`,
+  ao = mix(0.45, 1., vUv.y); wrap = 0.6;
+  emis = leafLit(alb, V, vW) * 0.8;                                                                    // thin leaves, lit from behind`,
   alphaToCoverage: true,
 };
 // tufts of dry grass in the clearing
 const GRASS = {
-  inst: true, side: THREE.DoubleSide, frag: GLSL_ATLAS,
+  inst: true, side: THREE.DoubleSide, frag: GLSL_ATLAS + GLSL_LEAFLIT,
   vpost: `w.xz += uWind * (0.06 + 0.05 * sin(uTime * 1.7 + vI.y * 20. + w.x)) * uv.y * uv.y;`,
   body: `
   vec4 t = atlas(6., vUv, vUv);
@@ -457,8 +510,10 @@ const GRASS = {
   if (alpha < 0.02) discard;
   alb = mix(vec3(0.16, 0.12, 0.06), vec3(0.45, 0.37, 0.19), vUv.y) * (0.6 + 0.6 * t.r) * (0.75 + 0.5 * vI.x);
   alb = mix(alb, vec3(0.12, 0.14, 0.05), t.g * 0.5);
+  alb = mix(alb, vec3(0.30, 0.2, 0.07) * (0.6 + 0.6 * t.r), smoothstep(0.7, 0.95, vI.y) * 0.5);         // a few tufts gone foxy
   N = normalize(vN * 0.3 + vec3(0., 1., 0.));
-  ao = mix(0.35, 1., vUv.y); wrap = 0.5;`,
+  ao = mix(0.35, 1., vUv.y); wrap = 0.5;
+  emis = leafLit(alb, V, vW) * smoothstep(0.2, 1., vUv.y) * 0.6;`,
   alphaToCoverage: true,
 };
 // moss cushions on the ground and on stones
@@ -479,23 +534,35 @@ const ROCK = {
   body: `
   float g = n3(vW * 3.) * 0.6 + n3(vW * 14.) * 0.4;
   alb = mix(vec3(0.10, 0.10, 0.10), vec3(0.26, 0.25, 0.24), g);
+  alb *= mix(vec3(1.1, 1., 0.9), vec3(0.9, 1., 1.1), n3(vW * 0.6));                                    // some stones warm, some cold
+  alb = mix(alb, vec3(0.36, 0.40, 0.31), smoothstep(0.66, 0.74, n3(vW * 9.) * 0.6 + n3(vW * 31.) * 0.4) * 0.55);   // crusts of lichen
+  float strata = smoothstep(0.4, 0.6, n3(vec3(vW.x * 1.5, vW.y * 14., vW.z * 1.5)));
+  alb *= 0.8 + 0.3 * strata;
   float moss = smoothstep(0.35, 0.7, N.y + (n3(vW * 2.) - 0.5) * 0.6);
   alb = mix(alb, vec3(0.07, 0.11, 0.03) * (0.7 + 0.6 * n3(vW * 20.)), moss);
-  N = bumpN(N, vW, g * 0.03, 1.);
+  N = bumpN(N, vW, g * 0.03 + strata * 0.004, 1.);
   spec = 30.;`,
 };
 // fly agarics and brown ceps
 const MUSHROOM = {
   inst: true,
+  vpre: "vI.y = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453);",     // a number per mushroom
   body: `
-  float kind = vI.x;
+  float kind = vI.x, mv = vI.y;
   if (vO.y > 0.5) {         // the cap
     vec2 c = vO.xz * 9.; vec2 id = floor(c), f = fract(c) - 0.5;
     float spot = smoothstep(0.22, 0.14, length(f + (vec2(hash12(id), hash12(id + 3.)) - 0.5) * 0.4)) * step(0.4, hash12(id + 7.));
-    alb = kind < 0.5 ? mix(vec3(0.55, 0.06, 0.02), vec3(0.85, 0.82, 0.72), spot * smoothstep(0.6, 0.75, vO.y)) : vec3(0.30, 0.17, 0.08);
-    spec = 60.;
-  } else alb = kind < 0.5 ? vec3(0.75, 0.72, 0.62) : vec3(0.55, 0.48, 0.38);
-  wrap = 0.3;`,
+    vec3 cap = kind < 0.5 ? mix(vec3(0.55, 0.06, 0.02), vec3(0.66, 0.14, 0.03), mv) : mix(vec3(0.28, 0.15, 0.07), vec3(0.42, 0.25, 0.12), mv);
+    cap = mix(cap, cap * 1.5 + 0.1, kind < 0.5 ? 0. : smoothstep(0.35, 0.05, vO.y) * 0.4);          // paler rim on the ceps
+    alb = kind < 0.5 ? mix(cap, vec3(0.85, 0.82, 0.72), spot * smoothstep(0.6, 0.75, vO.y)) : cap;
+    spec = 90.;
+    wrap = 0.3;
+  } else {
+    alb = kind < 0.5 ? vec3(0.75, 0.72, 0.62) : vec3(0.55, 0.48, 0.38);
+    alb = mix(alb, vec3(0.2, 0.14, 0.08), smoothstep(0.4, 0., vO.y) * 0.7);                        // earth on the foot
+    alb *= 0.85 + 0.3 * n3(vec3(vO.x * 30., vO.y * 3., vO.z * 30.));
+    wrap = 0.3;
+  }`,
 };
 // pumpkins on the steps: ribbed, glossy, a dry stem; and spruce cones on the floor
 const PUMPKIN = {
@@ -513,11 +580,13 @@ const PUMPKIN = {
 };
 const CONE = {
   inst: true,
+  vpre: "p.xy *= mix(0.5, 1.15, smoothstep(-1., 0.6, p.z));",                                        // fat at the stalk end, a blunt point
   body: `
   float a = atan(vO.y, vO.x);
-  float sc = fract(vO.z * 7. + a * 0.8 / 6.2832 * 8.);
-  alb = mix(vec3(0.07, 0.04, 0.025), vec3(0.28, 0.16, 0.08), smoothstep(0.1, 0.6, sc)) * (0.8 + 0.4 * vI.x);
-  N = bumpN(N, vW, sc * 0.002, 1.);
+  float sc = fract(vO.z * 5. + a / 6.2832 * 3.);                                                      // scales in spirals
+  alb = mix(vec3(0.07, 0.04, 0.025), vec3(0.30, 0.17, 0.08), smoothstep(0.1, 0.7, sc)) * (0.75 + 0.5 * vI.x);
+  alb = mix(alb, vec3(0.1, 0.06, 0.035), smoothstep(0.75, 1., sc) * 0.6);
+  N = bumpN(N, vW, sc * 0.004, 1.);
   wrap = 0.2;`,
 };
 
@@ -529,6 +598,11 @@ const DEADWOOD = {
   alb = mix(vec3(0.06, 0.045, 0.035), vec3(0.20, 0.15, 0.11), smoothstep(0.3, 0.7, b));
   float moss = smoothstep(0.1, 0.6, N.y + (n3(vW * 3.) - 0.5) * 0.8);
   alb = mix(alb, vec3(0.06, 0.11, 0.025) * (0.7 + 0.6 * n3(vW * 22.)), moss);
+  alb = mix(alb, vec3(0.34, 0.37, 0.30), smoothstep(0.66, 0.76, n3(vW * 7.) * 0.7 + n3(vW * 29.) * 0.3) * 0.5 * (1. - moss));   // lichen
+  if (abs(vO.z) > 0.4995) {                                                                           // end grain: pale rings of rotten wood
+    float r = length(vO.xy);
+    alb = mix(vec3(0.30, 0.22, 0.15), vec3(0.16, 0.10, 0.07), smoothstep(0.3, 0.7, sin(r * 70. + vI.y * 9.) * 0.5 + 0.5)) * (0.8 + 0.4 * n3(vW * 15.));
+  }
   N = bumpN(N, vW, b * 0.02, 1.);
   wrap = 0.2;`,
 };
@@ -862,12 +936,15 @@ const ANIMAL = {
     float c = cos(a), s = sin(a); vec2 d = p.xy - aPv.xy;
     p.xy = aPv.xy + vec2(c * d.x - s * d.y, s * d.x + c * d.y); n.xy = vec2(c * n.x - s * n.y, s * n.x + c * n.y);
   }`,
-  frag: "varying vec3 vCol;",
   body: `
-  float fur = n3(vW * 40.) * 0.5 + n3(vW * 9.) * 0.5;
-  alb = vCol * (0.8 + 0.35 * fur);
+  vec3 fq = vO * (vI.x < 0.5 ? 1. : vI.x < 1.5 ? 1.6 : 2.2);                                         // fur in the animal's own frame, so it goes with it
+  float fur = n3(fq * vec3(30., 90., 90.)) * 0.5 + n3(fq * vec3(7., 22., 22.)) * 0.5;                 // streaks along the body
+  float top = smoothstep(-0.3, 0.9, N.y);
+  alb = vCol * (0.78 + 0.4 * fur) * (1.18 - 0.28 * top);                                              // paler underneath
   N = bumpN(N, vW, fur * 0.004, 1.);
-  wrap = 0.35;`,
+  emis = alb * uSkyA * pow(1. - abs(dot(N, V)), 3.) * 0.7 + leafLit(alb, V, vW) * 0.6;               // a rim of sky and the last glow on the coat
+  wrap = 0.4;`,
+  frag: "varying vec3 vCol;" + GLSL_LEAFLIT,
 };
 // an animal built from parts in metres, x forward, feet at y = 0: ellipsoids {e: [x, y], r: [rx, ry, rz], rz, rx} and
 // tapered limbs {a: [x, y], b: [x, y], r0, r1}, each with a colour c, a bone (0 body, 1 neck and head, 2/3 front legs,
@@ -905,16 +982,18 @@ const SPECIES = (() => {
     { e: [-0.43, 0.9], r: [0.03, 0.05, 0.03], rz: 0.3, bone: 6, pv: [-0.4, 0.92], c: dW },
   ];
   // fox: russet, a white throat and brush tip, black stockings and ear backs
-  const fC = [0.5, 0.2, 0.05], fW = [0.7, 0.66, 0.6], fK = [0.05, 0.035, 0.03], fN = [0.2, 0.4];
+  const fC = [0.5, 0.2, 0.05], fW = [0.7, 0.66, 0.6], fK = [0.05, 0.035, 0.03], fE = [0.52, 0.4, 0.32], fN = [0.2, 0.4];
   const fox = [
     { e: [0, 0.36], r: [0.26, 0.11, 0.09], c: fC }, { e: [0.17, 0.36], r: [0.12, 0.12, 0.09], c: fC }, { e: [0.14, 0.31], r: [0.08, 0.07, 0.07], c: fW },
     { a: [0.2, 0.4], b: [0.32, 0.5], r0: 0.07, r1: 0.05, bone: 1, pv: fN, c: fC },
     { e: [0.38, 0.52], r: [0.075, 0.06, 0.065], bone: 1, pv: fN, c: fC }, { e: [0.46, 0.5], r: [0.07, 0.03, 0.03], rz: -0.1, bone: 1, pv: fN, c: fC },
     { e: [0.44, 0.475], r: [0.06, 0.02, 0.028], bone: 1, pv: fN, c: fW }, { e: [0.53, 0.5], r: [0.015, 0.015, 0.016], bone: 1, pv: fN, c: fK },
-    { e: [0.35, 0.6], r: [0.025, 0.05, 0.012], rx: -0.3, z: 0.04, bone: 1, pv: fN, c: fK },
+    { e: [0.335, 0.61], r: [0.028, 0.075, 0.013], rx: -0.3, rz: 0.2, z: 0.042, bone: 1, pv: fN, c: fK },        // tall pointed ears, black behind, pale inside
+    { e: [0.345, 0.605], r: [0.02, 0.058, 0.01], rx: -0.3, rz: 0.2, z: 0.039, bone: 1, pv: fN, c: fE },
+    { e: [0.41, 0.49], r: [0.05, 0.035, 0.012], rx: -0.15, z: 0.05, bone: 1, pv: fN, c: fW },                  // white cheeks
     ...leg(2, 0.055, [0.17, 0.32], [[[0.17, 0.32], [0.18, 0.15], 0.032, 0.022], [[0.18, 0.15], [0.18, 0.02], 0.018, 0.015]], [fC, fK], [0.022, 0.012, 0.014, fK]),
     ...leg(4, 0.055, [-0.18, 0.34], [[[-0.18, 0.36], [-0.12, 0.18], 0.05, 0.028], [[-0.12, 0.18], [-0.18, 0.02], 0.02, 0.015]], [fC, fK], [0.022, 0.012, 0.014, fK]),
-    { e: [-0.47, 0.29], r: [0.2, 0.06, 0.065], rz: 0.35, bone: 6, pv: [-0.26, 0.36], c: fC }, { e: [-0.65, 0.22], r: [0.05, 0.04, 0.045], rz: 0.35, bone: 6, pv: [-0.26, 0.36], c: fW },
+    { e: [-0.47, 0.29], r: [0.21, 0.075, 0.08], rz: 0.35, bone: 6, pv: [-0.26, 0.36], c: fC }, { e: [-0.65, 0.22], r: [0.05, 0.04, 0.045], rz: 0.35, bone: 6, pv: [-0.26, 0.36], c: fW },
   ];
   // brown hare: big haunches, long black-tipped ears, a white scut
   const hC = [0.30, 0.23, 0.15], hW = [0.7, 0.66, 0.6], hK = [0.04, 0.035, 0.03], hN = [0.12, 0.26];
@@ -1258,6 +1337,8 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
         float n = fbm(uv * 0.8 + vec2(uTime * 0.004, uTime * 0.0025));
         float g = pow(max(dot(d, uGlowDir), 0.), 2.);
         col *= mix(1., 0.7 + 0.55 * n, smoothstep(0.02, 0.2, h));
+        float n2 = fbm(uv * 2.4 + vec2(7.3, uTime * 0.005));
+        col = mix(col, col * vec3(0.74, 0.8, 0.95), smoothstep(0.45, 0.75, n2) * smoothstep(0.03, 0.3, h) * 0.55);      // darker, colder rags of cloud
         col += uGlowCol * g * smoothstep(0.45, 0.8, n) * 0.5 * (1. - uNight);
         col += scatter(cameraPosition, d, 250.) * uScat;
         gl_FragColor = vec4(col, 1.);
@@ -1337,9 +1418,10 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
   const mtx = (x, y, z, rx, ry, rz, sx, sy, sz) => { dummy.position.set(x, y, z); dummy.rotation.set(rx, ry, rz); dummy.scale.set(sx, sy, sz); dummy.updateMatrix(); return dummy.matrix.clone(); };
 
   // trunks
-  const trunkPts = [];
-  for (let i = 0; i <= 14; i++) { const y = Math.pow(i / 14, 1.5); trunkPts.push(new THREE.Vector2(Math.max(0.02, (1 - 0.9 * Math.pow(y, 0.85)) * (1 + 0.6 * Math.exp(-y * 55))), y)); }
-  const trunkGeo = new THREE.LatheGeometry(trunkPts, 12), trunkGeoLo = new THREE.LatheGeometry(trunkPts.filter((_, i) => i % 2 === 0), 6);
+  const basePts = [];
+  for (let i = 0; i <= 14; i++) { const y = Math.pow(i / 14, 1.5); basePts.push(new THREE.Vector2(Math.max(0.02, (1 - 0.9 * Math.pow(y, 0.85)) * (1 + 0.6 * Math.exp(-y * 55))), y)); }
+  const rootPts = [0.0025, 0.0065, 0.012].map((y) => new THREE.Vector2((1 - 0.9 * Math.pow(y, 0.85)) * (1 + 0.6 * Math.exp(-y * 55)), y));    // a few rows low down for the root flare
+  const trunkGeo = new THREE.LatheGeometry([basePts[0], ...rootPts, ...basePts.slice(1)], 12), trunkGeoLo = new THREE.LatheGeometry(basePts.filter((_, i) => i % 2 === 0), 6);
   const trunkMat = surf(TRUNK);
   const tItems = [[], []], twigItems = [], blobItems = [];
   for (const t of allTrees) {
@@ -1381,10 +1463,10 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
     let n = pine ? [9, 6, 3][lod] : [16, 8, 4][lod];
     if (t.young) n = Math.max(3, Math.min(lod === 0 ? 12 : 6, Math.round(t.H / 0.4)));
     const base = t.H * t.cb, span = t.H - base;
-    const Rmax = t.young ? t.H * 0.34 : pine ? 2.4 + h1(t.seed * 7) * 1.4 : larch ? 2.0 + h1(t.seed * 7) * 1.0 : 2.1 + h1(t.seed * 7) * 1.1;
+    const Rmax = t.young ? t.H * 0.34 * (0.78 + 0.5 * h1(t.seed * 5.3)) : pine ? 2.4 + h1(t.seed * 7) * 1.4 : larch ? 2.0 + h1(t.seed * 7) * 1.0 : 2.1 + h1(t.seed * 7) * 1.1;
     for (let k = 0; k < n; k++) {
       const f = n === 1 ? 0 : k / (n - 1);
-      let y = base + span * Math.pow(f, 0.9) + (t.young ? 0.15 : 0);
+      let y = base + span * Math.pow(f, 0.9) + (t.young ? 0.15 : 0) + (h1(t.seed * 53 + k * 3) - 0.5) * span / Math.max(1, n - 1) * 0.4;   // whorls not evenly spaced
       let Rw = pine ? Rmax * (0.45 + 0.55 * Math.sin(Math.PI * (0.25 + f * 0.75))) * (0.7 + 0.4 * h1(t.seed * 13 + k)) : Rmax * Math.pow(1 - f * 0.94, 0.95) * (0.85 + 0.3 * h1(t.seed * 13 + k));
       Rw = Math.max(Rw, 0.25);
       const gap = span / Math.max(1, n - 1);
@@ -1392,7 +1474,7 @@ export function startHearth3D(canvasEl, { reduced = false } = {}) {
       const off = pine ? 0.5 * Rw * 0.4 : 0.1;
       const a = h1(t.seed * 31 + k * 7) * TAU;
       const hy = (y) / t.H;
-      wItems[lod].push([mtx(t.x + Math.cos(a) * off, t.y + y + drop * 0.1, t.z + Math.sin(a) * off, (h1(k + t.seed) - 0.5) * 0.12, a, (h1(k * 3 + t.seed) - 0.5) * 0.12, Rw, drop, Rw),
+      wItems[lod].push([mtx(t.x + Math.cos(a) * off, t.y + y + drop * 0.1, t.z + Math.sin(a) * off, (h1(k + t.seed) - 0.5) * (t.young ? 0.3 : 0.12), a, (h1(k * 3 + t.seed) - 0.5) * (t.young ? 0.3 : 0.12), Rw * (1 + (h1(t.seed * 9 + k) - 0.5) * 0.2), drop * (0.85 + 0.3 * h1(t.seed * 4 + k * 5)), Rw),
         [t.kind, f, t.seed, hy * hy * t.H * 0.005], t.x, t.z]);
     }
   }
