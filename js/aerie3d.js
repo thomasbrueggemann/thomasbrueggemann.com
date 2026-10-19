@@ -100,7 +100,8 @@ uniform vec3 uLp[NL], uLc[NL];
 uniform float uLs[NL];
 uniform vec2 uCtr, uWind;
 uniform vec4 uTrees[4];   // per tree: x, z, size (radius / 5.4), the top platform's height
-uniform sampler2D uShadow; uniform mat4 uShadowM;
+precision highp sampler2DShadow;
+uniform sampler2DShadow uShadow; uniform mat4 uShadowM; uniform float uShPx;
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float hash13(vec3 p){ p = fract(p * .1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 vec2 hash22(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
@@ -128,15 +129,17 @@ vec3 fogSky(vec3 rd){
   float m = max(dot(rd, uMoonDir), 0.), mh = max(dot(hz, normalize(vec3(uMoonDir.x, 0., uMoonDir.z))), 0.);
   return uHor * (1. + 0.25 * smoothstep(0.1, -0.2, rd.y)) + uGlowCol * g + uMoonCol * (pow(m, 8.) * 0.18 + pow(m, 60.) * 0.3 + pow(mh, 12.) * smoothstep(0.02, -0.3, rd.y) * 0.12);
 }
-// the moon's shadow map: rendered once (the village does not move), sampled with a small PCF
+// the moon's shadow map: rendered once (the village does not move). Each tap is a hardware-filtered depth
+// comparison (bilinear PCF), and 4x4 of them spread over about 5 texels (~35 cm) soften the texel steps and the
+// dapple of the leaf cards into a smooth penumbra
 float shadowAt(vec3 P, vec3 N){
   vec4 s = uShadowM * vec4(P + N * 0.12 + uMoonDir * 0.08, 1.);
   vec3 c = s.xyz / s.w * 0.5 + 0.5;
   if (c.x < 0. || c.x > 1. || c.y < 0. || c.y > 1. || c.z > 1.) return 1.;
   float sum = 0.;
-  vec2 px = vec2(1.0 / 2048.);
-  for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) sum += step(c.z - 0.0008, texture2D(uShadow, c.xy + vec2(i, j) * px * 1.3).r);
-  return sum / 9.;
+  for (int i = 0; i < 4; i++) for (int j = 0; j < 4; j++)
+    sum += texture(uShadow, vec3(c.xy + (vec2(i, j) - 1.5) * uShPx * 1.4, c.z - 0.0008));
+  return sum / 16.;
 }
 // the warm lights: each fades out by about 16 m, so only the near ones count
 vec3 warm(vec3 P, vec3 N, float wrap){
@@ -2156,7 +2159,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     uGlowDir: { value: GLOW_DIR.clone() }, uGlowCol: { value: V() },
     uLp: { value: Array.from({ length: NL }, () => V(0, -999, 0)) }, uLc: { value: Array.from({ length: NL }, () => V()) }, uLs: { value: new Array(NL).fill(1) },
     uCity: { value: V(0.05, 0.028, 0.012) }, uCtr: { value: new THREE.Vector2(...CTR) }, uTrees: { value: TREES.map((t, i) => new THREE.Vector4(t.x, t.z, t.r / 5.4, CITY[i].tiers[CITY[i].tiers.length - 1])) }, uWind: { value: new THREE.Vector2(0.8, 0.5).normalize() },
-    uShadow: { value: null }, uShadowM: { value: new THREE.Matrix4() }, uAtlas: { value: null },
+    uShadow: { value: null }, uShadowM: { value: new THREE.Matrix4() }, uShPx: { value: 1 / 2048 }, uAtlas: { value: null },
   };
   const shader = (vert, frag, extra = {}) => new THREE.ShaderMaterial({ uniforms: SU, vertexShader: GLSL_COMMON + vert, fragmentShader: GLSL_COMMON + GLSL_LIGHT + GLSL_BUMP + frag, ...extra });
 
@@ -2278,7 +2281,9 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
 
   // ---- the moon's shadows, rendered once: the village, the swinging things at rest, the leaves cut out
   const SHR = LITE ? 2048 : 3072;
-  const shRT = new THREE.WebGLRenderTarget(SHR, SHR, { depthTexture: new THREE.DepthTexture(SHR, SHR), depthBuffer: true });
+  const shDepth = new THREE.DepthTexture(SHR, SHR);
+  shDepth.compareFunction = THREE.LessEqualCompare; shDepth.minFilter = shDepth.magFilter = THREE.LinearFilter;   // hardware PCF
+  const shRT = new THREE.WebGLRenderTarget(SHR, SHR, { depthTexture: shDepth, depthBuffer: true });
   const shScene = new THREE.Scene();
   const depthMat = new THREE.ShaderMaterial({ side: THREE.DoubleSide, vertexShader: "void main(){ gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.); }", fragmentShader: "void main(){ gl_FragColor = vec4(1.); }" });
   const leafDepth = new THREE.ShaderMaterial({
@@ -2291,7 +2296,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   const shCam = new THREE.OrthographicCamera(-100, 100, 100, -100, 1, 420);
   shCam.position.set(GC[0], 28, GC[1]).addScaledVector(MOON_DIR, 200); shCam.lookAt(GC[0], 28, GC[1]); shCam.updateMatrixWorld(); shCam.updateProjectionMatrix();
   renderer.setRenderTarget(shRT); renderer.render(shScene, shCam); renderer.setRenderTarget(null);
-  SU.uShadow.value = shRT.depthTexture; SU.uShadowM.value.multiplyMatrices(shCam.projectionMatrix, shCam.matrixWorldInverse);
+  SU.uShadow.value = shRT.depthTexture; SU.uShPx.value = 1 / SHR; SU.uShadowM.value.multiplyMatrices(shCam.projectionMatrix, shCam.matrixWorldInverse);
 
   // ---- the warm lights: the brightest sixteen get a slot
   // the warm lights: there are hundreds; the shaders take NL, so the ones nearest to where you look get the slots
