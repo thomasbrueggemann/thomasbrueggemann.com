@@ -42,8 +42,8 @@ const TREES = [
 // purpose: the old giant is a dense city, the baobab a packed village, the coiled tree thinner, the birch a hamlet
 // and each city its own style: which walls, roofs and kinds of house (indices into WALLS and ROOFS; null = all)
 const CITY = [
-  { seed: 9, tiers: [14, 20.5, 27, 33.5, 40, 46.5, 53], nLimbs: 5, perched: 40, bridges: 24, branches: 100, style: null },
-  { seed: 19, tiers: [15, 20.5, 26, 31.5, 37, 42.5], nLimbs: 4, perched: 34, bridges: 18, branches: 40,       // sun-baked: plaster and thatch, round huts
+  { seed: 9, tiers: [14, 20.5, 27, 33.5, 40, 46.5, 53], nLimbs: 5, perched: 40, bridges: 24, branches: 100, lifts: 2, style: null },
+  { seed: 19, tiers: [15, 20.5, 26, 31.5, 37, 42.5], nLimbs: 4, perched: 34, bridges: 18, branches: 40, lifts: 2,       // sun-baked: plaster and thatch, round huts
     style: { walls: [4, 12, 3, 9, 10, 2], roofs: [4, 4, 3, 7], lo: ["thatch", "thatch", "dome", "barrel", "shed", "gable", "thatch"], hi: ["thatch", "onion", "dome", "thatch", "tower", "barrel"] } },
   { seed: 29, tiers: [14, 22, 30, 38, 46], nLimbs: 4, perched: 12, bridges: 10, branches: 60,   // misty blues and slate: towers and witches' hats
     style: { walls: [0, 13, 11, 5, 8, 13], roofs: [1, 5, 6, 2], lo: ["witch", "tower", "gable", "witch", "shed", "onion"], hi: ["witch", "witch", "tower", "onion", "tower", "gable"] } },
@@ -64,6 +64,8 @@ const FOLIAGE = [
 // a cable car high up between the two biggest; one gap too wide to bridge gets a platform slung on ropes between
 const LINKS = [
   { a: 0, b: 1, y: 30 }, { a: 0, b: 1, y: 49, cable: true }, { a: 0, b: 2, y: 23 }, { a: 0, b: 3, y: 37 }, { a: 2, b: 3, y: 28, mid: true }, { a: 0, b: 3, y: 19 },
+  { a: 0, b: 2, y: 45, cable: true }, { a: 2, b: 3, y: 42, cable: true }, { a: 1, b: 2, y: 36, cable: true },
+  { a: 0, ground: [62, 48], y: 26, cable: true },       // a line down to a station on stilts out in the mist
 ];
 const tAxis = (tr, y) => {
   const f = clamp(y, 0, tr.h) / tr.h, k = f * f;
@@ -893,29 +895,29 @@ function planHouse(R, kind, sc = 1) {
   if (kind === "gable" || kind === "shed") {
     Object.assign(H, { w: (2.3 + R() * 1.9) * sc, d: (2.1 + R() * 1.3) * sc, h: 2.2 + R() * 0.6, over: 0.3 + R() * 0.2 });
     H.rh = kind === "gable" ? (1.1 + R() * 1.7) * sc : 0.7 + R() * 0.5;
-    H.r = Math.hypot(H.w / 2 + H.over, H.d / 2 + H.over) * 0.9; H.top = H.h + H.rh; H.stack = H.h + H.rh * 0.45;
+    H.r = Math.hypot(H.w / 2 + H.over, H.d / 2 + H.over) * 0.9; H.top = H.h + H.rh; H.stack = H.h + H.rh * 0.45; H.wall = H.d / 2;
   } else if (kind === "witch") {
     Object.assign(H, { rad: (1.3 + R() * 0.7) * sc, h: 2.4 + R() * 0.8, rh: (2.6 + R() * 1.6) * sc, over: 0.4, wm: MAT.SCALE, rm: R() < 0.8 ? MAT.SHINGLE : MAT.SCALE });
-    H.ring = R() < 0.5; H.r = H.rad + (H.ring ? 0.75 : 0.45); H.top = H.h + H.rh; H.stack = null;
+    H.ring = R() < 0.5; H.r = H.rad + (H.ring ? 0.75 : 0.45); H.top = H.h + H.rh; H.stack = null; H.wall = H.rad + (H.ring ? 0.35 : 0);
   } else if (kind === "onion") {
     Object.assign(H, { rad: (1.35 + R() * 0.35) * sc, h: 2.3 });
-    H.r = H.rad * 1.15 + 0.2; H.top = H.h + 3.7 * H.rad / 1.6; H.stack = null;
+    H.r = H.rad * 1.15 + 0.2; H.top = H.h + 3.7 * H.rad / 1.6; H.stack = null; H.wall = H.rad * 0.92;
   } else if (kind === "aframe") {
     Object.assign(H, { w: (3.0 + R() * 1.1) * sc, d: (2.8 + R() * 0.8) * sc, h: 0.4, over: 0.3 });
-    H.rh = H.d * (0.9 + R() * 0.3); H.r = Math.hypot(H.w / 2 + 0.3, H.d / 2 + 0.3) * 0.9; H.top = H.h + H.rh; H.stack = H.h + H.rh * 0.55;
+    H.rh = H.d * (0.9 + R() * 0.3); H.r = Math.hypot(H.w / 2 + 0.3, H.d / 2 + 0.3) * 0.9; H.top = H.h + H.rh; H.stack = H.h + H.rh * 0.55; H.wall = H.d / 2;
   } else if (kind === "barrel") {
     Object.assign(H, { len: (3.0 + R() * 0.9) * sc, rad: (1.0 + R() * 0.25) * sc, wm: MAT.BOARDV, wc: [0.55, 0.38, 0.22] });
-    H.r = H.len / 2 + 0.6; H.top = H.rad * 2 + 0.4; H.stack = H.rad * 2 + 0.5;
+    H.r = H.len / 2 + 0.6; H.top = H.rad * 2 + 0.4; H.stack = H.rad * 2 + 0.5; H.wall = H.len / 2;
   } else if (kind === "tower") {
     Object.assign(H, { w: (1.45 + R() * 0.35) * sc, h: 3.4 + R() * 1.6, over: 0.3 });
-    H.rh = 2.1 + R() * 0.9; H.r = H.w * 0.72 + 0.35; H.top = H.h + H.rh; H.stack = null;
+    H.rh = 2.1 + R() * 0.9; H.r = H.w * 0.72 + 0.35; H.top = H.h + H.rh; H.stack = null; H.wall = H.w / 2;
   } else if (kind === "thatch") {
     Object.assign(H, { rad: (1.9 + R() * 0.7) * sc, h: 2.3 + R() * 0.4, over: 0.6, rm: MAT.THATCH, rc: [1, 0.95, 0.85] });
     if (H.wm === MAT.SCALE || H.wm === MAT.PLASTER) H.wm = MAT.BOARDV;
-    H.rh = H.rad * (0.85 + R() * 0.3); H.r = H.rad + H.over; H.top = H.h + H.rh; H.stack = H.h + H.rh * 0.55;
+    H.rh = H.rad * (0.85 + R() * 0.3); H.r = H.rad + H.over; H.top = H.h + H.rh; H.stack = H.h + H.rh * 0.55; H.wall = H.rad;
   } else if (kind === "dome") {
     Object.assign(H, { rad: (1.8 + R() * 0.4) * sc });
-    H.r = H.rad + 0.3; H.top = 0.55 + H.rad * 1.08 + 0.5; H.stack = null;
+    H.r = H.rad + 0.3; H.top = 0.55 + H.rad * 1.08 + 0.5; H.stack = null; H.wall = H.rad;
   }
   return H;
 }
@@ -1072,13 +1074,17 @@ function city(b, sb, out, ti, o) {
     b.room(0, 0, 0); deck(b, pts, [c.end, edgeAt(pts, tip.x, tip.z, c.a + Math.PI)], 2200 + ci);
     for (const p of [pts[1], pts[4], pts[7]]) b.beam(p.clone().lerp(tip, 0.25).add(V(0, -0.2, 0)), tip.clone().add(V(0, -L.rr(1) * 0.3, 0)), 0.14, 0.14);
     claim(tip.x, tip.z, 3.4, yP - 1, yP + 4.5);
-    lantern(sb, c.end.clone().addScaledVector(side, 0.9).add(V(0, 2.3, 0)), 0.3, [1.0, 0.65, 0.35], 6, 2300 + ci);
-    b.set(MAT.WOOD, TIMBER, 2301); b.beam(c.end.clone().addScaledVector(side, 0.9), c.end.clone().addScaledVector(side, 0.9).add(V(0, 2.45, 0)), 0.12, 0.12);
-    out.lights.push({ p: c.end.clone().addScaledVector(side, 0.9).add(V(0, 1.8, 0)), c: WARM, i: 4, s: 1 });
+    const lp = c.end.clone().lerp(tip.clone().setY(yP), 0.35).addScaledVector(side, 0.8);        // a lamp post on the deck by the landing
+    b.set(MAT.WOOD, TIMBER, 2301); b.beam(lp, lp.clone().add(V(0, 2.45, 0)), 0.12, 0.12);
+    lantern(sb, lp.clone().add(V(0, 2.4, 0)), 0.3, [1.0, 0.65, 0.35], 6, 2300 + ci);
+    out.lights.push({ p: lp.clone().add(V(0, 1.8, 0)), c: WARM, i: 4, s: 1 });
     if (c.cable) {                              // the cable car's station: a pylon with the wheel the cable runs over
       const base = tip.clone().setY(yP).addScaledVector(side, -1.1);
       b.set(MAT.WOOD, TIMBER, 2310); b.beam(base, base.clone().add(V(0, 4.2, 0)), 0.22, 0.22); b.beam(base.clone().add(V(0, 1.5, 0)).addScaledVector(side, 1.1), base.clone().add(V(0, 3.9, 0)), 0.1, 0.1);
-      b.set(MAT.METAL, IRON, 2311, 0.1); b.push(new THREE.Matrix4().makeTranslation(base.x, base.y + 4.25, base.z).multiply(new THREE.Matrix4().makeRotationY(c.a + Math.PI / 2)).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2))); b.lathe([[0.4, -0.05], [0.42, 0], [0.4, 0.05]], 16); b.pop();
+      const arm = side.clone().multiplyScalar(1.3);
+      b.beam(base.clone().add(V(0, 4.0, 0)).sub(arm), base.clone().add(V(0, 4.0, 0)).add(arm), 0.16, 0.2);
+      b.set(MAT.METAL, IRON, 2311, 0.1);
+      for (const sg of [-1, 1]) { const w = base.clone().add(V(0, 4.25, 0)).addScaledVector(side, sg * 1.15); b.push(new THREE.Matrix4().makeTranslation(w.x, w.y, w.z).multiply(new THREE.Matrix4().makeRotationY(c.a + Math.PI / 2)).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2))); b.lathe([[0.4, -0.05], [0.42, 0], [0.4, 0.05]], 16); b.pop(); }
       c.top = base.clone().add(V(0, 4.25, 0));
     } else if (R() < 0.7) {                     // a gatehouse beside the landing
       const H = planHouse(R, pick(R, ["witch", "shed", "tower", "gable"]), 0.62), hp = tip.clone().addScaledVector(side, (R() < 0.5 ? -1 : 1) * 1.15).add(V(Math.sin(c.a), 0, Math.cos(c.a)).multiplyScalar(-0.5));
@@ -1184,7 +1190,6 @@ function city(b, sb, out, ti, o) {
         sb.set(MAT.METAL, COPPER, s, 0.7); sb.push(new THREE.Matrix4().makeTranslation(0, 3.4, 0)); sb.lathe([[0.1, 0], [0.12, 0.15], [0.03, 0.4]], 8); sb.pop();
         sb.set(MAT.ROPE, [0.45, 0.38, 0.28], s);
         for (let q = 0; q < 3; q++) { const a = q * TAU / 3; sb.tube([V(Math.sin(a) * 0.32, 3.3, Math.cos(a) * 0.32), V(0, pv.y - base, 0)], 0.025, 4); }
-        ladder(sb, V(0, -0.05, -2.15), V(0.15, -3.6, -2.3), s);
         out.lights.push({ p: sb.world(0, 1.6, -2.4), c: [1.0, 0.55, 0.6], i: 4, s: 1 });
         lantern(sb, sb.world(0.5, 1.75, -1.75), 0.1, [1.0, 0.5, 0.6], 5, s + 2, 1);
         sb.st.piv = [0, 0, 0, 0];
@@ -1201,9 +1206,10 @@ function city(b, sb, out, ti, o) {
     buildHouse(b, sb, out, H, p.x, y, p.z, a + (H.kind === "barrel" ? Math.PI / 2 : 0) + (R() - 0.5) * 0.5);
     b.room(0, 0, 0);
     for (const sg of [-1, 0, 1]) { const q = at(T, a + sg * H.r * 0.6 / rm, rm + H.r * 0.4, y - 0.26); brace(b, T, q.x, q.y, q.z, 2.8 + R(), H.seed + sg); }
-    const ba = Array.from({ length: 6 }, (_, i) => at(T, a + (i / 5 - 0.5) * (H.r * 1.6) / rm, rm + H.r + 0.6, y));
-    b.set(MAT.DECK, [0.5, 0.42, 0.34], H.seed); b.beam(ba[0].clone().add(V(0, -0.1, 0)), ba[5].clone().add(V(0, -0.1, 0)), 0.9, 0.18);
-    railing(b, ba, false, [], TIMBER, H.seed, 0.9);
+    const wr = rm + H.wall * 0.97, span = Math.min(H.r * 1.6, 3.2) / (wr + 0.5);
+    const bm = [at(T, a - span / 2, wr + 0.45, y - 0.1), at(T, a + span / 2, wr + 0.45, y - 0.1)];
+    b.set(MAT.DECK, [0.5, 0.42, 0.34], H.seed); b.beam(bm[0], bm[1], 0.9, 0.18);
+    railing(b, Array.from({ length: 6 }, (_, i) => at(T, a + (i / 5 - 0.5) * span, wr + 0.85, y)), false, [], TIMBER, H.seed, 0.9);
     H.level = 0; houses.push(H); placed++;
   }
 
@@ -1266,11 +1272,13 @@ function city(b, sb, out, ti, o) {
     b.set(MAT.ROPE, [0.5, 0.42, 0.3], 901); b.tube(rail, 0.03, 5);
   }
 
+  lifts(b, out, T, R, segs, fits, claim, o.lifts ?? 1);
+  waterworks(b, out, T, R, segs, fits, claim, ti === 0 ? 2 : 1);
   // lights strung along the platform rails, lanterns at the platform ends, fungus on the bark below
   segs.forEach((g, i) => {
-    railing(b, g.O, false, [], TIMBER, 1000 + i);
+    railing(b, g.O, false, g.gaps, TIMBER, 1000 + i);
     if (i % 2 === 0) stringLights(out, g.O.map((p) => p.clone().add(V(0, 1.03, 0))), 0.5, i % 4 ? 2 + i : 0);
-    lantern(sb, g.O[0].clone().add(V(0, 1.0, 0)).lerp(V(...tAxis(T, g.y)).setY(g.y + 1.0), 0.04), 0.15, [1.0, 0.65, 0.35], 5, 1100 + i);
+    lantern(sb, g.O[0].clone().add(V(0, 1.05, 0)), 0.12, [1.0, 0.65, 0.35], 5, 1100 + i);
     out.launch.push(g.O[Math.floor(g.O.length / 2)].clone().lerp(at(T, (g.a0 + g.a1) / 2, g.rIn, g.y), 0.3));
   });
   b.room(0, 0, 0);
@@ -1281,7 +1289,6 @@ function city(b, sb, out, ti, o) {
   const low = segs.filter((g) => g.ti === 0);
   if (low.length) {
     const g = low[0], [ax, az] = tAxis(T, g.y), m = g.O[Math.floor(g.O.length * 0.7)], q = g.O[Math.floor(g.O.length * 0.3)];
-    ladder(b, m.clone(), m.clone().setY(0.2).add(V(0.6, 0, 0.4)), 1300);
     const aq = Math.atan2(q.x - ax, q.z - az), dv = q.clone().lerp(V(ax, g.y, az), 0.05), arm = dv.clone().add(V(Math.sin(aq) * 1.3, 2.3, Math.cos(aq) * 1.3));
     b.set(MAT.WOOD, TIMBER, 1301); b.beam(dv, dv.clone().add(V(0, 2.5, 0)), 0.14, 0.14); b.beam(dv.clone().add(V(0, 2.35, 0)), arm.clone().add(V(Math.sin(aq) * 0.15, 0, Math.cos(aq) * 0.15)), 0.12, 0.12);
     b.beam(dv.clone().add(V(0, 1.4, 0)), dv.clone().add(V(Math.sin(aq) * 0.9, 2.35, Math.cos(aq) * 0.9)), 0.08, 0.08);
@@ -1334,6 +1341,131 @@ function city(b, sb, out, ti, o) {
   }
   details(b, sb, out, T, R, houses, segs, limbs, fits, claim, green);
   out.houses += houses.length;
+}
+
+// lifts from the forest floor up to the low platforms: a timber tower beside the platform's edge with a pulley on top;
+// the cage and its counterweight are moving parts (out.lifts)
+function lifts(b, out, T, R, segs, fits, claim, n) {
+  const cand = segs.filter((g) => g.ti <= 1 && g.a1 - g.a0 > 0.5).sort((p, q) => p.ti - q.ti || R() - 0.5);
+  let made = 0;
+  for (const g of cand) {
+    if (made >= n) break;
+    for (let k = 0; k < 6; k++) {
+      const a = lerp(g.a0 + 0.15, g.a1 - 0.15, R()), rL = g.rOut(a) + 1.4, c = at(T, a, rL, g.y), top = g.y;
+      if (!fits(c.x, c.z, 1.5, -1, top + 3.6)) continue;
+      claim(c.x, c.z, 1.5, -1, top + 3.6);
+      const hw = 1.05, H = top + 3.3, yaw = a;
+      b.room(c.x, 0, c.z, yaw); b.set(MAT.WOOD, TIMBER, 3300 + made);
+      const cs = [[-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]];
+      for (const [x, z] of cs) b.beam(V(x, -1, z), V(x, H, z), 0.2, 0.2);
+      for (let y = 3; y < H; y += 3) {
+        for (let i = 0; i < 4; i++) { const [x0, z0] = cs[i], [x1, z1] = cs[(i + 1) % 4]; b.beam(V(x0, y, z0), V(x1, y, z1), 0.12, 0.12); }
+        if (y + 3 < H) for (const sx of [-1, 1]) b.beam(V(sx * hw, y, -hw), V(sx * hw, y + 3, hw), 0.08, 0.08);
+      }
+      b.beam(V(-hw - 0.2, H, 0), V(hw + 0.6, H, 0), 0.16, 0.2); b.beam(V(0, H, -hw - 0.1), V(0, H, hw + 0.1), 0.14, 0.18);
+      b.set(MAT.METAL, IRON, 3310, 0.1);
+      b.push(new THREE.Matrix4().makeTranslation(0.35, H + 0.35, 0).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))); b.lathe([[0.42, -0.05], [0.45, 0], [0.42, 0.05]], 16); b.pop();
+      // the landing from the platform's edge to the cage, and a gap in the railing for it
+      b.set(MAT.DECK, [0.5, 0.42, 0.34], 3320); b.box(0, top - 0.09, -hw - 0.35, 1.5, 0.18, 1.0);
+      g.gaps.push(at(T, a, g.rOut(a), g.y));
+      out.lifts.push({ x: c.x, z: c.z, yaw, y0: 0.4, y1: top, top: H + 0.35, ph: R() * 40 });
+      out.lights.push({ p: at(T, a, rL, top + 2.0), c: WARM, i: 3, s: 1 });
+      made++;
+      break;
+    }
+  }
+}
+
+// water: a cistern high up feeds a pipe that pours over the platform's edge into a tub on a platform further down,
+// which runs on through another pipe to the next fall, and so on; the last falls all the way into the mist.
+// The falling water and the tubs' surfaces go in out.wb (drawn with the water shader).
+function waterworks(b, out, T, R, segs, fits, claim, n = 1) {
+  const wb = out.wb;
+  const deckFree = (x, z, r, y0, y1) => fits(x, z, r, y0, y1, null, "deck");
+  const clearDrop = (x, z, yTop, yBot) => {          // nothing between the spout and the tub
+    for (let y = yBot + 0.8; y < yTop - 0.2; y += 0.5) if (!fits(x, z, 0.35, y, y + 0.4)) return false;
+    return true;
+  };
+  const tops = segs.filter((g) => g.ti >= Math.max(1, Math.max(...segs.map((s) => s.ti)) - 2));
+  // follow the water down from a start: each next tub stands on a shelf off a lower platform, out beyond the one above
+  const chain = (g0, a0) => {
+    const steps = [];
+    let cur = { g: g0, a: a0 };
+    for (let s = 0; s < 5; s++) {
+      let found = null;
+      for (const g of segs) {
+        if (g.y > cur.g.y - 3 || g.y < cur.g.y - 18) continue;
+        for (const da of [0, 0.08, -0.08, 0.16, -0.16, 0.25, -0.25, 0.35, -0.35]) {
+          const a = cur.a + da;
+          if (a < g.a0 + 0.05 || a > g.a1 - 0.05 || a < cur.g.a0 || a > cur.g.a1) continue;
+          const above = cur.g.rOut(a), rb = Math.max(g.rOut(a) + 0.7, above + 0.65);
+          if (rb - g.rOut(a) > 1.9 || rb > above + 3.5) continue;
+          const p = at(T, a, rb, g.y);
+          if (!deckFree(p.x, p.z, 0.8, g.y + 0.05, g.y + 1.0) || !clearDrop(p.x, p.z, cur.g.y, g.y)) continue;
+          found = { g, a, r: rb }; break;
+        }
+        if (found) break;
+      }
+      if (!found) break;
+      steps.push(found); cur = found;
+    }
+    return steps;
+  };
+  const starts = [];
+  for (const g0 of tops) for (let k = 0; k < 14; k++) {
+    const a0 = lerp(g0.a0 + 0.12, g0.a1 - 0.12, (k + 0.5) / 14), rc = g0.rOut(a0) - 1.5, cst = at(T, a0, rc, g0.y);
+    if (!deckFree(cst.x, cst.z, 1.0, g0.y + 0.05, g0.y + 2.2)) continue;
+    starts.push({ g0, a0, rc, cst, steps: chain(g0, a0) });
+  }
+  starts.sort((p, q) => q.steps.length - p.steps.length);
+  let built = 0;
+  for (const st0 of starts) {
+    if (built >= n || !st0.steps.length) break;
+    if (!deckFree(st0.cst.x, st0.cst.z, 1.0, st0.g0.y + 0.05, st0.g0.y + 2.2)) continue;
+    const steps = chain(st0.g0, st0.a0);             // again: an earlier cascade may have taken the room
+    if (!steps.length) continue;
+    const { g0, a0, rc, cst } = st0;
+    // the cistern: a big tank on legs, catching what drips from the crown
+    b.room(cst.x, g0.y, cst.z, a0);
+    b.set(MAT.WOOD, TIMBER, 3400); for (const [x, z] of [[-0.6, -0.6], [0.6, -0.6], [0.6, 0.6], [-0.6, 0.6]]) b.beam(V(x, 0, z), V(x, 0.7, z), 0.14, 0.14);
+    b.set(MAT.BOARDV, [0.45, 0.32, 0.2], 3401); b.lathe([[0.85, 0.7], [0.95, 1.4], [0.85, 2.2], [0, 2.2]], 18); b.lathe([[0, 0.7], [0.85, 0.7]], 18);
+    b.set(MAT.METAL, IRON, 3402, 0.1); for (const y of [0.95, 1.85]) b.lathe([[0.93, y - 0.05], [0.93, y + 0.05]], 18);
+    claim(cst.x, cst.z, 1.0, g0.y, g0.y + 2.3);
+    // pipes and falls, one after another
+    let from = { g: g0, a: a0, r: rc + 0.8, y: g0.y + 0.85 };
+    const fall = (sp, yEnd, last) => {               // a stream from spout sp down to yEnd, thinning and breaking up
+      const pts = [], dir = V(sp.x - tAxis(T, sp.y)[0], 0, sp.z - tAxis(T, sp.y)[1]).normalize();
+      for (let t = 0; ; t += 0.03) { const p = sp.clone().addScaledVector(dir, 0.7 * t).add(V(0, -4.9 * t * t, 0)); pts.push(p); if (p.y <= yEnd) break; }
+      (out.spouts ||= []).push(sp.clone());
+      wb.set(0, [1, 1, 1], R(), last ? 1 : 0); wb.room(0, 0, 0); wb.tube(pts, (t) => 0.1 + t * (last ? 0.7 : 0.12), 10);
+      return pts[pts.length - 1];
+    };
+    for (const st of steps) {
+      // pipe along the platform from the source out past the edge, turning down into a spout
+      const pA = at(T, from.a, from.r, from.y), pB = at(T, st.a, st.r, from.y), sp = at(T, st.a, st.r, from.g.y - 0.15);
+      b.room(0, 0, 0); b.set(MAT.METAL, [0.5, 0.3, 0.2], 3410, 0.6);
+      b.tube([pA, pB, pB.clone().add(V(0, -0.05, 0)), sp.clone().add(V(0, 0.25, 0)), sp], 0.07, 8);
+      for (const p of [pA.clone().lerp(pB, 0.5)]) { b.set(MAT.WOOD, TIMBER, 3411); b.beam(p.clone().setY(from.g.y), p.clone().add(V(0, 0.05, 0)), 0.08, 0.08); }
+      // the shelf, bracketed off the platform's edge, and the tub on it
+      const tub = at(T, st.a, st.r, st.g.y), e0 = at(T, st.a, st.g.rOut(st.a) - 0.3, st.g.y - 0.1), e1 = at(T, st.a, st.r + 0.75, st.g.y - 0.1);
+      b.room(0, 0, 0); b.set(MAT.DECK, [0.5, 0.42, 0.34], 3415); b.beam(e0, e1, 1.5, 0.16);
+      b.set(MAT.WOOD, TIMBER, 3416); for (const sg of [-0.55, 0.55]) { const q = e1.clone().lerp(e0, 0.15).add(V(Math.cos(st.a) * sg, -0.05, -Math.sin(st.a) * sg)); b.beam(q, at(T, st.a, st.g.rOut(st.a) - 0.2, st.g.y - 1.4).add(V(Math.cos(st.a) * sg, 0, -Math.sin(st.a) * sg)), 0.1, 0.1); }
+      b.room(tub.x, st.g.y, tub.z, st.a);
+      b.set(MAT.BOARDV, [0.5, 0.36, 0.22], 3420); b.lathe([[0.6, 0], [0.68, 0.6], [0.62, 0.62]], 16); b.lathe([[0, 0.02], [0.6, 0.02]], 16);
+      b.set(MAT.METAL, IRON, 3421, 0.1); b.lathe([[0.65, 0.12], [0.66, 0.2]], 16); b.lathe([[0.68, 0.44], [0.69, 0.52]], 16);
+      wb.set(1, [1, 1, 1], R(), 0); wb.room(tub.x, st.g.y, tub.z, 0); wb.lathe([[0.63, 0.54], [0, 0.54]], 16, { uFrac: true });
+      claim(tub.x, tub.z, 0.75, st.g.y, st.g.y + 0.8);
+      fall(sp, st.g.y + 0.54, false);
+      from = { g: st.g, a: st.a, r: st.r, y: st.g.y + 0.35 };
+    }
+    // the last one runs to the edge and falls all the way into the mist
+    const g = from.g, rEnd = from.r + 1.7;
+    const pA = at(T, from.a, from.r + 0.5, g.y + 0.45), pB = at(T, from.a, rEnd, g.y + 0.45), sp = at(T, from.a, rEnd, g.y + 0.1);
+    b.room(0, 0, 0); b.set(MAT.METAL, [0.5, 0.3, 0.2], 3430, 0.6); b.tube([pA, pB, sp.clone().add(V(0, 0.2, 0)), sp], 0.07, 8);
+    if (clearDrop(sp.x, sp.z, g.y, 0.5)) fall(sp, 0.5, true);
+    built++;
+  }
+  return built;
 }
 
 // small things that make it lived in: washing lines, hammocks, rope swings, birdhouses, rain barrels, a telescope
@@ -1436,7 +1568,9 @@ function world(b, sb, out) {
   out.occ = [];
   const cons = TREES.map(() => []);
   for (const L of LINKS) {
-    const A = TREES[L.a], B = TREES[L.b], D = Math.hypot(B.x - A.x, B.z - A.z), gap = L.mid ? 24 : L.cable ? 14 : 10, reach = (D - gap) / 2;
+    const A = TREES[L.a];
+    if (L.ground) { L.ends = [{ a: Math.atan2(L.ground[0] - A.x, L.ground[1] - A.z), y: L.y, reach: 19, cable: true }]; cons[L.a].push(L.ends[0]); continue; }
+    const B = TREES[L.b], D = Math.hypot(B.x - A.x, B.z - A.z), gap = L.mid ? 24 : L.cable ? Math.max(14, D - 42) : 10, reach = (D - gap) / 2;
     L.ends = [{ a: Math.atan2(B.x - A.x, B.z - A.z), y: L.y, reach, cable: L.cable }, { a: Math.atan2(A.x - B.x, A.z - B.z), y: L.y, reach, cable: L.cable }];
     cons[L.a].push(L.ends[0]); cons[L.b].push(L.ends[1]);
   }
@@ -1449,9 +1583,31 @@ function world(b, sb, out) {
   };
   LINKS.forEach((L, li) => {
     const [ca, cb] = L.ends;
+    if (!ca.top && L.cable) return;       // a station that found no room
     if (L.cable) {
-      out.cables.push({ A: ca.top, B: cb.top, sag: 1.8 });
-      b.room(0, 0, 0); b.set(MAT.METAL, IRON, 2400, 0); b.tube(sagLine(ca.top, cb.top, 1.8, 60), 0.035, 5);
+      let B = cb && cb.top;
+      if (L.ground) {             // the valley station: a timber tower standing up out of the mist, a hut and a pylon on top
+        const G = V(L.ground[0], 0, L.ground[1]), yT = 13, a = Math.atan2(TREES[L.a].x - G.x, TREES[L.a].z - G.z), side = V(Math.cos(a), 0, -Math.sin(a));
+        b.room(G.x, 0, G.z, a); b.set(MAT.WOOD, TIMBER, 2450);
+        const hw = 2.6, cs = [[-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]];
+        for (const [x, z] of cs) b.beam(V(x, -1, z), V(x * 0.8, yT, z * 0.8), 0.3, 0.3);
+        for (let y = 3; y < yT; y += 3.5) for (let i = 0; i < 4; i++) { const [x0, z0] = cs[i], [x1, z1] = cs[(i + 1) % 4], f = 1 - 0.2 * y / yT; b.beam(V(x0 * f, y, z0 * f), V(x1 * f, y, z1 * f), 0.15, 0.15); }
+        b.room(0, 0, 0); deck(b, poly(G.x, yT, G.z, Array.from({ length: 8 }, (_, i) => 3.6 + 0.3 * Math.sin(i * 1.7)), 0.4), [V(G.x, yT, G.z).addScaledVector(V(Math.sin(a), 0, Math.cos(a)), 3.6)], 2451);
+        const R = rng(5150), H = planHouse(R, "gable", 0.75), hp = V(G.x, yT, G.z).addScaledVector(V(Math.sin(a), 0, Math.cos(a)), -1.3);
+        buildHouse(b, sb, out, H, hp.x, yT, hp.z, a + Math.PI);
+        const base = V(G.x, yT, G.z).addScaledVector(V(Math.sin(a), 0, Math.cos(a)), 1.6);
+        b.room(0, 0, 0); b.set(MAT.WOOD, TIMBER, 2452); b.beam(base, base.clone().add(V(0, 4.2, 0)), 0.22, 0.22);
+        b.beam(base.clone().add(V(0, 4.0, 0)).addScaledVector(side, -1.3), base.clone().add(V(0, 4.0, 0)).addScaledVector(side, 1.3), 0.16, 0.2);
+        B = base.clone().add(V(0, 4.25, 0));
+        lantern(sb, base.clone().add(V(0, 3.9, 0)).addScaledVector(side, 1.3), 0.2, [1.0, 0.62, 0.32], 6, 2453);
+        out.lights.push({ p: base.clone().add(V(0, 2.5, 0)), c: WARM, i: 4, s: 1 });
+        out.houses++;
+      }
+      // two cables side by side, a cabin on each, passing each other halfway
+      const A = ca.top, dir = V().subVectors(B, A).setY(0).normalize(), P = V(dir.z, 0, -dir.x).multiplyScalar(1.15), sag = 1.2 + A.distanceTo(B) * 0.02;
+      b.room(0, 0, 0); b.set(MAT.METAL, IRON, 2400, 0);
+      for (const sg of [-1, 1]) b.tube(sagLine(A.clone().addScaledVector(P, sg), B.clone().addScaledVector(P, sg), sag, 60), 0.035, 5);
+      out.cables.push({ A, B, sag, P });
       return;
     }
     if (L.mid) {
@@ -1671,6 +1827,35 @@ void main(){
   gl_FragColor = vec4(fogged(col, vW), a);
 }`;
 
+// water (the falls and the tubs' surfaces, see waterworks): aK.x 0 = a falling stream (uv.y metres down the fall,
+// p1 = 1 for the long last fall into the mist), 1 = a tub's surface (uv.y from the rim inward)
+const WATER_FRAG = /* glsl */`
+varying vec3 vW, vN, vC; varying vec2 vUv; varying vec4 vK;
+void main(){
+  vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;
+  vec3 V = normalize(cameraPosition - vW), Rf = reflect(-V, N);
+  float fr = 0.08 + 0.92 * pow(1. - abs(dot(N, V)), 4.);
+  vec3 refl = fogSky(Rf) * 1.2 + uMoonCol * pow(max(dot(Rf, uMoonDir), 0.), 40.) * 2.;
+  vec3 lit = warm(vW, N, 1.) * 0.3 + cityGlow(vW) + uSkyA * 0.6 + uMoonCol * 0.25;
+  vec3 col; float a;
+  if (vK.x < 0.5) {             // streaks racing down, frothing, breaking up toward the bottom
+    float v = vUv.y, sp = 4.5;
+    float n = fbm(vec2(vUv.x * 5., v * 1.5 - uTime * sp)), m = fbm(vec2(vUv.x * 11. + 3., v * 3. - uTime * sp * 1.3));
+    float streak = smoothstep(0.35, 0.8, n * 0.7 + m * 0.4);
+    float brk = vK.z > 0.5 ? smoothstep(3., 16., v) : smoothstep(1.5, 4., v) * 0.4;
+    a = (0.45 + 0.5 * streak) * (1. - brk * (1. - smoothstep(0.45, 0.75, m))) * smoothstep(0., 0.15, v + 0.05);
+    col = mix(refl * fr + lit * 0.6, vec3(0.85, 0.9, 0.97) * (lit * 1.6 + 0.04), streak * 0.75);
+  } else {                      // rings spreading from where the water lands, foam in the middle
+    float r = 0.63 - vUv.y;
+    float ring = sin(r * 26. - uTime * 7.) * 0.5 + 0.5, foam = smoothstep(0.3, 0.06, r + (fbm(vec2(vUv.x * 12., uTime * 2.)) - 0.5) * 0.18);
+    col = refl * (fr + 0.15) * (0.8 + 0.3 * ring * smoothstep(0.6, 0.2, r)) + vec3(0.015, 0.025, 0.03);
+    col = mix(col, vec3(0.8, 0.85, 0.9) * lit, foam * 0.8);
+    a = 0.9;
+  }
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(fogged(col, vW), a);
+}`;
+
 // ---------------------------------------------------------------- sky, glows, post
 const SKY_FRAG = /* glsl */`
 varying vec3 vD;
@@ -1813,7 +1998,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   // ---- build: the cities in the four great trees and the bridges between them, the crowns, then the forest round them
   HALOS.length = 0;
   const b = builder(), sb = builder(true), fb = builder();
-  const out = { lights: [], smoke: [], bulbs: [], flowers: [], clumps: [], vanes: [], mills: [], baskets: [], cables: [], launch: [], houses: 0, bridges: 0 };
+  const out = { lights: [], smoke: [], bulbs: [], flowers: [], clumps: [], vanes: [], mills: [], baskets: [], cables: [], lifts: [], launch: [], houses: 0, bridges: 0, wb: builder() };
   const leaves = [], drapes = [];
   const R = rng(2026);
   world(b, sb, out);
@@ -1884,6 +2069,9 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   const buildMat = shader(BUILD_VERT, BUILD_FRAG, { side: THREE.DoubleSide });
   const swingMat = shader(BUILD_VERT, BUILD_FRAG, { side: THREE.DoubleSide, defines: { SWING: "" } });
   const vGeo = b.geometry(), sGeo = sb.geometry(), fGeo = fb.geometry();
+  // the water: falls and tub surfaces, drawn last, see-through
+  const water = new THREE.Mesh(out.wb.geometry(), shader(BUILD_VERT, WATER_FRAG, { side: THREE.DoubleSide, transparent: true, depthWrite: false }));
+  water.frustumCulled = false; water.renderOrder = 3; scene.add(water);
   const villageMesh = new THREE.Mesh(vGeo, buildMat), swingMesh = new THREE.Mesh(sGeo, swingMat), forestMesh = new THREE.Mesh(fGeo, buildMat);
   [villageMesh, swingMesh, forestMesh].forEach((m) => { m.frustumCulled = false; scene.add(m); });
 
@@ -2079,16 +2267,29 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   });
   const baskets = copies(basket, out.baskets.length);
   // the cable car: a little cabin with lit windows under a trolley, crossing between the stations and resting at each
-  const gondola = part((p) => {
+  const cabin = (col, roof) => part((p) => {
     p.room(0, -2.6, 0, 0);
-    boxWalls(p, 1.5, 1.3, 1.35, MAT.PLANK, [0.62, 0.22, 0.2], 1650, { floor: true });
+    boxWalls(p, 1.5, 1.3, 1.35, MAT.PLANK, col, 1650, { floor: true });
     boxSides(p, 1.5, 1.3, { "z+": [{ a: 0.75, w: 0.95, h: 0.62, y: 0.5 }], "z-": [{ a: 0.75, w: 0.95, h: 0.62, y: 0.5 }], "x+": [{ a: 0.65, w: 0.5, h: 0.62, y: 0.5 }], "x-": [{ a: 0.65, w: 0.5, h: 0.62, y: 0.5 }] }, 1651, null);
-    gableRoof(p, 1.5, 1.3, 1.35, 0.45, 0.12, MAT.SHINGLE, [0.25, 0.3, 0.42], MAT.PLANK, [0.62, 0.22, 0.2], 1652);
+    gableRoof(p, 1.5, 1.3, 1.35, 0.45, 0.12, MAT.SHINGLE, roof, MAT.PLANK, col, 1652);
     p.room(0, 0, 0, 0); p.set(MAT.METAL, IRON, 1653, 0.1);
     p.beam(V(0, -0.85, 0), V(0, 0.05, 0), 0.07, 0.07); p.beam(V(-0.35, 0.05, 0), V(0.35, 0.05, 0), 0.06, 0.12);
     for (const x of [-0.3, 0.3]) { p.push(new THREE.Matrix4().makeTranslation(x, 0.1, 0).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))); p.lathe([[0.1, -0.03], [0.1, 0.03]], 10); p.pop(); }
   });
-  const gondolas = copies(gondola, out.cables.length);
+  const cabins = [cabin([0.62, 0.22, 0.2], [0.25, 0.3, 0.42]), cabin([0.3, 0.46, 0.52], [0.5, 0.25, 0.2]), cabin([0.8, 0.62, 0.3], [0.3, 0.38, 0.28])];
+  const gondolas = out.cables.flatMap((_, i) => [0, 1].map((k) => copies(cabins[(i + k) % 3], 1)[0]));
+  // the lifts: an open cage with a lamp in it, its counterweight, and the ropes up to the pulley (stretched each frame)
+  const cage = part((p) => {
+    p.room(0, 0, 0, 0); p.set(MAT.DECK, [0.5, 0.42, 0.34], 1660); p.box(0, -0.06, 0, 1.7, 0.12, 1.7);
+    p.set(MAT.WOOD, TIMBER, 1661); for (const [x, z] of [[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]]) p.box(x, 1.05, z, 0.08, 2.1, 0.08);
+    p.box(0, 2.15, 0, 1.8, 0.1, 1.8); p.beam(V(0, 2.2, 0), V(0, 2.45, 0), 0.08, 0.08);
+    p.set(MAT.BOARDV, [0.55, 0.3, 0.22], 1662); p.box(0, 0.45, 0.82, 1.6, 0.9, 0.04); p.box(0.82, 0.45, 0, 0.04, 0.9, 1.6); p.box(-0.82, 0.45, 0, 0.04, 0.9, 1.6);
+    p.set(MAT.WOOD, TIMBER, 1663); p.box(0, 1.0, -0.82, 1.6, 0.06, 0.06);
+    p.set(MAT.LANTERN, [1.0, 0.6, 0.3], 1664, 4); p.push(new THREE.Matrix4().makeTranslation(0, 1.7, 0)); p.lathe([[0.09, 0], [0.14, 0.12], [0.09, 0.26]], 10, { uFrac: true }); p.pop();
+  });
+  const weight = part((p) => { p.room(0, 0, 0, 0); p.set(MAT.METAL, IRON, 1670, 0.1); p.box(0, 0.5, 0, 0.35, 1.0, 0.35); });
+  const rope = part((p) => { p.room(0, 0, 0, 0); p.set(MAT.ROPE, [0.45, 0.38, 0.28], 1671); p.tube([V(0, 0, 0), V(0, 1, 0)], 0.022, 4); });
+  const liftParts = out.lifts.map(() => ({ cage: copies(cage, 1)[0], weight: copies(weight, 1)[0], r1: copies(rope, 1)[0], r2: copies(rope, 1)[0] }));
 
   // ---- sky lanterns, let go on request: paper lanterns that rise, drift and dwindle
   const MAXL = 36;
@@ -2208,12 +2409,22 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
       const bt = out.baskets[i].top, cyc = (t * 0.035 + out.baskets[i].ph) % 1, travel = bt.y - 4.5;
       bk.position.set(bt.x, bt.y - 1.0 - travel * (0.5 - 0.5 * Math.cos(Math.min(1, Math.abs(cyc * 2 - 1) * 1.25) * Math.PI)), bt.z);
     });
-    gondolas.forEach((g, i) => {
-      const { A, B, sag } = out.cables[i], L = A.distanceTo(B), trip = L / 1.6, cyc = ((t + i * 20) / (trip + 12)) % 2;
-      const leg = cyc % 1, f = clamp((leg * (trip + 12) - 6) / trip, 0, 1), u0 = f * f * (3 - 2 * f), u = cyc < 1 ? u0 : 1 - u0;
-      const tt = clamp(u, 0.04, 0.96), p = A.clone().lerp(B, tt).add(V(0, -sag * 4 * tt * (1 - tt), 0));
+    gondolas.forEach((g, j) => {             // the two cabins of a line go opposite ways and pass in the middle
+      const i = j >> 1, k = j & 1, { A, B, sag, P } = out.cables[i], L = A.distanceTo(B), trip = L / 2.2, cyc = ((t + i * 23) / (trip + 12)) % 2;
+      const leg = cyc % 1, f = clamp((leg * (trip + 12) - 6) / trip, 0, 1), u0 = f * f * (3 - 2 * f), u1 = cyc < 1 ? u0 : 1 - u0, u = k ? 1 - u1 : u1;
+      const tt = clamp(u, 0.05, 0.95), p = A.clone().lerp(B, tt).add(V(0, -sag * 4 * tt * (1 - tt), 0)).addScaledVector(P, k ? -1 : 1);
       g.position.copy(p); g.rotation.order = "YXZ"; g.rotation.y = Math.atan2(B.x - A.x, B.z - A.z) + Math.PI / 2;
-      g.rotation.z = Math.sin(t * 0.9 + i) * 0.025 * (u0 > 0 && u0 < 1 ? 1 : 0.3);
+      g.rotation.z = Math.sin(t * 0.9 + j) * 0.025 * (u0 > 0 && u0 < 1 ? 1 : 0.3);
+    });
+    liftParts.forEach((lp, i) => {          // wait at the bottom, up, wait at the top, down
+      const L = out.lifts[i], travel = (L.y1 - L.y0) / 1.8, per = 2 * travel + 16, c = (t + L.ph) % per;
+      const u = c < 8 ? 0 : c < 8 + travel ? (c - 8) / travel : c < 16 + travel ? 1 : 1 - (c - 16 - travel) / travel;
+      const e = u * u * (3 - 2 * u), y = lerp(L.y0, L.y1, e), wy = lerp(L.y1 - 0.5, L.y0 + 1, e);
+      const ox = Math.cos(L.yaw) * 1.4, oz = -Math.sin(L.yaw) * 1.4;      // the counterweight runs outside the tower's side
+      lp.cage.position.set(L.x, y, L.z); lp.cage.rotation.y = L.yaw;
+      lp.weight.position.set(L.x + ox, wy, L.z + oz); lp.weight.rotation.y = L.yaw;
+      lp.r1.position.set(L.x, y + 2.45, L.z); lp.r1.scale.set(1, Math.max(0.1, L.top - y - 2.45), 1);
+      lp.r2.position.set(L.x + ox, wy + 1.0, L.z + oz); lp.r2.scale.set(1, Math.max(0.1, L.top - wy - 1.0), 1);
     });
 
     // smoke
@@ -2304,6 +2515,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   return {
     renderer, frame, toggleNight, setNight, toggleGlide, zoomBy, rise, setView, nextCentre, get centre() { return ci; }, look: lookAt, release, scene, camera, SU,
     get night() { return nightT > 0.5; }, get glide() { return glide; }, get height() { return (h - HMIN) / (HMAX - HMIN); },
-    stats: { houses: out.houses, bridges: out.bridges, tris: (vGeo.attributes.position.count + sGeo.attributes.position.count + fGeo.attributes.position.count) / 3, leaves: leaves.length, drapes: drapes.length, lights: allLights.length, bulbs: out.bulbs.length / 4, info: renderer.info.render },
+    parts: { lifts: out.lifts, cables: out.cables, spouts: out.spouts || [] },
+    stats: { houses: out.houses, bridges: out.bridges, lifts: out.lifts.length, cables: out.cables.length, water: out.wb.count() / 3, tris: (vGeo.attributes.position.count + sGeo.attributes.position.count + fGeo.attributes.position.count) / 3, leaves: leaves.length, drapes: drapes.length, lights: allLights.length, bulbs: out.bulbs.length / 4, info: renderer.info.render },
   };
 }

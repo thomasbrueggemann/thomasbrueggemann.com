@@ -115,7 +115,7 @@ export const unlisted = [
     kicker: "A city in the trees",
     tagline: "Crooked houses stacked up four giant trees of four kinds, their limbs reaching for each other over the mist at moonrise.",
     description:
-      "Some two hundred and forty houses crowd four giant trees, each its own kind with its own town: a dense city in an old broad-crowned giant, a packed village of thatch and plaster in a baobab under a flat crown, slate-blue towers in a coiled tree that weeps wisteria, and a hamlet of red-roofed gables in a golden birch. Houses perch on brackets, stacked two and three high at odd angles, pods swinging on ropes, onion domes, glass greenhouses, witch's-hat towers. Limbs reach out toward the neighbouring trees, with a platform at each tip and a rope bridge across; one gap too wide to bridge has a platform slung on ropes between the trunks, and a cable car crosses high up. Washing hangs between houses, hammocks and rope swings sway, and the mist lies far below. Fly round the whole group or round one tree at a time.",
+      "Some two hundred and forty houses crowd four giant trees, each its own kind with its own town: a dense city in an old broad-crowned giant, a packed village of thatch and plaster in a baobab under a flat crown, slate-blue towers in a coiled tree that weeps wisteria, and a hamlet of red-roofed gables in a golden birch. Houses perch on brackets, stacked two and three high at odd angles, pods swinging on ropes, onion domes, glass greenhouses, witch's-hat towers. Limbs reach out toward the neighbouring trees, with a platform at each tip and a rope bridge across; one gap too wide to bridge has a platform slung on ropes between the trunks, and cable cars cross between the trees and down to a station on stilts in the mist. Lifts ride up and down timber towers from the forest floor, water pours from cisterns down through pipes and tubs, washing hangs between houses, hammocks and rope swings sway, and the mist lies far below. Fly round the whole group or round one tree at a time.",
     date: "2026-10",
     genre: "Scene",
     tags: ["three.js", "GLSL", "procedural", "WebAudio"],
@@ -127,10 +127,10 @@ export const unlisted = [
     play: "aerie/",
     label: "Enter",
     shots: [
-      { src: "aerie-1.webp", alt: "Giant trees full of lit treehouses, rope bridges strung between their limbs, a cable car high up, the moon behind, mist below", caption: "Moonrise over the mist" },
+      { src: "aerie-1.webp", alt: "Giant trees full of lit treehouses, rope bridges strung between their limbs, lift towers rising from the mist, a cable car, the moon behind", caption: "Moonrise over the mist" },
       { src: "aerie-2.webp", alt: "A coiled tree hung with wisteria and slate-blue towers, beside it a golden birch with a few red-roofed houses", caption: "The weeping tree and the golden birch" },
       { src: "aerie-3.webp", alt: "A platform slung on ropes between two trees, a little tower house on it, rope bridges leading off to both", caption: "Halfway across: a platform slung between two trees" },
-      { src: "aerie-4.webp", alt: "Close to the biggest tree: shingled roofs, rooms stacked at angles on platforms, a rope bridge, leaves all round", caption: "In among the houses" },
+      { src: "aerie-4.webp", alt: "A cable car cabin on twin cables running down from the trees to a station hut on a timber tower standing in the mist", caption: "The cable car down to the valley station" },
     ],
   },
 ];
