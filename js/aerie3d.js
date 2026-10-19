@@ -313,35 +313,80 @@ vec3 windowCol(vec3 P, vec3 N, vec2 uv, float w, float h, float sd, float type){
   vec3 barCol = shade(vec3(0.62, 0.56, 0.46), N, P, 0.8, 0.1, 0.) + lampC * 0.04 * lit;
   return mix(c, barCol, bar);
 }
+// bark, in metres: bc() maps (angle a, metres z along, radius R) onto a noise cylinder with features lc round and lz along;
+// bf() fades an octave of wavelength l out once a pixel (pw metres) nears it; crease() is 0 on the contour f = 0.5
+vec3 bc(float a, float z, float R, float lc, float lz){ return vec3(cos(a) * R / lc, sin(a) * R / lc, z / lz); }
+float bf(float pw, float l){ return 1. - smoothstep(0.12, 0.5, pw / l); }
+float crease(float f, float w){ return smoothstep(0., w, abs(f - 0.5) * 2.); }
+// furrowed bark: long fissures (contours of a noise stretched lz/lc along the trunk) about lc apart, in places deep and
+// in places shallow, rounded ridges between them, cross cracks, then fibres; returns the relief (0 low, 1 high),
+// cav is how deep in a crack it sits
+float furrow(float a, float z, float R, float pw, float sd, float lc, float lz, out float cav){
+  vec3 o = vec3(sd * 9.), w3 = bc(a, z, R, lc * 3., lz) + o;
+  vec2 w = vec2(n3(w3 + 5.), n3(w3 + 17.)) - 0.5;      // the ridges wander, braid and merge
+  a += w.x * lc * 1.6 / R; z += w.y * lz * 0.3;
+  float dp = n3(bc(a, z, R, lc * 4., lz * 1.5) + o + 29.);
+  float dA = abs(n3(bc(a + z * 0.012, z, R, lc, lz) + o) - 0.5) * 2., dB = abs(n3(bc(a - z * 0.04, z, R, lc * 0.33, lz * 0.5) + o + 3.) - 0.5) * 2.;
+  float dC = abs(n3(bc(a + z * 0.06, z, R, lc * 0.1, lz * 0.25) + o + 9.) - 0.5) * 2., dE = abs(n3(bc(a - z * 0.008, z, R, lc * 3.2, lz * 2.) + o + 37.) - 0.5) * 2.;
+  float kA = bf(pw, lc), kB = bf(pw, lc * 0.33), kC = bf(pw, lc * 0.1), kE = bf(pw, lc * 3.2);
+  float hA = mix(0.8, smoothstep(0., 0.6, dA), kA), hB = mix(0.75, smoothstep(0., 0.5, dB), kB), hC = mix(0.7, smoothstep(0., 0.6, dC), kC), hE = mix(0.85, smoothstep(0., 0.5, dE), kE);
+  cav = max(mix(0.1, (1. - smoothstep(0., 0.24, dA)) * (0.35 + 0.65 * smoothstep(0.3, 0.7, dp)), kA), mix(0.05, 0.45 * (1. - smoothstep(0., 0.2, dB)), kB));
+  cav = max(cav, mix(0.08, 0.9 * (1. - smoothstep(0., 0.16, dE)), kE));
+  return hA * (0.55 + 0.45 * hB) * (0.9 + 0.1 * hC) * (0.7 + 0.3 * hE);
+}
 float lines(float x, float w){ float f = abs(fract(x + 0.5) - 0.5); return 1. - smoothstep(w * 0.5, w * 0.5 + fwidth(x) * 1.2, f); }
 void main(){
   vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;
-  vec3 P = vW; float m = vK.x, sd = vK.y; vec2 uv = vUv; vec3 tint = vC;
+  vec3 P = vW; float m = vK.x, sd = vK.y, pw = length(fwidth(vW)); vec2 uv = vUv; vec3 tint = vC;
   vec3 alb = tint, emis = vec3(0.); float ao = 1., wrap = 0.1, spec = 0., h = 0., bk = 0.;
   if (m < 0.5) {                                   // bark (p2 = kind): furrowed, birch, spiral furrows, smooth and wrinkled
-    float kind = vK.w, a = uv.x * 6.2832 + (abs(kind - 2.) < 0.5 ? uv.y * 0.22 : 0.), R = vK.z / 6.2832;
-    vec3 q = vec3(cos(a) * R * 1.9, sin(a) * R * 1.9, uv.y * 0.16);
-    float f = fbm3(q + sd * 9.), rid = 1. - abs(2. * f - 1.), det = fbm3(q * vec3(4., 4., 9.));
-    float moss = smoothstep(0.52, 0.72, fbm3(P * 0.45 + 3.) * 0.7 + N.y * 0.45 + 0.08 - rid * 0.15);
-    if (kind > 0.5 && kind < 1.5) {                // birch: chalky white, dark dashes across the trunk, black scars
-      vec3 qb = vec3(cos(a) * R * 0.9, sin(a) * R * 0.9, uv.y * 3.2);
-      float dash = smoothstep(0.66, 0.74, fbm3(qb + sd * 3.)), scar = smoothstep(0.72, 0.78, fbm3(q * 0.35 + 7.));
-      h = 1. - dash * 0.6 - scar * 0.8 + det * 0.15;
-      alb = mix(vec3(0.72, 0.7, 0.66) * (0.85 + 0.2 * det), vec3(0.06, 0.055, 0.05), max(dash * 0.85, scar));
+    // everything in metres: a = angle round the trunk, z = metres along it, R = its radius (from the girth in p1)
+    float kind = vK.w, R = max(vK.z / 6.2832, 0.05), z = uv.y, a = uv.x * 6.2832 + (abs(kind - 2.) < 0.5 ? z * 0.22 : 0.), cav = 0.;
+    vec3 o = vec3(sd * 9.);
+    float mArg = fbm3(P * 0.45 + 3.) * 0.7 + N.y * 0.45 + 0.08 + dot(normalize(N.xz + 1e-4), vec2(-0.6, 0.8)) * (1. - abs(N.y)) * 0.3, moss = smoothstep(0.52, 0.72, mArg);
+    if (kind > 0.5 && kind < 1.5) {                // birch: chalky white paper, lenticels, black eye-shaped scars, curls; dark and rough at the foot
+      float band = n3(bc(a, z, R, 1.6, 0.45) + o), pap = mix(0.5, n3(bc(a, z, R, 0.3, 0.03) + o + 4.), bf(pw, 0.03));
+      alb = vec3(0.8, 0.78, 0.72) * (0.78 + 0.3 * band) * (0.9 + 0.2 * pap);
+      float ln = n3(bc(a, z, R, 0.1, 0.024) + o + 8.) + 0.3 * (band - 0.5), lg = n3(bc(a, z, R, 0.5, 0.03) + o + 14.);   // lenticels, and longer grey dashes
+      float dash = mix(0.08, smoothstep(0.7, 0.8, ln), bf(pw, 0.024)), dsh = mix(0.05, smoothstep(0.74, 0.8, lg), bf(pw, 0.03));
+      vec2 cell = vec2(a * R / 0.4, z / 0.22), ci = floor(cell), cf = fract(cell) - 0.5 - (vec2(hash12(ci + 3.1), hash12(ci + 7.7)) - 0.5) * 0.3;
+      float scar = step(0.82, hash12(ci + sd)) * smoothstep(1., 0.45, abs(cf.x) / 0.4 + abs(cf.y) / 0.2);
+      float pc = n3(bc(a, z, R, 2.2, 0.1) + o + 11.), flap = smoothstep(0.6, 0.64, pc), edge = 1. - smoothstep(0., 0.04, abs(pc - 0.62));   // paper peeling in strips round the trunk
+      h = 0.5 + flap * 0.35 * smoothstep(0.6, 0.8, pc) + edge * 0.15 - scar * 0.3 - dash * 0.1;
+      alb = mix(alb, vec3(0.66, 0.58, 0.48), flap * 0.5);
+      alb = mix(alb, vec3(0.22, 0.17, 0.13), edge * 0.6);
+      alb = mix(alb, vec3(0.1, 0.09, 0.08), max(max(dash * 0.9, dsh * 0.6), scar * 0.95));
+      float rough = 1. - smoothstep(0.8, 4.5, P.y + 2.5 * (n3(P * 0.9) - 0.5));
+      if (rough > 0.01) {
+        float hr = furrow(a, z, R, pw, sd, 0.3, 8., cav);
+        alb = mix(alb, mix(vec3(0.035, 0.03, 0.026), vec3(0.5, 0.47, 0.42), smoothstep(0.3, 0.85, hr)), rough);
+        h = mix(h, hr, rough);
+      }
       moss *= 0.3;
-    } else if (kind > 2.5) {                       // baobab: smooth grey-pink, wrinkled in rings, a few deep folds
-      float wr = sin(uv.y * 7. + fbm3(q * 0.8) * 6.) * 0.5 + 0.5, fold = smoothstep(0.62, 0.7, rid);
-      h = wr * 0.35 + det * 0.25 - fold * 0.5;
-      alb = mix(vec3(0.34, 0.29, 0.27), vec3(0.5, 0.44, 0.41), wr * 0.6 + det * 0.4) * (1. - fold * 0.5);
+    } else if (kind > 2.5) {                       // baobab: grey skin in swags, fine wrinkles round the girth, a few deep folds
+      float zz = z + (n3(bc(a, z, R, 1.8, 2.6) + o) - 0.5) * 0.9, fl = n3(bc(a, z, R, 1.7, 7.) + o + 2.), pat = smoothstep(0.3, 0.7, n3(bc(a, z, R, 2.5, 1.5) + o + 4.));
+      float w1 = mix(0.8, crease(n3(bc(a, zz, R, 1., 0.12) + o + 6.), 0.6), bf(pw, 0.12));
+      float w2 = mix(0.8, crease(n3(bc(a, zz, R, 0.25, 0.04) + o + 12.), 0.8), bf(pw, 0.04));
+      float fo = mix(0.9, crease(n3(bc(a, zz, R, 3., 0.7) + o + 19.), 0.07), bf(pw, 0.25));
+      w1 = mix(1., w1, pat); w2 = mix(1., w2, 0.4 + 0.6 * pat);
+      float gr = mix(0.5, n3(bc(a, z, R, 0.06, 0.06) + o + 43.), bf(pw, 0.06));      // fine grain of the skin
+      h = fl * 0.3 + w1 * 0.3 + w2 * 0.1 + fo * 0.3 + (gr - 0.5) * 0.12; cav = (1. - fo * w1) * 0.8;
+      float pink = n3(bc(a, z, R, 3., 4.) + o + 23.);
+      alb = mix(vec3(0.3, 0.27, 0.26), vec3(0.4, 0.33, 0.3), smoothstep(0.4, 0.75, pink)) * (0.9 + 0.2 * fl) * (0.7 + 0.3 * w1) * (0.7 + 0.3 * fo) * (0.93 + 0.07 * w2) * (0.92 + 0.16 * gr);
+      alb = mix(alb, vec3(0.45, 0.45, 0.4), smoothstep(0.68, 0.76, n3(P * 1.1 + sd)) * 0.3);
       moss *= 0.5;
-    } else {
-      h = rid * 0.75 + det * 0.25;
-      alb = mix(vec3(0.06, 0.05, 0.048), vec3(0.3, 0.26, 0.23), h);
+    } else {                                       // furrowed (oak) and spiral (the coiled tree, narrower, stringier): plates and fibres
+      bool sp = kind > 1.5;
+      h = furrow(a, z, R, pw, sd, sp ? 0.26 : 0.34, sp ? 14. : 10., cav);
+      float st = mix(0.5, n3(bc(a, z, R, 0.08, 1.5) + o + 31.), bf(pw, 0.08)), tn = n3(bc(a, z, R, 1.2, 6.) + o + 41.);
+      alb = (sp ? vec3(0.3, 0.2, 0.14) : vec3(0.26, 0.2, 0.15)) * (0.6 + 0.8 * st) * (0.6 + 0.6 * h) * (0.7 + 0.6 * tn) * (1. - 0.93 * cav);
+      moss = smoothstep(0.5, 0.7, mArg + 0.2 * cav - 0.05);       // moss lingers in the furrows
     }
     alb *= tint;
-    alb = mix(alb, vec3(0.09, 0.15, 0.05) * (0.7 + 0.5 * det), moss * 0.9);
-    alb = mix(alb, vec3(0.36, 0.4, 0.33), smoothstep(0.8, 0.84, n3(P * 5.)) * (1. - moss) * 0.35 * step(kind, 0.5));
-    ao = 0.5 + 0.5 * clamp(h, 0., 1.); bk = 0.07 * (1. - moss * 0.7) * (kind > 0.5 && kind < 1.5 ? 0.4 : 1.);
+    alb = mix(alb, vec3(0.08, 0.14, 0.045) * (0.6 + 0.8 * n3(P * 9.) * bf(pw, 0.1)), moss * 0.9);
+    float lich = smoothstep(0.74, 0.84, n3(P * 3.) * 0.6 + mix(0.5, n3(P * 21.), bf(pw, 0.05)) * 0.4);
+    alb = mix(alb, mix(vec3(0.42, 0.46, 0.37), vec3(0.62, 0.5, 0.2), step(0.8, n3(P * 2.7 + 5.))), lich * (1. - moss) * 0.3 * step(kind, 0.5));
+    ao = (0.45 + 0.55 * smoothstep(0.05, 0.6, h)) * (1. - 0.6 * cav); bk = (kind > 0.5 && kind < 1.5 ? 0.05 : kind > 2.5 ? 0.12 : 0.15) * (1. - moss * 0.6);
   } else if (abs(m - 1.) < 0.5) {                  // clapboard: lapped boards, painted, the paint worn through in places
     float row = floor(uv.y / 0.19), fy = fract(uv.y / 0.19);
     float jo = floor(uv.x / 2.3 + hash12(vec2(row, sd)) * 3.), tone = hash12(vec2(row, jo) + sd * 7.);
@@ -480,11 +525,11 @@ function builder(swing = false) {
   let inner = new THREE.Matrix4(), innerN = new THREE.Matrix3(), room = new THREE.Matrix4(), roomN = new THREE.Matrix3();
   const stack = [];
   const v = V(), n = V();
-  function vtx(x, y, z, nx, ny, nz, u, w) {
+  function vtx(x, y, z, nx, ny, nz, u, w, k2) {
     v.set(x, y, z).applyMatrix4(inner); n.set(nx, ny, nz).applyMatrix3(innerN);
     if (st.warp) st.warp(v, n);
     v.applyMatrix4(room); n.applyMatrix3(roomN).normalize();
-    P.push(v.x, v.y, v.z); N.push(n.x, n.y, n.z); U.push(u, w); C.push(st.col[0], st.col[1], st.col[2]); K.push(st.mat, st.seed, st.k2, st.k3);
+    P.push(v.x, v.y, v.z); N.push(n.x, n.y, n.z); U.push(u, w); C.push(st.col[0], st.col[1], st.col[2]); K.push(st.mat, st.seed, k2 ?? st.k2, st.k3);
     if (swing) PV.push(st.piv[0], st.piv[1], st.piv[2], st.piv[3]);
   }
   const b = {
@@ -1740,7 +1785,7 @@ function trunk(b, tr, dy, seg, y1) {
     const [ax, az] = tAxis(tr, y), r0 = tRad(tr, y), o = [];
     for (let j = 0; j <= seg; j++) {
       const a = j / seg * TAU, r = r0 * (1 + 0.42 * Math.exp(-Math.max(y, 0) / 3.2) * Math.max(0, Math.sin(a * 5 + tr.seed)) ** 2 + 0.035 * Math.sin(a * 9 + y * 0.5 + tr.seed));
-      o.push([ax + Math.sin(a) * r, y, az + Math.cos(a) * r, Math.sin(a), 0.1, Math.cos(a), j / seg, y]);
+      o.push([ax + Math.sin(a) * r, y, az + Math.cos(a) * r, Math.sin(a), 0.1, Math.cos(a), j / seg, y, TAU * r]);   // the last is the girth here, for the bark
     }
     return o;
   };
