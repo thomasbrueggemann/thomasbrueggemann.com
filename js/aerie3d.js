@@ -1275,6 +1275,9 @@ function city(b, sb, out, ti, o) {
   lifts(b, out, T, R, segs, fits, claim, o.lifts ?? 1);
   waterworks(b, out, T, R, segs, fits, claim, ti === 0 ? 2 : 1);
   // lights strung along the platform rails, lanterns at the platform ends, fungus on the bark below
+  // (railings, the pulley, bunting and the like are given in world coordinates: reset the builder's frame first,
+  // or they inherit the last house's or fungus's and end up hanging in the sky)
+  b.room(0, 0, 0);
   segs.forEach((g, i) => {
     railing(b, g.O, false, g.gaps, TIMBER, 1000 + i);
     if (i % 2 === 0) stringLights(out, g.O.map((p) => p.clone().add(V(0, 1.03, 0))), 0.5, i % 4 ? 2 + i : 0);
@@ -1286,6 +1289,7 @@ function city(b, sb, out, ti, o) {
   out.lights.push({ p: at(T, 0.3 + ti, tRad(T, yLo - 5) + 1.3, yLo - 5), c: [0.3, 1.0, 0.9], i: 2.2, s: 0.8 });
 
   // a rope ladder from the lowest platform down into the mist, and a basket on a pulley
+  b.room(0, 0, 0);
   const low = segs.filter((g) => g.ti === 0);
   if (low.length) {
     const g = low[0], [ax, az] = tAxis(T, g.y), m = g.O[Math.floor(g.O.length * 0.7)], q = g.O[Math.floor(g.O.length * 0.3)];
@@ -1296,6 +1300,7 @@ function city(b, sb, out, ti, o) {
     out.baskets.push({ top: arm.clone().add(V(0, -0.3, 0)), ph: R() });
   }
   // bunting between a few neighbours
+  b.room(0, 0, 0);
   for (let i = 0, n = 0; i < houses.length && n < 6; i += 7) {
     const A = houses[i], B = houses.find((h) => h !== A && Math.abs(h.y + h.top - A.y - A.top) < 3 && Math.hypot(h.x - A.x, h.z - A.z) < 9 && Math.hypot(h.x - A.x, h.z - A.z) > 3);
     if (!B) continue;
@@ -1625,7 +1630,7 @@ function world(b, sb, out) {
       const hp = M.clone().addScaledVector(side, 0.9);
       buildHouse(b, sb, out, H, hp.x, M.y, hp.z, ca.a + Math.PI / 2);
       lantern(sb, M.clone().addScaledVector(side, -1.6).add(V(0, 2.4, 0)), 0.25, [1.0, 0.6, 0.35], 6, 2502);
-      b.set(MAT.WOOD, TIMBER, 2503); b.beam(M.clone().addScaledVector(side, -1.6), M.clone().addScaledVector(side, -1.6).add(V(0, 2.55, 0)), 0.12, 0.12);
+      b.room(0, 0, 0); b.set(MAT.WOOD, TIMBER, 2503); b.beam(M.clone().addScaledVector(side, -1.6), M.clone().addScaledVector(side, -1.6).add(V(0, 2.55, 0)), 0.12, 0.12);
       across(ca.end, eA, 2600 + li); across(eB, cb.end, 2650 + li);
       out.houses++;
       return;
