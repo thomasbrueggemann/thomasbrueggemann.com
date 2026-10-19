@@ -2498,23 +2498,37 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   let ang = VIEW0.ang, angT = ang, h = VIEW0.h, hT = h, dist = VIEW0.dist, distT = dist, dEff = dist;
   let ci = 0, cx = CENTRES[0].x, cz = CENTRES[0].z, cLook = CENTRES[0].look, lightTick = 0;       // ci: the centre you settle on (0 = the group)
   let lookX = 0, lookY = 0, lookXT = 0, lookYT = 0, keyPan = 0, keyOrb = 0, keyH = 0, keyZoom = 0, glide = false, glideDir = 1, roll = 0, angPrev = ang;
-  let pvel = 0, fvx = 0, fvz = 0, dragM = 0, goTo = false;                          // the focus's velocity, metres dragged this frame, gliding to a centre (T)
+  let pvel = 0, fvx = 0, fvz = 0, dragM = 0, goTo = false, shiftHeld = false;       // the focus's velocity, metres dragged this frame, gliding to a centre (T)
   const SETTLE = 6.5, ARENA = 90;                                                                // spring rate for T (settled in ~1 s), how far the focus may stray from the group's middle
-  addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse" || e.buttons) return; lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
+  addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse" || e.buttons) return; if (e.target !== canvasEl) { lookXT = lookYT = 0; return; } lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
   document.addEventListener("mouseout", (e) => { if (!e.relatedTarget) { lookXT = 0; lookYT = 0; } });
   const touches = new Map();
   let pinch = 0;
   const spread = () => { const [p, q] = [...touches.values()]; return Math.hypot(p[0] - q[0], p[1] - q[1]); };
   const midX = () => { let m = 0; touches.forEach((p) => { m += p[0]; }); return m / touches.size; };
-  canvasEl.addEventListener("pointerdown", (e) => { touches.set(e.pointerId, [e.clientX, e.clientY, e.shiftKey || e.button !== 0 ? 1 : 0]); if (touches.size === 2) pinch = spread(); });
+  let tapDown = null, tapPrev = null;                                // a quick press without moving is a tap; two in a row (double-click, double-tap) centre on the nearest tree
+  canvasEl.addEventListener("pointerdown", (e) => {
+    touches.set(e.pointerId, [e.clientX, e.clientY, e.shiftKey || e.button !== 0 ? 1 : 0]);
+    if (touches.size === 2) { pinch = spread(); if (tapDown) tapDown.bad = true; }
+    else if (touches.size === 1) tapDown = { x: e.clientX, y: e.clientY, t: e.timeStamp, bad: e.button !== 0 };
+  });
   canvasEl.addEventListener("contextmenu", (e) => e.preventDefault());
-  const endTouch = (e) => { touches.delete(e.pointerId); pinch = touches.size === 2 ? spread() : 0; };
+  const endTouch = (e) => {
+    const was = touches.has(e.pointerId);
+    touches.delete(e.pointerId); pinch = touches.size === 2 ? spread() : 0;
+    if (!was || touches.size || !tapDown || e.type === "pointercancel") return;
+    const td = tapDown; tapDown = null;
+    if (td.bad || e.timeStamp - td.t > 350 || Math.hypot(e.clientX - td.x, e.clientY - td.y) > 8) { tapPrev = null; return; }
+    if (tapPrev && e.timeStamp - tapPrev.t < 400 && Math.hypot(e.clientX - tapPrev.x, e.clientY - tapPrev.y) < 30) { tapPrev = null; nextCentre(nearest(cx, cz)); }
+    else tapPrev = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+  };
   addEventListener("pointerup", endTouch); addEventListener("pointercancel", endTouch);
   addEventListener("pointermove", (e) => {
     const p = touches.get(e.pointerId);
     if (!p) return;
     const dx = e.clientX - p[0], dy = e.clientY - p[1], m0 = midX();
     p[0] = e.clientX; p[1] = e.clientY;
+    if (tapDown && Math.hypot(e.clientX - tapDown.x, e.clientY - tapDown.y) > 8) tapDown.bad = true;
     if (touches.size === 1) {
       hT = clamp(hT + dy / innerHeight * 45, HMIN, HMAX);
       if (p[2]) { angT -= dx / innerWidth * 3.2; if (Math.abs(dx) > 1) glideDir = dx > 0 ? -1 : 1; }     // Shift or right button: circle the tree
@@ -2524,16 +2538,21 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
       angT -= (midX() - m0) / innerWidth * 3.2;                                                        // two fingers sideways circle the tree
     }
   }, { passive: true });
-  addEventListener("wheel", (e) => { distT = clamp(distT * Math.exp(e.deltaY * 0.0018), DMIN, DMAX); }, { passive: true });
+  addEventListener("wheel", (e) => {                                  // pixels, lines or pages; a trackpad pinch arrives as ctrl+wheel with small steps
+    e.preventDefault();
+    const d = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1) * (e.ctrlKey ? 4 : 1);
+    distT = clamp(distT * Math.exp(d * 0.0018), DMIN, DMAX);
+  }, { passive: false });
   // [pan, circle, rise, zoom]
   const KEYS = { arrowleft: [-1, 0, 0, 0], a: [-1, 0, 0, 0], arrowright: [1, 0, 0, 0], d: [1, 0, 0, 0], q: [0, -1, 0, 0], e: [0, 1, 0, 0],
     arrowup: [0, 0, 1, 0], w: [0, 0, 1, 0], arrowdown: [0, 0, -1, 0], s: [0, 0, -1, 0], "+": [0, 0, 0, -1], "=": [0, 0, 0, -1], "-": [0, 0, 0, 1], _: [0, 0, 0, 1] };
   addEventListener("keydown", (e) => {
+    shiftHeld = e.shiftKey;                                           // Shift with a key: 2.5 times faster
     const k = KEYS[e.key.toLowerCase()]; if (!k || e.metaKey || e.ctrlKey || e.altKey) return;
     if (k[0]) keyPan = k[0]; if (k[1]) { keyOrb = k[1]; glideDir = k[1]; } if (k[2]) keyH = k[2]; if (k[3]) keyZoom = k[3];
   });
-  addEventListener("keyup", (e) => { const k = KEYS[e.key.toLowerCase()]; if (!k) return; if (k[0] && keyPan === k[0]) keyPan = 0; if (k[1]) keyOrb = 0; if (k[2]) keyH = 0; if (k[3]) keyZoom = 0; });
-  addEventListener("blur", () => { keyPan = keyOrb = keyH = keyZoom = 0; });
+  addEventListener("keyup", (e) => { shiftHeld = e.shiftKey; const k = KEYS[e.key.toLowerCase()]; if (!k) return; if (k[0] && keyPan === k[0]) keyPan = 0; if (k[1]) keyOrb = 0; if (k[2]) keyH = 0; if (k[3]) keyZoom = 0; });
+  addEventListener("blur", () => { keyPan = keyOrb = keyH = keyZoom = 0; shiftHeld = false; });
   // the tree nearest the line of sight from a focus point: sideways distance counts fully, depth only a little, so
   // panning along the view takes in the trees in the order they stand across the screen. The one you are on holds on
   // until another is clearly nearer.
@@ -2580,8 +2599,9 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     const k = dt > 0 ? 1 - Math.exp(-dt * 7) : 1;
     const panDrag = touches.size === 1 && !touches.values().next().value[2], pan = keyPan !== 0 || panDrag;
     if (glide && !keyOrb && !pan && touches.size === 0) angT += glideDir * dt * 1.8 / Math.max(dist, 15);
-    angT += keyOrb * dt * 0.75;                                       // about 43 degrees a second, near or far
-    hT = clamp(hT + keyH * dt * 10, HMIN, HMAX); distT = clamp(distT * Math.exp(keyZoom * dt * 1.1), DMIN, DMAX);
+    const bo = shiftHeld ? 2.5 : 1;
+    angT += keyOrb * dt * 0.75 * bo;                                       // about 43 degrees a second, near or far
+    hT = clamp(hT + keyH * dt * 10 * bo, HMIN, HMAX); distT = clamp(distT * Math.exp(keyZoom * dt * 1.1 * bo), DMIN, DMAX);
     const angOld = ang;
     ang += (angT - ang) * k; h += (hT - h) * k; dist += (distT - dist) * k;
     if (ang !== angOld) {                                             // circling turns the whole rig about the tree's centre, wherever the focus is
@@ -2592,7 +2612,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     if (dt > 0) {
       if (pan) {
         goTo = false;
-        if (keyPan) { pvel += (keyPan * (22 + 0.25 * dist) - pvel) * k; cx += rx * pvel * dt; cz += rz * pvel * dt; }
+        if (keyPan) { pvel += (keyPan * (22 + 0.25 * dist) * bo - pvel) * k; cx += rx * pvel * dt; cz += rz * pvel * dt; }
         else { cx += rx * dragM; cz += rz * dragM; pvel += (dragM / dt - pvel) * (1 - Math.exp(-dt * 20)); }
         fvx = rx * pvel; fvz = rz * pvel;
       } else if (goTo) {                                              // T: glide over to the chosen centre
@@ -2736,6 +2756,8 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   const zoomBy = (d) => { distT = clamp(distT + d, DMIN, DMAX); };
   // fly round the next tree (or the whole group): the circle's centre glides over, you come in to its distance
   const nextCentre = (i = (ci + 1) % CENTRES.length) => { ci = i; goTo = true; pvel = 0; distT = CENTRES[ci].dist; hT = clamp(CENTRES[ci].h + (hT - CENTRES[ci].h) * 0.3, HMIN, HMAX); return ci; };
+  // back to the opening view: all four trees, from where you started
+  const resetView = () => { nextCentre(0); angT = VIEW0.ang + TAU * Math.round((angT - VIEW0.ang) / TAU); hT = VIEW0.h; distT = VIEW0.dist; return ci; };
   const rise = (d) => { hT = clamp(hT + d, HMIN, HMAX); };
   // for screenshots: where you are on the circle (degrees), how far out, how high, and where you look
   const setView = (angDeg = THREE.MathUtils.radToDeg(VIEW0.ang), d = VIEW0.dist, hh = VIEW0.h, lookXDeg = 0, lookYDeg = 0, centre = 0) => {
@@ -2745,7 +2767,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   };
   const lookAt = (p, q) => { dbgCam = p ? [V(...p), V(...q)] : null; };
   return {
-    renderer, frame, toggleNight, setNight, toggleGlide, zoomBy, rise, setView, nextCentre, get centre() { return ci; }, look: lookAt, release, scene, camera, SU,
+    renderer, frame, toggleNight, setNight, toggleGlide, zoomBy, rise, setView, nextCentre, resetView, get centre() { return ci; }, look: lookAt, release, scene, camera, SU,
     get night() { return nightT > 0.5; }, get glide() { return glide; }, get height() { return (h - HMIN) / (HMAX - HMIN); },
     parts: { water: out.waterLegs, lifts: out.lifts, cables: out.cables, spouts: out.spouts || [], pipes: out.pipes || [] },
     stats: { houses: out.houses, bridges: out.bridges, lifts: out.lifts.length, cables: out.cables.length, water: out.wb.count() / 3, tris: (vGeo.attributes.position.count + sGeo.attributes.position.count + fGeo.attributes.position.count) / 3, leaves: leaves.length, drapes: drapes.length, lights: allLights.length, bulbs: out.bulbs.length / 4, info: renderer.info.render },

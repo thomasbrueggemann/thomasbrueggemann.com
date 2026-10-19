@@ -1043,29 +1043,63 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     }
     camera.updateProjectionMatrix();
   }
-  // drag to orbit; wheel, pinch, keys and buttons to zoom
+  // drag to orbit (and it carries on a little after you let go); wheel, pinch, +/− and the buttons zoom; arrows or WASD
+  // orbit, slower the closer you are, Shift for faster; double-click or double-tap dives in and back out; Home starts over
   const ptrs = new Map();
-  let pinch = 0;
-  canvasEl.addEventListener("pointerdown", (e) => { ptrs.set(e.pointerId, [e.clientX, e.clientY]); canvasEl.setPointerCapture?.(e.pointerId); canvasEl.style.cursor = "grabbing"; });
+  let pinch = 0, vAz = 0, vEl = 0, lastMove = 0, tapDown = null, tapPrev = null, shiftHeld = false;
+  const EL_MAX = 1.35;
+  const dive = () => { zoomT = zoomT < 0.6 ? 0.78 : Z0; still(); };
+  const home = () => { azT = AZ0 + TAU * Math.round((azT - AZ0) / TAU); elT = EL0; zoomT = Z0; vAz = vEl = 0; still(); };
+  canvasEl.addEventListener("pointerdown", (e) => {
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]); canvasEl.setPointerCapture?.(e.pointerId); canvasEl.style.cursor = "grabbing"; vAz = vEl = 0;
+    if (ptrs.size === 1) tapDown = { x: e.clientX, y: e.clientY, t: e.timeStamp, bad: e.button !== 0 }; else if (tapDown) tapDown.bad = true;
+  });
   canvasEl.addEventListener("pointermove", (e) => {
     if (!ptrs.has(e.pointerId)) return;
     const [x0, y0] = ptrs.get(e.pointerId);
     ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (tapDown && Math.hypot(e.clientX - tapDown.x, e.clientY - tapDown.y) > 8) tapDown.bad = true;
     if (ptrs.size === 1) {
-      const s = 0.0055 * (1 - zoom * 0.6);
-      azT += (e.clientX - x0) * s; elT = clamp(elT + (e.clientY - y0) * s, -1.35, 1.35);
+      const s = 0.0055 * (1 - zoom * 0.6), da = (e.clientX - x0) * s, de = (e.clientY - y0) * s, dtm = Math.max(0.004, (e.timeStamp - lastMove) / 1000);
+      azT += da; elT = clamp(elT + de, -EL_MAX, EL_MAX);
+      vAz = clamp(vAz * 0.5 + da / dtm * 0.5, -4, 4); vEl = clamp(vEl * 0.5 + de / dtm * 0.5, -4, 4); lastMove = e.timeStamp;
     } else if (ptrs.size === 2) {
       const [a, b] = [...ptrs.values()], dd = Math.hypot(a[0] - b[0], a[1] - b[1]);
       if (pinch) zoomT = clamp(zoomT + Math.log(dd / pinch) * 0.45, 0, 1);
       pinch = dd;
     }
   });
-  const lift = (e) => { ptrs.delete(e.pointerId); pinch = 0; if (!ptrs.size) canvasEl.style.cursor = ""; };
+  const lift = (e) => {
+    const was = ptrs.has(e.pointerId);
+    ptrs.delete(e.pointerId); pinch = 0; if (!ptrs.size) canvasEl.style.cursor = "";
+    if (!was || ptrs.size) return;
+    if (e.timeStamp - lastMove > 90 || reduced || e.type === "pointercancel") vAz = vEl = 0;        // held still before letting go: no coasting
+    const td = tapDown; tapDown = null;
+    if (!td || e.type === "pointercancel") return;
+    if (td.bad || e.timeStamp - td.t > 350) { tapPrev = null; return; }
+    if (tapPrev && e.timeStamp - tapPrev.t < 400 && Math.hypot(e.clientX - tapPrev.x, e.clientY - tapPrev.y) < 30) { tapPrev = null; dive(); }
+    else tapPrev = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+  };
   canvasEl.addEventListener("pointerup", lift); canvasEl.addEventListener("pointercancel", lift);
-  canvasEl.addEventListener("wheel", (e) => { e.preventDefault(); zoomT = clamp(zoomT - e.deltaY * (e.deltaMode ? 0.04 : 0.0011), 0, 1); }, { passive: false });
-  const keys = new Set();
-  addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) { keys.add(e.key); e.preventDefault(); } });
-  addEventListener("keyup", (e) => keys.delete(e.key));
+  canvasEl.addEventListener("wheel", (e) => {                       // pixels, lines or pages; a trackpad pinch arrives as ctrl+wheel with small steps
+    e.preventDefault();
+    zoomT = clamp(zoomT - e.deltaY * (e.deltaMode ? 0.04 : 0.0011) * (e.ctrlKey ? 4 : 1), 0, 1);
+  }, { passive: false });
+  // held keys: [orbit left/right, orbit up/down, zoom]
+  const KEYS = { arrowleft: [1, 0, 0], a: [1, 0, 0], arrowright: [-1, 0, 0], d: [-1, 0, 0], arrowup: [0, 1, 0], w: [0, 1, 0], arrowdown: [0, -1, 0], s: [0, -1, 0],
+    "+": [0, 0, 1], "=": [0, 0, 1], pageup: [0, 0, 1], "-": [0, 0, -1], _: [0, 0, -1], pagedown: [0, 0, -1] };
+  const held = new Map();
+  addEventListener("keydown", (e) => {
+    shiftHeld = e.shiftKey;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const key = e.key.toLowerCase(), k = KEYS[key];
+    if (k) {
+      held.set(key, k); e.preventDefault();
+      if (reduced && !e.repeat) { azT += k[0] * 0.15; elT = clamp(elT + k[1] * 0.12, -EL_MAX, EL_MAX); zoomT = clamp(zoomT + k[2] * 0.08, 0, 1); }   // no animation: one step per press
+    } else if (key === "home" || key === "0") home();
+  });
+  addEventListener("keyup", (e) => { shiftHeld = e.shiftKey; held.delete(e.key.toLowerCase()); });
+  addEventListener("blur", () => { held.clear(); shiftHeld = false; });
 
   const resize = () => {
     const w = canvasEl.clientWidth || innerWidth, h = canvasEl.clientHeight || innerHeight;
@@ -1093,10 +1127,15 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     station.rotation.y = -spin;
     ride = smooth(0.55, 0.85, zoom);
     azT += OMEGA * dt * ride; az += OMEGA * dt * ride;
-    if (keys.has("ArrowLeft")) azT += dt * 0.9;
-    if (keys.has("ArrowRight")) azT -= dt * 0.9;
-    if (keys.has("ArrowUp")) elT = clamp(elT + dt * 0.7, -1.35, 1.35);
-    if (keys.has("ArrowDown")) elT = clamp(elT - dt * 0.7, -1.35, 1.35);
+    let kx = 0, ky = 0, kz = 0;
+    held.forEach((k) => { kx += k[0]; ky += k[1]; kz += k[2]; });
+    const sp = (shiftHeld ? 2.5 : 1) * dt * (1 - zoom * 0.6);        // the same pace on screen near and far
+    azT += clamp(kx, -1, 1) * sp * 0.9; elT = clamp(elT + clamp(ky, -1, 1) * sp * 0.7, -EL_MAX, EL_MAX);
+    zoomT = clamp(zoomT + clamp(kz, -1, 1) * dt * (shiftHeld ? 0.7 : 0.28), 0, 1);
+    if (!ptrs.size && (vAz || vEl)) {                                // coast on after a drag
+      azT += vAz * dt; elT = clamp(elT + vEl * dt, -EL_MAX, EL_MAX);
+      const f = Math.exp(-dt * 3.5); vAz *= f; vEl *= f; if (Math.abs(vAz) + Math.abs(vEl) < 0.01) vAz = vEl = 0;
+    }
     station.updateMatrixWorld();
     place(dt);
     inv.copy(station.matrixWorld).invert();

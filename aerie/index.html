@@ -29,7 +29,7 @@
 </head>
 <body>
   <canvas id="aerie" aria-label="Four giant trees full of crooked treehouses at moonrise, their limbs joined by rope bridges, lit by lanterns and strings of lights, fireflies over the mist far below"></canvas>
-  <p class="hint" id="hint">← → move between the trees · Q E fly round one · ↑ ↓ rise and sink · scroll to come closer · T for the next tree</p>
+  <p class="hint" id="hint">Drag or ← → to move between the trees · right-drag or Q E to fly round one · ↑ ↓ rise and sink · scroll to come closer · double-click centres a tree</p>
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
@@ -94,13 +94,14 @@
       if (k === "t") nextTree();
       if (k === "l") lanterns();
       if (k === "n") night();
+      if (k === "home" || k === "0") { aerie.resetView(); treeLabel(); }
     });
 
     // controls fade out after a few still seconds
     let t;
     const hint = document.getElementById("hint");
     const wake = () => { ui.classList.remove("idle"); hint.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => { ui.classList.add("idle"); hint.classList.add("idle"); }, 3000); };
-    if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag sideways to move between the trees, up or down to rise and sink · two fingers to fly round one · pinch to come closer";
+    if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag sideways to move between the trees, up or down to rise and sink · two fingers to fly round one · pinch to come closer · double-tap centres a tree";
     addEventListener("pointerdown", () => { hint.hidden = true; });
     addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) hint.hidden = true; });
     addEventListener("wheel", () => { hint.hidden = true; }, { once: true, passive: true });
