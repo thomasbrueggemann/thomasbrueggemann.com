@@ -29,7 +29,7 @@
 </head>
 <body>
   <canvas id="aerie" aria-label="Four giant trees full of crooked treehouses at moonrise, their limbs joined by rope bridges, lit by lanterns and strings of lights, fireflies over the mist far below"></canvas>
-  <p class="hint" id="hint">← → fly round · ↑ ↓ rise and sink · scroll to come closer · T to fly round the next tree</p>
+  <p class="hint" id="hint">← → move between the trees · Q E fly round one · ↑ ↓ rise and sink · scroll to come closer · T for the next tree</p>
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
@@ -38,7 +38,7 @@
     <button id="in" class="sq" type="button" title="Come closer (+)" aria-label="Come closer">+</button>
     <button id="up" class="sq" type="button" title="Rise (↑)" aria-label="Rise">↑</button>
     <button id="down" class="sq" type="button" title="Sink (↓)" aria-label="Sink">↓</button>
-    <button id="tree" type="button" title="Fly round the next tree, or round them all (T)">Next tree</button>
+    <button id="tree" type="button" title="Fly to the next tree, or back out to see them all (T)">Next tree</button>
     <button id="glide" type="button" aria-pressed="true" title="Glide round on your own, or hold still (G)">Gliding</button>
     <button id="lant" type="button" title="Let lanterns go into the sky (L)">Lanterns</button>
     <button id="night" type="button" aria-pressed="false" title="Let night fall, or go back to dusk (N)">Nightfall</button>
@@ -65,8 +65,10 @@
     document.getElementById("up").onclick = () => aerie.rise(4);
     document.getElementById("down").onclick = () => aerie.rise(-4);
     const treeBtn = document.getElementById("tree");
-    const nextTree = () => { const c = aerie.nextCentre(); treeBtn.textContent = c === 0 ? "Next tree" : c === 4 ? "All the trees" : "Next tree"; };
+    const treeLabel = () => { treeBtn.textContent = aerie.centre === 4 ? "All the trees" : "Next tree"; };      // panning also changes the tree, so look at where you are
+    const nextTree = () => { aerie.nextCentre(); treeLabel(); };
     treeBtn.onclick = nextTree;
+    setInterval(treeLabel, 400);
     const glideBtn = document.getElementById("glide");
     const glide = () => { const on = aerie.toggleGlide(); glideBtn.textContent = on ? "Gliding" : "Holding still"; glideBtn.setAttribute("aria-pressed", String(on)); };
     glideBtn.onclick = glide;
@@ -98,7 +100,7 @@
     let t;
     const hint = document.getElementById("hint");
     const wake = () => { ui.classList.remove("idle"); hint.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => { ui.classList.add("idle"); hint.classList.add("idle"); }, 3000); };
-    if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag to fly round and up or down · pinch to come closer";
+    if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag sideways to move between the trees, up or down to rise and sink · two fingers to fly round one · pinch to come closer";
     addEventListener("pointerdown", () => { hint.hidden = true; });
     addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) hint.hidden = true; });
     addEventListener("wheel", () => { hint.hidden = true; }, { once: true, passive: true });

@@ -2490,31 +2490,61 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     }
   };
 
-  // ---- input. The mouse looks round (its position, across the whole window); dragging, the arrow keys or WASD fly
-  // round the village and up or down; the wheel, +/− or a pinch come closer. You glide round slowly on your own.
+  // ---- input. The mouse looks round (its position, across the whole window). Panning (←/→, A/D, or dragging sideways) slides
+  // the point you look at across the group, and it always settles on the nearest tree: while you pan, the tree nearest
+  // the line of sight is the one you will land on (`pick`), and when you let go the focus eases onto it (a critically
+  // damped spring that starts from the speed you let go at, so there is no pop) with the camera turning to keep it
+  // centred. Q/E (or Shift/right-drag, or two fingers) circle the tree, ↑/↓ or dragging up/down rise and sink; the wheel,
+  // +/− or a pinch come closer. You glide round the tree slowly on your own.
   let ang = VIEW0.ang, angT = ang, h = VIEW0.h, hT = h, dist = VIEW0.dist, distT = dist, dEff = dist;
-  let ci = 0, cx = CENTRES[0].x, cz = CENTRES[0].z, cLook = CENTRES[0].look, lightTick = 0;
-  let lookX = 0, lookY = 0, lookXT = 0, lookYT = 0, keyOrb = 0, keyH = 0, keyZoom = 0, glide = !reduced, glideDir = 1, roll = 0, angPrev = ang;
+  let ci = 0, cx = CENTRES[0].x, cz = CENTRES[0].z, cLook = CENTRES[0].look, lightTick = 0;       // ci: the centre you settle on (0 = the group)
+  let lookX = 0, lookY = 0, lookXT = 0, lookYT = 0, keyPan = 0, keyOrb = 0, keyH = 0, keyZoom = 0, glide = !reduced, glideDir = 1, roll = 0, angPrev = ang;
+  let pvel = 0, fvx = 0, fvz = 0, dragM = 0, wasPan = false;                        // the focus's velocity, metres dragged this frame
+  const SETTLE = 6.5, PICK_HOLD = 0.7, ARENA = 90;                                               // spring rate (settled in ~1 s), hysteresis, how far the focus may stray from the group's middle
   addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse" || e.buttons) return; lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
   document.addEventListener("mouseout", (e) => { if (!e.relatedTarget) { lookXT = 0; lookYT = 0; } });
   const touches = new Map();
   let pinch = 0;
   const spread = () => { const [p, q] = [...touches.values()]; return Math.hypot(p[0] - q[0], p[1] - q[1]); };
-  canvasEl.addEventListener("pointerdown", (e) => { touches.set(e.pointerId, [e.clientX, e.clientY]); if (touches.size === 2) pinch = spread(); });
+  const midX = () => { let m = 0; touches.forEach((p) => { m += p[0]; }); return m / touches.size; };
+  canvasEl.addEventListener("pointerdown", (e) => { touches.set(e.pointerId, [e.clientX, e.clientY, e.shiftKey || e.button !== 0 ? 1 : 0]); if (touches.size === 2) pinch = spread(); });
+  canvasEl.addEventListener("contextmenu", (e) => e.preventDefault());
   const endTouch = (e) => { touches.delete(e.pointerId); pinch = touches.size === 2 ? spread() : 0; };
   addEventListener("pointerup", endTouch); addEventListener("pointercancel", endTouch);
   addEventListener("pointermove", (e) => {
     const p = touches.get(e.pointerId);
     if (!p) return;
-    const dx = e.clientX - p[0], dy = e.clientY - p[1];
+    const dx = e.clientX - p[0], dy = e.clientY - p[1], m0 = midX();
     p[0] = e.clientX; p[1] = e.clientY;
-    if (touches.size === 1) { angT -= dx / innerWidth * 3.2; hT = clamp(hT + dy / innerHeight * 45, HMIN, HMAX); if (Math.abs(dx) > 1) glideDir = dx > 0 ? -1 : 1; }
-    else if (touches.size === 2) { const s = spread(); if (pinch > 0) distT = clamp(distT * pinch / Math.max(s, 1), DMIN, DMAX); pinch = s; }
+    if (touches.size === 1) {
+      hT = clamp(hT + dy / innerHeight * 45, HMIN, HMAX);
+      if (p[2]) { angT -= dx / innerWidth * 3.2; if (Math.abs(dx) > 1) glideDir = dx > 0 ? -1 : 1; }     // Shift or right button: circle the tree
+      else dragM -= dx / innerWidth * 2 * dEff * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;   // the scene follows the finger
+    } else if (touches.size === 2) {
+      const s = spread(); if (pinch > 0) distT = clamp(distT * pinch / Math.max(s, 1), DMIN, DMAX); pinch = s;
+      angT -= (midX() - m0) / innerWidth * 3.2;                                                        // two fingers sideways circle the tree
+    }
   }, { passive: true });
   addEventListener("wheel", (e) => { distT = clamp(distT * Math.exp(e.deltaY * 0.0018), DMIN, DMAX); }, { passive: true });
-  const KEYS = { arrowleft: [-1, 0, 0], a: [-1, 0, 0], arrowright: [1, 0, 0], d: [1, 0, 0], arrowup: [0, 1, 0], w: [0, 1, 0], arrowdown: [0, -1, 0], s: [0, -1, 0], "+": [0, 0, -1], "=": [0, 0, -1], "-": [0, 0, 1], _: [0, 0, 1] };
-  addEventListener("keydown", (e) => { const k = KEYS[e.key.toLowerCase()]; if (!k || e.metaKey || e.ctrlKey) return; if (k[0]) { keyOrb = k[0]; glideDir = k[0]; } if (k[1]) keyH = k[1]; if (k[2]) keyZoom = k[2]; });
-  addEventListener("keyup", (e) => { const k = KEYS[e.key.toLowerCase()]; if (!k) return; if (k[0]) keyOrb = 0; if (k[1]) keyH = 0; if (k[2]) keyZoom = 0; });
+  // [pan, circle, rise, zoom]
+  const KEYS = { arrowleft: [-1, 0, 0, 0], a: [-1, 0, 0, 0], arrowright: [1, 0, 0, 0], d: [1, 0, 0, 0], q: [0, -1, 0, 0], e: [0, 1, 0, 0],
+    arrowup: [0, 0, 1, 0], w: [0, 0, 1, 0], arrowdown: [0, 0, -1, 0], s: [0, 0, -1, 0], "+": [0, 0, 0, -1], "=": [0, 0, 0, -1], "-": [0, 0, 0, 1], _: [0, 0, 0, 1] };
+  addEventListener("keydown", (e) => {
+    const k = KEYS[e.key.toLowerCase()]; if (!k || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (k[0]) keyPan = k[0]; if (k[1]) { keyOrb = k[1]; glideDir = k[1]; } if (k[2]) keyH = k[2]; if (k[3]) keyZoom = k[3];
+  });
+  addEventListener("keyup", (e) => { const k = KEYS[e.key.toLowerCase()]; if (!k) return; if (k[0] && keyPan === k[0]) keyPan = 0; if (k[1]) keyOrb = 0; if (k[2]) keyH = 0; if (k[3]) keyZoom = 0; });
+  addEventListener("blur", () => { keyPan = keyOrb = keyH = keyZoom = 0; });
+  // the tree nearest the line of sight from a focus point: sideways distance counts fully, depth only a little, so
+  // panning along the view takes in the trees in the order they stand across the screen. The one you are on holds on
+  // until another is clearly nearer.
+  const pick = (fx, fz) => {
+    const rx = Math.cos(ang), rz = -Math.sin(ang), score = (i) => { const dx = CENTRES[i].x - fx, dz = CENTRES[i].z - fz, lat = dx * rx + dz * rz, dep = -dx * Math.sin(ang) - dz * Math.cos(ang); return lat * lat + 0.12 * dep * dep; };
+    let best = 1; for (let i = 2; i < CENTRES.length; i++) if (score(i) < score(best)) best = i;
+    return ci > 0 && best !== ci && score(best) > score(ci) * PICK_HOLD ? ci : best;
+  };
+  // move to another centre: keep your zoom relative to the tree (the group is seen from twice as far)
+  const hop = (i) => { if (i === ci) return; distT = clamp(distT * CENTRES[i].dist / CENTRES[ci].dist, DMIN, DMAX); ci = i; };
 
   const resize = () => {
     const w = canvasEl.clientWidth || innerWidth, hh = canvasEl.clientHeight || innerHeight;
@@ -2547,15 +2577,40 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     lights.forEach((l, i) => { const f = 0.9 + 0.06 * Math.sin(t * 7.1 + i * 3.1) + 0.04 * Math.sin(t * 12.9 + i); SU.uLc.value[i].set(...l.c).multiplyScalar(l.i * f * (1 + night * 0.25)); });
     post.U.uExposure.value = 1.25 + night * 0.45;
 
-    // flying round on the circle, pushed out wherever the village reaches further
-    // responsive: the camera catches up with what you ask in a fraction of a second, with only a little give
+    // panning slides the focus across the group and lets go onto the nearest tree; flying round the tree is on its circle,
+    // pushed out wherever the village reaches further. Responsive: the camera catches up with what you ask in a fraction
+    // of a second, with only a little give; only the settle onto a tree is eased
     const k = dt > 0 ? 1 - Math.exp(-dt * 7) : 1;
-    if (glide && !keyOrb && touches.size === 0) angT += glideDir * dt * 1.8 / Math.max(dist, 15);
+    const panDrag = touches.size === 1 && !touches.values().next().value[2], pan = keyPan !== 0 || panDrag;
+    if (glide && !keyOrb && !pan && touches.size === 0) angT += glideDir * dt * 1.8 / Math.max(dist, 15);
     angT += keyOrb * dt * 0.75;                                       // about 43 degrees a second, near or far
     hT = clamp(hT + keyH * dt * 10, HMIN, HMAX); distT = clamp(distT * Math.exp(keyZoom * dt * 1.1), DMIN, DMAX);
     ang += (angT - ang) * k; h += (hT - h) * k; dist += (distT - dist) * k;
-    const C = CENTRES[ci], kc = dt > 0 ? 1 - Math.exp(-dt * 2.2) : 1;       // the centre you fly round glides to the next one
-    cx += (C.x - cx) * kc; cz += (C.z - cz) * kc; cLook += (C.look - cLook) * kc;
+    const rx = Math.cos(ang), rz = -Math.sin(ang);                    // screen-right on the ground
+    if (dt > 0) {
+      let moved = false;
+      if (pan) {
+        if (keyPan) { pvel += (keyPan * (22 + 0.25 * dist) - pvel) * k; cx += rx * pvel * dt; cz += rz * pvel * dt; moved = true; }
+        else { cx += rx * dragM; cz += rz * dragM; pvel += (dragM / dt - pvel) * (1 - Math.exp(-dt * 20)); moved = dragM !== 0; }
+        const off = Math.hypot(cx - GC[0], cz - GC[1]); if (off > ARENA) { cx = GC[0] + (cx - GC[0]) * ARENA / off; cz = GC[1] + (cz - GC[1]) * ARENA / off; }
+        fvx = rx * pvel; fvz = rz * pvel;
+        if (moved) hop(pick(cx, cz));
+      } else {
+        if (wasPan && Math.abs(pvel) > 1) hop(pick(cx + fvx * 0.2, cz + fvz * 0.2));         // a flick carries on to the next tree
+        const T = CENTRES[ci];
+        if (reduced) { cx = T.x; cz = T.z; fvx = fvz = 0; }
+        else for (let n = Math.ceil(dt / 0.016), s = dt / n; n--;) {                           // critically damped, starting from the speed you let go at
+          fvx += (SETTLE * SETTLE * (T.x - cx) - 2 * SETTLE * fvx) * s; fvz += (SETTLE * SETTLE * (T.z - cz) - 2 * SETTLE * fvz) * s;
+          cx += fvx * s; cz += fvz * s;
+        }
+        if (Math.hypot(T.x - cx, T.z - cz) < 0.01 && Math.hypot(fvx, fvz) < 0.02) { cx = T.x; cz = T.z; fvx = fvz = 0; }
+        pvel = fvx * rx + fvz * rz;
+      }
+      wasPan = pan;
+    }
+    dragM = 0;
+    const C = CENTRES[ci];
+    cLook += (C.look - cLook) * (dt > 0 ? 1 - Math.exp(-dt * 3) : 1);
     const want = clearR(cx, cz, ang, h, dist);
     dEff += (want - dEff) * (dt > 0 ? 1 - Math.exp(-dt * (want > dEff ? 8 : 4)) : 1);
     const px = cx + Math.sin(ang) * dEff, pz = cz + Math.cos(ang) * dEff, py = h + Math.sin(t * 0.37) * 0.25;
@@ -2565,7 +2620,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     camera.position.set(px, py, pz);
     look.set(px + Math.sin(yaw) * Math.cos(pitch), py + Math.sin(pitch), pz + Math.cos(yaw) * Math.cos(pitch));
     camera.up.set(0, 1, 0); camera.lookAt(look);
-    const w = dt > 0 ? (ang - angPrev) / dt * dEff : 0; angPrev = ang;
+    const w = dt > 0 ? (ang - angPrev) / dt * dEff + fvx * rx + fvz * rz : 0; angPrev = ang;      // sideways speed banks the camera
     roll += (clamp(w * 0.02, -0.06, 0.06) - roll) * k;
     camera.rotateZ(roll);
     if (dbgCam) { camera.position.copy(dbgCam[0]); camera.up.set(0, 1, 0); camera.lookAt(dbgCam[1]); }
@@ -2673,11 +2728,11 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   const toggleGlide = () => { glide = !glide; return glide; };
   const zoomBy = (d) => { distT = clamp(distT + d, DMIN, DMAX); };
   // fly round the next tree (or the whole group): the circle's centre glides over, you come in to its distance
-  const nextCentre = (i = (ci + 1) % CENTRES.length) => { ci = i; distT = CENTRES[ci].dist; hT = clamp(CENTRES[ci].h + (hT - CENTRES[ci].h) * 0.3, HMIN, HMAX); return ci; };
+  const nextCentre = (i = (ci + 1) % CENTRES.length) => { ci = i; pvel = 0; distT = CENTRES[ci].dist; hT = clamp(CENTRES[ci].h + (hT - CENTRES[ci].h) * 0.3, HMIN, HMAX); return ci; };
   const rise = (d) => { hT = clamp(hT + d, HMIN, HMAX); };
   // for screenshots: where you are on the circle (degrees), how far out, how high, and where you look
   const setView = (angDeg = THREE.MathUtils.radToDeg(VIEW0.ang), d = VIEW0.dist, hh = VIEW0.h, lookXDeg = 0, lookYDeg = 0, centre = 0) => {
-    ci = centre; cx = CENTRES[ci].x; cz = CENTRES[ci].z; cLook = CENTRES[ci].look;
+    ci = centre; cx = CENTRES[ci].x; cz = CENTRES[ci].z; cLook = CENTRES[ci].look; fvx = fvz = pvel = dragM = 0; wasPan = false;
     ang = angT = angPrev = THREE.MathUtils.degToRad(angDeg); dist = distT = d; h = hT = hh;
     dEff = clearR(cx, cz, ang, h, d); lookX = lookXT = THREE.MathUtils.degToRad(lookXDeg); lookY = lookYT = THREE.MathUtils.degToRad(lookYDeg); roll = 0;
   };
