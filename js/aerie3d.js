@@ -2491,16 +2491,15 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   };
 
   // ---- input. The mouse looks round (its position, across the whole window). Panning (←/→, A/D, or dragging sideways) slides
-  // the point you look at across the group, and it always settles on the nearest tree: while you pan, the tree nearest
-  // the line of sight is the one you will land on (`pick`), and when you let go the focus eases onto it (a critically
-  // damped spring that starts from the speed you let go at, so there is no pop) with the camera turning to keep it
-  // centred. Q/E (or Shift/right-drag, or two fingers) circle the tree, ↑/↓ or dragging up/down rise and sink; the wheel,
-  // +/− or a pinch come closer. You glide round the tree slowly on your own.
+  // the point you look at across the group and leaves it where you let go (it coasts to a stop; nothing pulls it back). The
+  // only thing that snaps is the point you circle: it is always the centre of the tree nearest the focus (`nearest`), so
+  // Q/E (or Shift/right-drag, or two fingers) and the slow glide turn the whole view about that tree. ↑/↓ or dragging
+  // up/down rise and sink; the wheel, +/− or a pinch come closer. T glides the focus over to the next tree.
   let ang = VIEW0.ang, angT = ang, h = VIEW0.h, hT = h, dist = VIEW0.dist, distT = dist, dEff = dist;
   let ci = 0, cx = CENTRES[0].x, cz = CENTRES[0].z, cLook = CENTRES[0].look, lightTick = 0;       // ci: the centre you settle on (0 = the group)
   let lookX = 0, lookY = 0, lookXT = 0, lookYT = 0, keyPan = 0, keyOrb = 0, keyH = 0, keyZoom = 0, glide = !reduced, glideDir = 1, roll = 0, angPrev = ang;
-  let pvel = 0, fvx = 0, fvz = 0, dragM = 0, wasPan = false;                        // the focus's velocity, metres dragged this frame
-  const SETTLE = 6.5, PICK_HOLD = 0.7, ARENA = 90;                                               // spring rate (settled in ~1 s), hysteresis, how far the focus may stray from the group's middle
+  let pvel = 0, fvx = 0, fvz = 0, dragM = 0, goTo = false;                          // the focus's velocity, metres dragged this frame, gliding to a centre (T)
+  const SETTLE = 6.5, ARENA = 90;                                                                // spring rate for T (settled in ~1 s), how far the focus may stray from the group's middle
   addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse" || e.buttons) return; lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
   document.addEventListener("mouseout", (e) => { if (!e.relatedTarget) { lookXT = 0; lookYT = 0; } });
   const touches = new Map();
@@ -2538,13 +2537,11 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   // the tree nearest the line of sight from a focus point: sideways distance counts fully, depth only a little, so
   // panning along the view takes in the trees in the order they stand across the screen. The one you are on holds on
   // until another is clearly nearer.
-  const pick = (fx, fz) => {
-    const rx = Math.cos(ang), rz = -Math.sin(ang), score = (i) => { const dx = CENTRES[i].x - fx, dz = CENTRES[i].z - fz, lat = dx * rx + dz * rz, dep = -dx * Math.sin(ang) - dz * Math.cos(ang); return lat * lat + 0.12 * dep * dep; };
-    let best = 1; for (let i = 2; i < CENTRES.length; i++) if (score(i) < score(best)) best = i;
-    return ci > 0 && best !== ci && score(best) > score(ci) * PICK_HOLD ? ci : best;
+  const nearest = (fx, fz) => {
+    let best = 1, bd = Infinity;
+    for (let i = 1; i < CENTRES.length; i++) { const d = (CENTRES[i].x - fx) ** 2 + (CENTRES[i].z - fz) ** 2; if (d < bd) { bd = d; best = i; } }
+    return best;
   };
-  // move to another centre: keep your zoom relative to the tree (the group is seen from twice as far)
-  const hop = (i) => { if (i === ci) return; distT = clamp(distT * CENTRES[i].dist / CENTRES[ci].dist, DMIN, DMAX); ci = i; };
 
   const resize = () => {
     const w = canvasEl.clientWidth || innerWidth, hh = canvasEl.clientHeight || innerHeight;
@@ -2585,28 +2582,38 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     if (glide && !keyOrb && !pan && touches.size === 0) angT += glideDir * dt * 1.8 / Math.max(dist, 15);
     angT += keyOrb * dt * 0.75;                                       // about 43 degrees a second, near or far
     hT = clamp(hT + keyH * dt * 10, HMIN, HMAX); distT = clamp(distT * Math.exp(keyZoom * dt * 1.1), DMIN, DMAX);
+    const angOld = ang;
     ang += (angT - ang) * k; h += (hT - h) * k; dist += (distT - dist) * k;
+    if (ang !== angOld) {                                             // circling turns the whole rig about the tree's centre, wherever the focus is
+      const P = CENTRES[ci], da = ang - angOld, c = Math.cos(da), s = Math.sin(da), ox = cx - P.x, oz = cz - P.z;
+      cx = P.x + ox * c + oz * s; cz = P.z - ox * s + oz * c;
+    }
     const rx = Math.cos(ang), rz = -Math.sin(ang);                    // screen-right on the ground
     if (dt > 0) {
-      let moved = false;
       if (pan) {
-        if (keyPan) { pvel += (keyPan * (22 + 0.25 * dist) - pvel) * k; cx += rx * pvel * dt; cz += rz * pvel * dt; moved = true; }
-        else { cx += rx * dragM; cz += rz * dragM; pvel += (dragM / dt - pvel) * (1 - Math.exp(-dt * 20)); moved = dragM !== 0; }
-        const off = Math.hypot(cx - GC[0], cz - GC[1]); if (off > ARENA) { cx = GC[0] + (cx - GC[0]) * ARENA / off; cz = GC[1] + (cz - GC[1]) * ARENA / off; }
+        goTo = false;
+        if (keyPan) { pvel += (keyPan * (22 + 0.25 * dist) - pvel) * k; cx += rx * pvel * dt; cz += rz * pvel * dt; }
+        else { cx += rx * dragM; cz += rz * dragM; pvel += (dragM / dt - pvel) * (1 - Math.exp(-dt * 20)); }
         fvx = rx * pvel; fvz = rz * pvel;
-        if (moved) hop(pick(cx, cz));
-      } else {
-        if (wasPan && Math.abs(pvel) > 1) hop(pick(cx + fvx * 0.2, cz + fvz * 0.2));         // a flick carries on to the next tree
+      } else if (goTo) {                                              // T: glide over to the chosen centre
         const T = CENTRES[ci];
-        if (reduced) { cx = T.x; cz = T.z; fvx = fvz = 0; }
-        else for (let n = Math.ceil(dt / 0.016), s = dt / n; n--;) {                           // critically damped, starting from the speed you let go at
+        if (reduced) { cx = T.x; cz = T.z; fvx = fvz = 0; goTo = false; }
+        else for (let n = Math.ceil(dt / 0.016), s = dt / n; n--;) {  // critically damped
           fvx += (SETTLE * SETTLE * (T.x - cx) - 2 * SETTLE * fvx) * s; fvz += (SETTLE * SETTLE * (T.z - cz) - 2 * SETTLE * fvz) * s;
           cx += fvx * s; cz += fvz * s;
         }
-        if (Math.hypot(T.x - cx, T.z - cz) < 0.01 && Math.hypot(fvx, fvz) < 0.02) { cx = T.x; cz = T.z; fvx = fvz = 0; }
+        if (Math.hypot(T.x - cx, T.z - cz) < 0.01 && Math.hypot(fvx, fvz) < 0.02) { cx = T.x; cz = T.z; fvx = fvz = 0; goTo = false; }
+        pvel = fvx * rx + fvz * rz;
+      } else {                                                        // let go: coast to a stop, the focus stays where it is
+        const f = Math.exp(-dt * 6);
+        cx += fvx * dt; cz += fvz * dt; fvx *= f; fvz *= f;
+        if (Math.hypot(fvx, fvz) < 0.02) fvx = fvz = 0;
         pvel = fvx * rx + fvz * rz;
       }
-      wasPan = pan;
+      if (!goTo && (pan || fvx || fvz)) {
+        const off = Math.hypot(cx - GC[0], cz - GC[1]); if (off > ARENA) { cx = GC[0] + (cx - GC[0]) * ARENA / off; cz = GC[1] + (cz - GC[1]) * ARENA / off; }
+        ci = nearest(cx, cz);                                         // the point you circle is always the nearest tree's centre
+      }
     }
     dragM = 0;
     const C = CENTRES[ci];
@@ -2728,11 +2735,11 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   const toggleGlide = () => { glide = !glide; return glide; };
   const zoomBy = (d) => { distT = clamp(distT + d, DMIN, DMAX); };
   // fly round the next tree (or the whole group): the circle's centre glides over, you come in to its distance
-  const nextCentre = (i = (ci + 1) % CENTRES.length) => { ci = i; pvel = 0; distT = CENTRES[ci].dist; hT = clamp(CENTRES[ci].h + (hT - CENTRES[ci].h) * 0.3, HMIN, HMAX); return ci; };
+  const nextCentre = (i = (ci + 1) % CENTRES.length) => { ci = i; goTo = true; pvel = 0; distT = CENTRES[ci].dist; hT = clamp(CENTRES[ci].h + (hT - CENTRES[ci].h) * 0.3, HMIN, HMAX); return ci; };
   const rise = (d) => { hT = clamp(hT + d, HMIN, HMAX); };
   // for screenshots: where you are on the circle (degrees), how far out, how high, and where you look
   const setView = (angDeg = THREE.MathUtils.radToDeg(VIEW0.ang), d = VIEW0.dist, hh = VIEW0.h, lookXDeg = 0, lookYDeg = 0, centre = 0) => {
-    ci = centre; cx = CENTRES[ci].x; cz = CENTRES[ci].z; cLook = CENTRES[ci].look; fvx = fvz = pvel = dragM = 0; wasPan = false;
+    ci = centre; cx = CENTRES[ci].x; cz = CENTRES[ci].z; cLook = CENTRES[ci].look; fvx = fvz = pvel = dragM = 0; goTo = false;
     ang = angT = angPrev = THREE.MathUtils.degToRad(angDeg); dist = distT = d; h = hT = hh;
     dEff = clearR(cx, cz, ang, h, d); lookX = lookXT = THREE.MathUtils.degToRad(lookXDeg); lookY = lookYT = THREE.MathUtils.degToRad(lookYDeg); roll = 0;
   };
