@@ -10,14 +10,15 @@ const DOWN_FRAG = /* glsl */`
 uniform sampler2D tSrc; uniform vec2 uTexel; uniform float uThresh;
 varying vec2 vUv;
 float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+vec3 tap(vec2 uv){ vec3 c = texture2D(tSrc, uv).rgb; return (c.r < 3e4 && c.g < 3e4 && c.b < 3e4) ? max(c, 0.) : vec3(0.); }   // one NaN/Inf pixel would blur into a black square
 vec3 karis(vec3 c){ return c / (1.0 + luma(c)); }
 void main(){
   vec2 t = uTexel;
-  vec3 a = texture2D(tSrc, vUv + t * vec2(-2., -2.)).rgb, b = texture2D(tSrc, vUv + t * vec2(0., -2.)).rgb, c = texture2D(tSrc, vUv + t * vec2(2., -2.)).rgb;
-  vec3 d = texture2D(tSrc, vUv + t * vec2(-2., 0.)).rgb,  e = texture2D(tSrc, vUv).rgb,                   f = texture2D(tSrc, vUv + t * vec2(2., 0.)).rgb;
-  vec3 g = texture2D(tSrc, vUv + t * vec2(-2., 2.)).rgb,  h = texture2D(tSrc, vUv + t * vec2(0., 2.)).rgb,  i = texture2D(tSrc, vUv + t * vec2(2., 2.)).rgb;
-  vec3 j = texture2D(tSrc, vUv + t * vec2(-1., -1.)).rgb, k = texture2D(tSrc, vUv + t * vec2(1., -1.)).rgb;
-  vec3 l = texture2D(tSrc, vUv + t * vec2(-1., 1.)).rgb,  m = texture2D(tSrc, vUv + t * vec2(1., 1.)).rgb;
+  vec3 a = tap(vUv + t * vec2(-2., -2.)).rgb, b = tap(vUv + t * vec2(0., -2.)).rgb, c = tap(vUv + t * vec2(2., -2.)).rgb;
+  vec3 d = tap(vUv + t * vec2(-2., 0.)).rgb,  e = tap(vUv).rgb,                   f = tap(vUv + t * vec2(2., 0.)).rgb;
+  vec3 g = tap(vUv + t * vec2(-2., 2.)).rgb,  h = tap(vUv + t * vec2(0., 2.)).rgb,  i = tap(vUv + t * vec2(2., 2.)).rgb;
+  vec3 j = tap(vUv + t * vec2(-1., -1.)).rgb, k = tap(vUv + t * vec2(1., -1.)).rgb;
+  vec3 l = tap(vUv + t * vec2(-1., 1.)).rgb,  m = tap(vUv + t * vec2(1., 1.)).rgb;
   #ifdef FIRST
     vec3 g0 = (a + b + d + e) * .25, g1 = (b + c + e + f) * .25, g2 = (d + e + g + h) * .25, g3 = (e + f + h + i) * .25, g4 = (j + k + l + m) * .25;
     vec3 o = karis(g0) * .125 + karis(g1) * .125 + karis(g2) * .125 + karis(g3) * .125 + karis(g4) * .5;

@@ -101,7 +101,7 @@ float market(float th, float q, float e){       // 1 on a market square (q: sign
   return m;
 }
 float urban(float a){ return clamp(.55 + .3 * sin(3. * a + .7) + .2 * sin(7. * a + 2.3) + .12 * sin(17. * a + 1.1), 0., 1.); }
-vec3 upAt(vec3 p){ return -normalize(vec3(p.x, 0., p.z)); }
+vec3 upAt(vec3 p){ vec2 r = p.xz; return -vec3(r.x, 0., r.y) / max(length(r), 1e-4); }   // on the axis there is no up: zero, not NaN
 // light inside: daylight let in through the glass vault, mostly from overhead, a little from one side
 vec3 lightAt(vec3 p){ vec3 up = upAt(p); return normalize(up * .7 + vec3(0., -.55, 0.) + vec3(up.z, 0., -up.x) * .35); }
 const vec3 LCOL = vec3(2.3, 2.12, 1.82), SKYC = vec3(.24, .30, .39), BOUNCE = vec3(.08, .09, .05), AIR = vec3(.46, .58, .74);
@@ -347,7 +347,7 @@ ${GLSL_COMMON}
 attribute vec4 aP;           // start angle, speed (m/s, signed), offset (mode 0/1: signed metres from the river's edge; 2/3: s), seed
 attribute vec4 aQ;           // mode (0 along, 1 across, 2 wander, 3 fly), species (0 person, 1 dog, 2 sheep, 3 cow, 4 bird, 5 duck), radius / inward shift, height
 uniform float uScale; uniform vec2 uRes;
-varying vec3 vP, vCol; varying vec2 vUp; varying float vA, vSz, vSp, vPh, vSeed, vTilt;
+varying vec3 vP, vCol; varying vec2 vUp, vCen; varying float vA, vSz, vSp, vPh, vSeed, vTilt, vPx;
 void main(){
   float mode = aQ.x, sp = aQ.y, t = uTime, th, s, h = 0., ground = 1.;
   if (mode < .5) { th = aP.x + aP.y * t / RF; s = riverS(th) + sign(aP.z) * (riverW(th) + abs(aP.z) - aQ.z); }
@@ -370,17 +370,18 @@ void main(){
   vPh = t * (mode > 1.5 && mode < 2.5 ? 1.5 : abs(aP.y) * 2.6) + aP.w * 31.;
   vA = smoothstep(.6, 2.4, sz) * (mode < 1.5 && sp < 4.5 ? step(abs(s), 64.) : 1.);
   gl_PointSize = clamp(sz, 1.5, 72.);
+  vPx = gl_PointSize; vCen = (gl_Position.xy / gl_Position.w * .5 + .5) * uRes;   // the sprite's centre and size in framebuffer pixels
   float k = fract(aP.w * 91.7);
   vCol = sp < .5 ? (k < .2 ? vec3(.75, .2, .15) : k < .35 ? vec3(.85, .8, .7) : k < .5 ? vec3(.15, .25, .5) : k < .65 ? vec3(.9, .6, .15) : k < .8 ? vec3(.2, .2, .22) : vec3(.3, .55, .5))
        : sp < 1.5 ? (k < .5 ? vec3(.35, .22, .12) : vec3(.12, .1, .08)) : sp < 2.5 ? vec3(.85, .83, .78) : sp < 3.5 ? (k < .5 ? vec3(.4, .24, .12) : vec3(.9, .88, .85)) : sp < 4.5 ? vec3(.06, .06, .07) : vec3(.92, .9, .85);
 }`;
 const LIFE_FRAG = /* glsl */`
 ${GLSL_COMMON}
-varying vec3 vP, vCol; varying vec2 vUp; varying float vA, vSz, vSp, vPh, vSeed, vTilt;
+varying vec3 vP, vCol; varying vec2 vUp, vCen; varying float vA, vSz, vSp, vPh, vSeed, vTilt, vPx;
 float seg(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0., 1.)); }
 void main(){
   if (hash12(gl_FragCoord.xy) > vA) discard;
-  vec2 pc = gl_PointCoord - .5;             // its y already runs up the figure (rendered into the post target)
+  vec2 pc = (gl_FragCoord.xy - vCen) / vPx;  // framebuffer y runs up, like vUp (gl_PointCoord's y direction differs between GPUs)
   vec2 l = vec2(dot(pc, vec2(vUp.y, -vUp.x)), dot(pc, vUp));
   vec3 col = vCol;
   float sw = sin(vPh);
