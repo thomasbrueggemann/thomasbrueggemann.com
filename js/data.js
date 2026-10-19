@@ -27,9 +27,10 @@ export const worlds = [
     label: "Enter",
     shots: [
       { src: "aerie-1.webp", alt: "Giant trees full of lit treehouses, rope bridges strung between their limbs, lift towers rising from the mist, a cable car, the moon behind", caption: "Moonrise over the mist" },
-      { src: "aerie-2.webp", alt: "A coiled tree hung with wisteria and slate-blue towers, beside it a golden birch with a few red-roofed houses", caption: "The weeping tree and the golden birch" },
-      { src: "aerie-3.webp", alt: "A platform slung on ropes between two trees, a little tower house on it, rope bridges leading off to both", caption: "Halfway across: a platform slung between two trees" },
+      { src: "aerie-2.webp", alt: "A tank of water on a high platform, a copper pipe running from it along the railing to a spout, water falling from tub to tub down past the houses", caption: "Water from the cistern, falling from tub to tub" },
+      { src: "aerie-3.webp", alt: "A coiled tree hung with wisteria and slate-blue towers, beside it a golden birch with a few red-roofed houses", caption: "The weeping tree and the golden birch" },
       { src: "aerie-4.webp", alt: "A cable car cabin on twin cables running down from the trees to a station hut on a timber tower standing in the mist", caption: "The cable car down to the valley station" },
+      { src: "aerie-5.webp", alt: "Under a platform of red-roofed houses in the golden birch, water pouring from a pipe into the mist beside a lift tower", caption: "The last fall, into the mist" },
     ],
   },
   {
