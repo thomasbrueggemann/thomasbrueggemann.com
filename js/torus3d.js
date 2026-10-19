@@ -905,15 +905,15 @@ export function startTorus3D(canvasEl, { reduced = false } = {}) {
     const A = rng(9090), P = [], Q = [];
     const add1 = (p, q) => { P.push(...p); Q.push(...q); if (q[1] < 0.5) lives.people++; else lives.animals++; };
     const side = () => (A() < 0.5 ? -1 : 1), walk = () => (A() < 0.15 ? 0 : (A() < 0.5 ? -1 : 1) * (0.7 + A() * 0.9));
-    for (let i = 0; i < 26000; i++) add1([A() * TAU, walk(), side() * (2.3 + A() * 3.4), A()], [0, 0, 0, 0]);                            // promenades
-    for (let i = 0; i < 16000; i++) add1([A() * TAU, walk(), side() * (BLVD + (A() < 0.5 ? -1 : 1) * (3.7 + A() * 0.9)), A()], [0, 0, 0, 0]);   // sidewalks
-    for (let i = 0; i < NC; i += 7) for (const sd of [-1, 1]) for (let k = 0; k < 60; k++)                                           // cross streets
+    for (let i = 0; i < 5000; i++) add1([A() * TAU, walk(), side() * (2.3 + A() * 3.4), A()], [0, 0, 0, 0]);                            // promenades
+    for (let i = 0; i < 3000; i++) add1([A() * TAU, walk(), side() * (BLVD + (A() < 0.5 ? -1 : 1) * (3.7 + A() * 0.9)), A()], [0, 0, 0, 0]);   // sidewalks
+    for (let i = 0; i < NC; i += 7) for (const sd of [-1, 1]) for (let k = 0; k < 12; k++)                                           // cross streets
       add1([i * TAU / NC + (A() - 0.5) * 2.2 / RF, 0.6 + A() * 0.9, sd, A()], [1, 0, 0, 0]);
-    for (const m of MARKETS) for (let k = 0; k < 650; k++) {                                                                         // market crowds
+    for (const m of MARKETS) for (let k = 0; k < 200; k++) {                                                                         // market crowds
       const th = m.th + (A() - 0.5) * 66 / RF, e = 13 + A() * 28;
       add1([th, 0.2 + A() * 0.5, riverS(th) + m.side * (riverW(th) + e), A()], [2, 0, 1.5 + A() * 3, 0]);
     }
-    for (let i = 0; i < 1800; i++) add1([A() * TAU, walk() || 1, side() * (2.3 + A() * 3.4), A()], [0, 1, 0, 0]);                       // dogs
+    for (let i = 0; i < 400; i++) add1([A() * TAU, walk() || 1, side() * (2.3 + A() * 3.4), A()], [0, 1, 0, 0]);                       // dogs
     for (const f of fields) {                                                                                                         // herds
       const cows = A() < 0.4, n = cows ? 4 + A() * 7 : 8 + A() * 14;
       for (let k = 0; k < n; k++) add1([f.th + (A() - 0.5) * 10 / RF, 0.05 + A() * 0.08, f.s + (A() - 0.5) * 10, A()], [2, cows ? 3 : 2, 3 + A() * 5, 0]);

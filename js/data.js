@@ -91,7 +91,7 @@ export const worlds = [
     tags: ["three.js", "GLSL", "procedural", "WebAudio"],
     highlights: [
       "One turn a minute gives about 1 g inside",
-      "Around 54,000 people, plus cars, boats, trains and animals, all moving",
+      "Around 11,000 people, plus cars, boats, trains and animals, all moving",
       "Earth rolls past every four minutes",
     ],
     play: "torus/",
