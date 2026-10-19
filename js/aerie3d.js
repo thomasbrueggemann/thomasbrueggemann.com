@@ -2493,11 +2493,11 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   // ---- input. The mouse looks round (its position, across the whole window). Panning (←/→, A/D, or dragging sideways) slides
   // the point you look at across the group and leaves it where you let go (it coasts to a stop; nothing pulls it back). The
   // only thing that snaps is the point you circle: it is always the centre of the tree nearest the focus (`nearest`), so
-  // Q/E (or Shift/right-drag, or two fingers) and the slow glide turn the whole view about that tree. ↑/↓ or dragging
+  // Q/E (or Shift/right-drag, or two fingers) and the glide (off by default, G) turn the whole view about that tree. ↑/↓ or dragging
   // up/down rise and sink; the wheel, +/− or a pinch come closer. T glides the focus over to the next tree.
   let ang = VIEW0.ang, angT = ang, h = VIEW0.h, hT = h, dist = VIEW0.dist, distT = dist, dEff = dist;
   let ci = 0, cx = CENTRES[0].x, cz = CENTRES[0].z, cLook = CENTRES[0].look, lightTick = 0;       // ci: the centre you settle on (0 = the group)
-  let lookX = 0, lookY = 0, lookXT = 0, lookYT = 0, keyPan = 0, keyOrb = 0, keyH = 0, keyZoom = 0, glide = !reduced, glideDir = 1, roll = 0, angPrev = ang;
+  let lookX = 0, lookY = 0, lookXT = 0, lookYT = 0, keyPan = 0, keyOrb = 0, keyH = 0, keyZoom = 0, glide = false, glideDir = 1, roll = 0, angPrev = ang;
   let pvel = 0, fvx = 0, fvz = 0, dragM = 0, goTo = false;                          // the focus's velocity, metres dragged this frame, gliding to a centre (T)
   const SETTLE = 6.5, ARENA = 90;                                                                // spring rate for T (settled in ~1 s), how far the focus may stray from the group's middle
   addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse" || e.buttons) return; lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
