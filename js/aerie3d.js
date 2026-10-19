@@ -1381,95 +1381,187 @@ function lifts(b, out, T, R, segs, fits, claim, n) {
   }
 }
 
-// water: a cistern high up feeds a pipe that pours over the platform's edge into a tub on a platform further down,
-// which runs on through another pipe to the next fall, and so on; the last falls all the way into the mist.
-// The falling water and the tubs' surfaces go in out.wb (drawn with the water shader).
+// water: a cistern high up, then a chain of legs down the tree. A leg is either a fall (a pipe out past the platform's
+// edge, pouring into a tub on a shelf bracketed off a lower platform that reaches further out) or a run down the bark
+// (a pipe under the platform in to the trunk, down the bark on brackets, out under a lower platform and over its
+// edge, pouring into the next tub). The last leg falls all the way into the mist. The falling water and the tubs'
+// surfaces go in out.wb (drawn with the water shader).
 function waterworks(b, out, T, R, segs, fits, claim, n = 1) {
   const wb = out.wb;
   const deckFree = (x, z, r, y0, y1) => fits(x, z, r, y0, y1, null, "deck");
-  const clearDrop = (x, z, yTop, yBot) => {          // nothing between the spout and the tub
+  const clearDrop = (x, z, yTop, yBot) => {          // nothing between a spout and where its water lands
     for (let y = yBot + 0.8; y < yTop - 0.2; y += 0.5) if (!fits(x, z, 0.35, y, y + 0.4)) return false;
     return true;
   };
-  const tops = segs.filter((g) => g.ti >= Math.max(1, Math.max(...segs.map((s) => s.ti)) - 2));
-  // follow the water down from a start: each next tub stands on a shelf off a lower platform, out beyond the one above
-  const chain = (g0, a0) => {
-    const steps = [];
-    let cur = { g: g0, a: a0 };
-    for (let s = 0; s < 5; s++) {
-      let found = null;
-      for (const g of segs) {
-        if (g.y > cur.g.y - 3 || g.y < cur.g.y - 18) continue;
-        for (const da of [0, 0.08, -0.08, 0.16, -0.16, 0.25, -0.25, 0.35, -0.35]) {
-          const a = cur.a + da;
-          if (a < g.a0 + 0.05 || a > g.a1 - 0.05 || a < cur.g.a0 || a > cur.g.a1) continue;
-          const above = cur.g.rOut(a), rb = Math.max(g.rOut(a) + 0.7, above + 0.65);
-          if (rb - g.rOut(a) > 1.9 || rb > above + 3.5) continue;
-          const p = at(T, a, rb, g.y);
-          if (!deckFree(p.x, p.z, 0.8, g.y + 0.05, g.y + 1.0) || !clearDrop(p.x, p.z, cur.g.y, g.y)) continue;
-          found = { g, a, r: rb }; break;
+  const clearPath = (pts) => pts.every((p) => fits(p.x, p.z, 0.2, p.y - 0.12, p.y + 0.12, null, "deck"));
+  const inRange = (g, a, m = 0.05) => a > g.a0 + m && a < g.a1 - m;
+  const lower = segs.slice().sort((p, q) => q.y - p.y);
+  // a tub on a shelf off a lower platform, out beyond the edge of `gF` (the platform the water leaves) at angle aF
+  const nextTub = (gF, aF, yFrom) => {
+    for (const g of lower) {
+      if (g.y > gF.y - 3 || g.y < gF.y - 18) continue;
+      for (const da of [0, 0.08, -0.08, 0.16, -0.16, 0.25, -0.25, 0.35, -0.35]) {
+        const a = aF + da;
+        if (!inRange(g, a) || !inRange(gF, a, 0)) continue;
+        const above = gF.rOut(a), rb = Math.max(g.rOut(a) + 0.7, above + 0.65);
+        if (rb - g.rOut(a) > 1.9 || rb > above + 3.5) continue;
+        // a lower platform reaching out past this one catches the water on its deck
+        if (g.rOut(a) > above + 1.6) {
+          const ro = above + 0.75, q = at(T, a, ro, g.y);
+          if (deckFree(q.x, q.z, 0.8, g.y + 0.05, gF.y - 0.8) && clearDrop(q.x, q.z, yFrom, g.y)) return { g, a, r: ro, onDeck: true };
         }
-        if (found) break;
+        const p = at(T, a, rb, g.y);
+        if (!deckFree(p.x, p.z, 0.8, g.y + 0.05, g.y + 1.0) || !clearDrop(p.x, p.z, yFrom, g.y)) continue;
+        return { g, a, r: rb };
       }
-      if (!found) break;
-      steps.push(found); cur = found;
     }
-    return steps;
+    return null;
   };
+  // a run down the bark from a source on platform gS at angle aS, radius rS, to a lower platform; then out under it
+  const barkRun = (gS, aS, rS) => {
+    let mist = null;
+    for (const g2 of lower) {
+      if (g2.y > gS.y - 4) continue;
+      for (const da of [0, 0.15, -0.15, 0.3, -0.3, 0.5, -0.5, 0.75, -0.75, 1.0, -1.0, 1.4, -1.4, 1.9, -1.9, 2.5, -2.5]) {
+        const a2 = aS + da;
+        if (!inRange(g2, a2, 0.1)) continue;
+        const yA = gS.y - 0.6, yB = g2.y - 0.6, rTo = g2.rOut(a2) + 0.7, pts = [];
+        pts.push(at(T, aS, rS, gS.y + 0.2), at(T, aS, rS, yA));
+        for (let r = rS - 1; r > sr0(gS.y) + 0.2; r -= 1) pts.push(at(T, aS, r, yA));
+        const nB = Math.ceil(Math.max((yA - yB) / 1.2, Math.abs(da) * tRad(T, yA) / 0.9));   // spiralling round the trunk as it goes down
+        for (let k = 0; k < nB; k++) { const f = k / nB, y = lerp(yA, yB, f); pts.push(at(T, lerp(aS, a2, f), tRad(T, y) + 0.22, y)); }
+        pts.push(at(T, a2, tRad(T, yB) + 0.22, yB));
+        for (let r = sr0(g2.y) + 0.5; r < rTo; r += 1) pts.push(at(T, a2, r, yB));
+        pts.push(at(T, a2, rTo, yB));
+        const sp = at(T, a2, rTo, yB - 0.3);
+        const nOut = pts.length - Math.max(1, Math.ceil(rTo - sr0(g2.y) - 0.5)) - 1;     // where the run out under g2 begins
+        if (!clearPath(pts.slice(2, nOut))) continue;
+        // (i) out under the platform and over its edge, into a tub further down or into the mist
+        if (clearPath(pts.slice(nOut))) {
+          const tub = nextTub(g2, a2, yB - 0.3);
+          if (tub) return { g2, a2, pts, sp, tub };
+          if (!mist && clearDrop(sp.x, sp.z, yB, 0.5)) mist = { g2, a2, pts, sp, tub: null };
+        }
+        // (ii) or stop just above the platform and pour into a tub standing on it by the trunk
+        const rt = sr0(g2.y) + 0.85, t = at(T, a2, rt, g2.y), yS = g2.y + 1.7;
+        if (deckFree(t.x, t.z, 0.75, g2.y + 0.05, g2.y + 1.9)) {
+          const keep = pts.slice(0, pts.findIndex((p, i) => i > 1 && p.y < yS + 0.3));
+          if (keep.length > 2) {
+            const q = at(T, a2, tRad(T, yS) + 0.22, yS), qo = at(T, a2, rt, yS), sp2 = at(T, a2, rt, yS - 0.25);
+            if (fits(sp2.x, sp2.z, 0.3, g2.y + 0.7, yS)) return { g2, a2, pts: [...keep, q, qo], sp: sp2, tub: { g: g2, a: a2, r: rt, onDeck: true } };
+          }
+        }
+      }
+    }
+    return mist;
+  };
+  const sr0 = (y) => tRad(T, y) * 1.06 + 1.3;
+  // from a tub standing on a platform: down through the deck, out under it and over the edge
+  const underRun = (g, a, r) => {
+    const y = g.y - 0.6, rTo = g.rOut(a) + 0.7, pts = [at(T, a, r, g.y + 0.2), at(T, a, r, y)];
+    for (let rr = r + 1; rr < rTo; rr += 1) pts.push(at(T, a, rr, y));
+    pts.push(at(T, a, rTo, y));
+    const sp = at(T, a, rTo, y - 0.3);
+    if (!clearPath(pts.slice(1))) return null;
+    const tub = nextTub(g, a, y - 0.3), finalOK = !tub && clearDrop(sp.x, sp.z, y, 0.5);
+    return tub || finalOK ? { g2: g, a2: a, pts, sp, tub } : null;
+  };
+  // plan the whole chain from a cistern at (g0, a0, rc) without building anything
+  const plan = (g0, a0, rc) => {
+    const legs = [];
+    let cur = { g: g0, a: a0, r: rc, y: g0.y + 0.85, tub: false };
+    for (let k = 0; k < 8; k++) {
+      const t = cur.onDeck ? null : nextTub(cur.g, cur.a, cur.g.y);
+      if (t) { legs.push({ kind: "fall", from: cur, to: t }); cur = { g: t.g, a: t.a, r: t.r, y: t.g.y + 0.35, tub: true, onDeck: t.onDeck }; continue; }
+      const run = (cur.onDeck && (k & 1) && underRun(cur.g, cur.a, cur.r)) || barkRun(cur.g, cur.a, cur.r) || (cur.onDeck && underRun(cur.g, cur.a, cur.r));
+      if (!run) break;
+      legs.push({ kind: run.g2 === cur.g ? "under" : "bark", from: cur, run });
+      if (!run.tub) { legs.final = true; break; }
+      cur = { g: run.tub.g, a: run.tub.a, r: run.tub.r, y: run.tub.g.y + 0.35, tub: true, onDeck: run.tub.onDeck };
+    }
+    return legs;
+  };
+  const tops = segs.filter((g) => g.ti >= Math.max(1, Math.max(...segs.map((s) => s.ti)) - 1));
+  const cisternAt = (g0, a0) => { const rc = g0.rOut(a0) - 1.5; return { rc, cst: at(T, a0, rc, g0.y) }; };
   const starts = [];
-  for (const g0 of tops) for (let k = 0; k < 14; k++) {
-    const a0 = lerp(g0.a0 + 0.12, g0.a1 - 0.12, (k + 0.5) / 14), rc = g0.rOut(a0) - 1.5, cst = at(T, a0, rc, g0.y);
+  for (const g0 of tops) for (let k = 0; k < 10; k++) {
+    const a0 = lerp(g0.a0 + 0.12, g0.a1 - 0.12, (k + 0.5) / 10), { rc, cst } = cisternAt(g0, a0);
     if (!deckFree(cst.x, cst.z, 1.0, g0.y + 0.05, g0.y + 2.2)) continue;
-    starts.push({ g0, a0, rc, cst, steps: chain(g0, a0) });
+    const legs = plan(g0, a0, rc);
+    starts.push({ g0, a0, rc, cst, score: legs.length + (legs.final ? 0.5 : 0) });
   }
-  starts.sort((p, q) => q.steps.length - p.steps.length);
+  starts.sort((p, q) => q.score - p.score);
+
+  // building
+  const pipe = (pts, seed) => { b.room(0, 0, 0); b.set(MAT.METAL, [0.5, 0.3, 0.2], seed, 0.6); b.tube(pts, 0.09, 8); };
+  const fall = (sp, yEnd, last) => {                 // a stream from spout sp down to yEnd, thickening and breaking up
+    const pts = [], dir = V(sp.x - tAxis(T, sp.y)[0], 0, sp.z - tAxis(T, sp.y)[1]).normalize();
+    for (let t = 0; ; t += 0.03) { const p = sp.clone().addScaledVector(dir, 0.7 * t).add(V(0, -4.9 * t * t, 0)); pts.push(p); if (p.y <= yEnd) break; }
+    (out.spouts ||= []).push(sp.clone());
+    wb.set(0, [1, 1, 1], R(), last ? 1 : 0); wb.room(0, 0, 0); wb.tube(pts, (t) => 0.1 + t * (last ? 0.7 : 0.12), 10);
+  };
+  const tubAt = (st) => {                            // a tub, on a shelf bracketed off the platform's edge unless it stands on the deck
+    const tub = at(T, st.a, st.r, st.g.y);
+    if (!st.onDeck) {
+      const e0 = at(T, st.a, st.g.rOut(st.a) - 0.3, st.g.y - 0.1), e1 = at(T, st.a, st.r + 0.75, st.g.y - 0.1);
+      b.room(0, 0, 0); b.set(MAT.DECK, [0.5, 0.42, 0.34], 3415); b.beam(e0, e1, 1.5, 0.16);
+      b.set(MAT.WOOD, TIMBER, 3416);
+      for (const sg of [-0.55, 0.55]) { const q = e1.clone().lerp(e0, 0.15).add(V(Math.cos(st.a) * sg, -0.05, -Math.sin(st.a) * sg)); b.beam(q, at(T, st.a, st.g.rOut(st.a) - 0.2, st.g.y - 1.4).add(V(Math.cos(st.a) * sg, 0, -Math.sin(st.a) * sg)), 0.1, 0.1); }
+    }
+    b.room(tub.x, st.g.y, tub.z, st.a);
+    b.set(MAT.BOARDV, [0.5, 0.36, 0.22], 3420); b.lathe([[0.6, 0], [0.68, 0.6], [0.62, 0.62]], 16); b.lathe([[0, 0.02], [0.6, 0.02]], 16);
+    b.set(MAT.METAL, IRON, 3421, 0.1); b.lathe([[0.65, 0.12], [0.66, 0.2]], 16); b.lathe([[0.68, 0.44], [0.69, 0.52]], 16);
+    wb.set(1, [1, 1, 1], R(), 0); wb.room(tub.x, st.g.y, tub.z, 0); wb.lathe([[0.63, 0.54], [0, 0.54]], 16, { uFrac: true });
+    claim(tub.x, tub.z, 0.75, st.g.y, st.g.y + 0.8);
+  };
   let built = 0;
-  for (const st0 of starts) {
-    if (built >= n || !st0.steps.length) break;
-    if (!deckFree(st0.cst.x, st0.cst.z, 1.0, st0.g0.y + 0.05, st0.g0.y + 2.2)) continue;
-    const steps = chain(st0.g0, st0.a0);             // again: an earlier cascade may have taken the room
-    if (!steps.length) continue;
-    const { g0, a0, rc, cst } = st0;
+  for (const s0 of starts) {
+    if (built >= n || s0.score < 1) break;
+    const { g0, a0, rc, cst } = s0;
+    if (!deckFree(cst.x, cst.z, 1.0, g0.y + 0.05, g0.y + 2.2)) continue;
+    const legs = plan(g0, a0, rc);                   // again: an earlier cascade may have taken the room
+    if (!legs.length) continue;
+    (out.waterLegs ||= []).push(legs.map((l) => l.kind).join(" ") + (legs.final ? " mist" : ""));
     // the cistern: a big tank on legs, catching what drips from the crown
     b.room(cst.x, g0.y, cst.z, a0);
     b.set(MAT.WOOD, TIMBER, 3400); for (const [x, z] of [[-0.6, -0.6], [0.6, -0.6], [0.6, 0.6], [-0.6, 0.6]]) b.beam(V(x, 0, z), V(x, 0.7, z), 0.14, 0.14);
     b.set(MAT.BOARDV, [0.45, 0.32, 0.2], 3401); b.lathe([[0.85, 0.7], [0.95, 1.4], [0.85, 2.2], [0, 2.2]], 18); b.lathe([[0, 0.7], [0.85, 0.7]], 18);
     b.set(MAT.METAL, IRON, 3402, 0.1); for (const y of [0.95, 1.85]) b.lathe([[0.93, y - 0.05], [0.93, y + 0.05]], 18);
     claim(cst.x, cst.z, 1.0, g0.y, g0.y + 2.3);
-    // pipes and falls, one after another
-    let from = { g: g0, a: a0, r: rc + 0.8, y: g0.y + 0.85 };
-    const fall = (sp, yEnd, last) => {               // a stream from spout sp down to yEnd, thinning and breaking up
-      const pts = [], dir = V(sp.x - tAxis(T, sp.y)[0], 0, sp.z - tAxis(T, sp.y)[1]).normalize();
-      for (let t = 0; ; t += 0.03) { const p = sp.clone().addScaledVector(dir, 0.7 * t).add(V(0, -4.9 * t * t, 0)); pts.push(p); if (p.y <= yEnd) break; }
-      (out.spouts ||= []).push(sp.clone());
-      wb.set(0, [1, 1, 1], R(), last ? 1 : 0); wb.room(0, 0, 0); wb.tube(pts, (t) => 0.1 + t * (last ? 0.7 : 0.12), 10);
-      return pts[pts.length - 1];
-    };
-    for (const st of steps) {
-      // pipe along the platform from the source out past the edge, turning down into a spout
-      const pA = at(T, from.a, from.r, from.y), pB = at(T, st.a, st.r, from.y), sp = at(T, st.a, st.r, from.g.y - 0.15);
-      b.room(0, 0, 0); b.set(MAT.METAL, [0.5, 0.3, 0.2], 3410, 0.6);
-      b.tube([pA, pB, pB.clone().add(V(0, -0.05, 0)), sp.clone().add(V(0, 0.25, 0)), sp], 0.07, 8);
-      for (const p of [pA.clone().lerp(pB, 0.5)]) { b.set(MAT.WOOD, TIMBER, 3411); b.beam(p.clone().setY(from.g.y), p.clone().add(V(0, 0.05, 0)), 0.08, 0.08); }
-      // the shelf, bracketed off the platform's edge, and the tub on it
-      const tub = at(T, st.a, st.r, st.g.y), e0 = at(T, st.a, st.g.rOut(st.a) - 0.3, st.g.y - 0.1), e1 = at(T, st.a, st.r + 0.75, st.g.y - 0.1);
-      b.room(0, 0, 0); b.set(MAT.DECK, [0.5, 0.42, 0.34], 3415); b.beam(e0, e1, 1.5, 0.16);
-      b.set(MAT.WOOD, TIMBER, 3416); for (const sg of [-0.55, 0.55]) { const q = e1.clone().lerp(e0, 0.15).add(V(Math.cos(st.a) * sg, -0.05, -Math.sin(st.a) * sg)); b.beam(q, at(T, st.a, st.g.rOut(st.a) - 0.2, st.g.y - 1.4).add(V(Math.cos(st.a) * sg, 0, -Math.sin(st.a) * sg)), 0.1, 0.1); }
-      b.room(tub.x, st.g.y, tub.z, st.a);
-      b.set(MAT.BOARDV, [0.5, 0.36, 0.22], 3420); b.lathe([[0.6, 0], [0.68, 0.6], [0.62, 0.62]], 16); b.lathe([[0, 0.02], [0.6, 0.02]], 16);
-      b.set(MAT.METAL, IRON, 3421, 0.1); b.lathe([[0.65, 0.12], [0.66, 0.2]], 16); b.lathe([[0.68, 0.44], [0.69, 0.52]], 16);
-      wb.set(1, [1, 1, 1], R(), 0); wb.room(tub.x, st.g.y, tub.z, 0); wb.lathe([[0.63, 0.54], [0, 0.54]], 16, { uFrac: true });
-      claim(tub.x, tub.z, 0.75, st.g.y, st.g.y + 0.8);
-      fall(sp, st.g.y + 0.54, false);
-      from = { g: st.g, a: st.a, r: st.r, y: st.g.y + 0.35 };
+    for (const leg of legs) {
+      if (leg.kind === "fall") {
+        const { from, to } = leg, src = from.tub ? from.r + 0.4 : from.r + 0.8;
+        const pA = at(T, from.a, src, from.y), pB = at(T, to.a, to.r, from.y), sp = at(T, to.a, to.r, from.g.y - 0.15);
+        pipe([pA, pB, pB.clone().add(V(0, -0.05, 0)), sp.clone().add(V(0, 0.25, 0)), sp], 3410);
+        b.room(0, 0, 0); b.set(MAT.WOOD, TIMBER, 3411); const m = pA.clone().lerp(pB, 0.5); b.beam(m.clone().setY(from.g.y), m.clone().add(V(0, 0.05, 0)), 0.08, 0.08);
+        tubAt(to); fall(sp, to.g.y + 0.54, false);
+      } else {
+        const { run } = leg;
+        pipe([...run.pts, run.sp], 3430);
+        // brackets holding the pipe to the bark, and hangers under the platforms
+        b.set(MAT.METAL, IRON, 3431, 0.1);
+        for (const p of run.pts) {
+          const [ax, az] = tAxis(T, p.y), d = Math.hypot(p.x - ax, p.z - az);
+          if (d < tRad(T, p.y) + 0.5) b.beam(p, V(ax + (p.x - ax) * (tRad(T, p.y) * 0.95) / d, p.y, az + (p.z - az) * (tRad(T, p.y) * 0.95) / d), 0.05, 0.05);
+          else if (Math.abs(p.y - (run.g2.y - 0.6)) < 0.01 || Math.abs(p.y - (leg.from.g.y - 0.6)) < 0.01) b.beam(p, p.clone().add(V(0, 0.4, 0)), 0.04, 0.04);
+        }
+        if (run.tub) { tubAt(run.tub); fall(run.sp, run.tub.g.y + 0.54, false); }
+        else fall(run.sp, 0.5, true);
+      }
     }
-    // the last one runs to the edge and falls all the way into the mist
-    const g = from.g, rEnd = from.r + 1.7;
-    const pA = at(T, from.a, from.r + 0.5, g.y + 0.45), pB = at(T, from.a, rEnd, g.y + 0.45), sp = at(T, from.a, rEnd, g.y + 0.1);
-    b.room(0, 0, 0); b.set(MAT.METAL, [0.5, 0.3, 0.2], 3430, 0.6); b.tube([pA, pB, sp.clone().add(V(0, 0.2, 0)), sp], 0.07, 8);
-    if (clearDrop(sp.x, sp.z, g.y, 0.5)) fall(sp, 0.5, true);
+    // when the chain ends in a tub, its overflow goes on over the edge into the mist
+    const lastLeg = legs[legs.length - 1], end = lastLeg.kind === "fall" ? lastLeg.to : lastLeg.run.tub;
+    if (end && end.onDeck) {
+      const run = underRun(end.g, end.a, end.r);
+      if (run && !run.tub) { pipe([...run.pts, run.sp], 3445); fall(run.sp, 0.5, true); }
+    } else if (end) {
+      const rEnd = end.r + 1.7, pA = at(T, end.a, end.r + 0.5, end.g.y + 0.45), pB = at(T, end.a, rEnd, end.g.y + 0.45), sp = at(T, end.a, rEnd, end.g.y + 0.1);
+      pipe([pA, pB, sp.clone().add(V(0, 0.2, 0)), sp], 3440);
+      if (clearDrop(sp.x, sp.z, end.g.y, 0.5)) fall(sp, 0.5, true);
+    }
     built++;
   }
+  b.room(0, 0, 0);
   return built;
 }
 
@@ -2520,7 +2612,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   return {
     renderer, frame, toggleNight, setNight, toggleGlide, zoomBy, rise, setView, nextCentre, get centre() { return ci; }, look: lookAt, release, scene, camera, SU,
     get night() { return nightT > 0.5; }, get glide() { return glide; }, get height() { return (h - HMIN) / (HMAX - HMIN); },
-    parts: { lifts: out.lifts, cables: out.cables, spouts: out.spouts || [] },
+    parts: { water: out.waterLegs, lifts: out.lifts, cables: out.cables, spouts: out.spouts || [] },
     stats: { houses: out.houses, bridges: out.bridges, lifts: out.lifts.length, cables: out.cables.length, water: out.wb.count() / 3, tris: (vGeo.attributes.position.count + sGeo.attributes.position.count + fGeo.attributes.position.count) / 3, leaves: leaves.length, drapes: drapes.length, lights: allLights.length, bulbs: out.bulbs.length / 4, info: renderer.info.render },
   };
 }
