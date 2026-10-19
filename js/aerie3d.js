@@ -29,26 +29,55 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
 // ---------------------------------------------------------------- layout (metres; y up, the forest floor at 0)
 // the great tree: base position, base radius, height, and how far the top leans off the base
+// Four kinds of tree, so they look nothing alike: `shape` sets the trunk (oak: a broad old giant; bottle: a baobab,
+// swollen in the middle under a flat crown; twist: leaning and coiled, weeping like a willow; slim: a tall silver
+// birch); `bark` is the bark's pattern (0 furrowed, 1 birch, 2 spiral furrows, 3 smooth and wrinkled) and tint.
 const TREES = [
-  { x: 0, z: 0, r: 5.4, h: 112, lx: 1.6, lz: -1.1, seed: 11 },      // the oldest and biggest, carrying the most houses
-  { x: 50, z: -20, r: 4.5, h: 96, lx: 1.2, lz: 1.0, seed: 23 },
-  { x: -36, z: -42, r: 4.7, h: 100, lx: -1.4, lz: -0.8, seed: 37 },
-  { x: -46, z: 24, r: 4.2, h: 90, lx: -1.0, lz: 1.3, seed: 41 },
+  { x: 0, z: 0, r: 5.4, h: 112, lx: 1.6, lz: -1.1, seed: 11, shape: "oak", bark: [0, [1, 1, 1]] },          // the oldest and biggest, carrying the most houses
+  { x: 50, z: -20, r: 4.0, h: 80, lx: 0.6, lz: 0.5, seed: 23, shape: "bottle", bark: [3, [1.25, 1.05, 1.0]] },
+  { x: -36, z: -42, r: 4.3, h: 92, lx: -4.5, lz: -3.0, seed: 37, shape: "twist", bark: [2, [0.85, 0.72, 0.62]] },
+  { x: -46, z: 24, r: 3.6, h: 104, lx: -1.0, lz: 1.3, seed: 41, shape: "slim", bark: [1, [1, 1, 1]] },
 ];
-// each tree's city: its platform levels, how many limbs, perched houses, bridges and leafy branches
+// each tree's city: its platform levels, how many limbs, perched houses, bridges and leafy branches. They differ on
+// purpose: the old giant is a dense city, the baobab a packed village, the coiled tree thinner, the birch a hamlet
+// and each city its own style: which walls, roofs and kinds of house (indices into WALLS and ROOFS; null = all)
 const CITY = [
-  { seed: 9, tiers: [14, 20.5, 27, 33.5, 40, 46.5, 53], nLimbs: 5, perched: 40, bridges: 24, branches: 100 },
-  { seed: 19, tiers: [16, 22.5, 29, 35.5, 42], nLimbs: 4, perched: 18, bridges: 12, branches: 60 },
-  { seed: 29, tiers: [13, 19.5, 26, 32.5, 39, 45.5], nLimbs: 4, perched: 22, bridges: 14, branches: 70 },
-  { seed: 39, tiers: [15, 21.5, 28, 34.5], nLimbs: 4, perched: 14, bridges: 10, branches: 50 },
+  { seed: 9, tiers: [14, 20.5, 27, 33.5, 40, 46.5, 53], nLimbs: 5, perched: 40, bridges: 24, branches: 100, style: null },
+  { seed: 19, tiers: [15, 20.5, 26, 31.5, 37, 42.5], nLimbs: 4, perched: 34, bridges: 18, branches: 40,       // sun-baked: plaster and thatch, round huts
+    style: { walls: [4, 12, 3, 9, 10, 2], roofs: [4, 4, 3, 7], lo: ["thatch", "thatch", "dome", "barrel", "shed", "gable", "thatch"], hi: ["thatch", "onion", "dome", "thatch", "tower", "barrel"] } },
+  { seed: 29, tiers: [14, 22, 30, 38, 46], nLimbs: 4, perched: 12, bridges: 10, branches: 60,   // misty blues and slate: towers and witches' hats
+    style: { walls: [0, 13, 11, 5, 8, 13], roofs: [1, 5, 6, 2], lo: ["witch", "tower", "gable", "witch", "shed", "onion"], hi: ["witch", "witch", "tower", "onion", "tower", "gable"] } },
+  { seed: 39, tiers: [18, 29, 40], nLimbs: 3, perched: 5, bridges: 6, branches: 18,         // Nordic pastels: steep gables, red roofs, A-frames
+    style: { walls: [1, 8, 10, 6, 5, 1], roofs: [3, 0, 3, 7], lo: ["gable", "aframe", "gable", "shed", "aframe"], hi: ["gable", "aframe", "tower", "gable", "shed"] } },
+];
+// each tree's leaves, used for its crown and for all the greenery in its city: leaf(R) and drape(R) give a clump's
+// atlas cell (0 leaves, 1 blossom, 2 wisteria, 3 trailing moss), leaf tint and flower colour; ivy is how much ivy the
+// bark carries (the birch keeps its white bark bare)
+const leafG = (R) => ({ cell: 0, col: [0.09 + R() * 0.06, 0.16 + R() * 0.08, 0.1 + R() * 0.05], fl: [0, 0, 0] });
+const FOLIAGE = [
+  { ivy: 1, leaf: (R) => (R() < 0.22 ? { cell: 1, col: [0.1, 0.18, 0.1], fl: [0.8, 0.66, 0.95] } : leafG(R)), drape: (R) => ({ cell: R() < 0.6 ? 2 : 3, col: [0.12, 0.2, 0.1], fl: [0.68 + R() * 0.1, 0.55, 0.95] }) },
+  { ivy: 0.6, leaf: (R) => (R() < 0.4 ? { cell: 1, col: [0.08, 0.14, 0.07], fl: [0.98, 0.58, 0.7] } : { cell: 0, col: [0.07 + R() * 0.04, 0.13 + R() * 0.05, 0.06], fl: [0, 0, 0] }), drape: (R) => ({ cell: 3, col: [0.1, 0.15, 0.07], fl: [0, 0, 0] }) },
+  { ivy: 1, leaf: (R) => ({ cell: 0, col: [0.08 + R() * 0.04, 0.16 + R() * 0.06, 0.16 + R() * 0.06], fl: [0, 0, 0] }), drape: (R) => (R() < 0.6 ? { cell: 2, col: [0.12, 0.2, 0.14], fl: [0.6 + R() * 0.12, 0.55, 0.98] } : { cell: 3, col: [0.13, 0.22, 0.17], fl: [0, 0, 0] }) },
+  { ivy: 0.25, around: 0.35, leaf: (R) => (R() < 0.8 ? { cell: 0, col: [0.55 + R() * 0.12, 0.38 + R() * 0.08, 0.07], fl: [0, 0, 0] } : leafG(R)), drape: (R) => ({ cell: 3, col: [0.34, 0.26, 0.07], fl: [0, 0, 0] }) },
 ];
 // where the trees reach for each other: a limb from each with a platform at its tip, and a bridge across the gap;
 // a cable car high up between the two biggest; one gap too wide to bridge gets a platform slung on ropes between
 const LINKS = [
   { a: 0, b: 1, y: 30 }, { a: 0, b: 1, y: 49, cable: true }, { a: 0, b: 2, y: 23 }, { a: 0, b: 3, y: 37 }, { a: 2, b: 3, y: 28, mid: true }, { a: 0, b: 3, y: 19 },
 ];
-const tAxis = (tr, y) => { const k = (clamp(y, 0, tr.h) / tr.h) ** 2; return [tr.x + tr.lx * k, tr.z + tr.lz * k]; };
-const tRad = (tr, y) => tr.r * (1 + 0.85 * Math.exp(-Math.max(y, 0) / 2.6)) * (1 - 0.62 * clamp(y / tr.h, 0, 1));
+const tAxis = (tr, y) => {
+  const f = clamp(y, 0, tr.h) / tr.h, k = f * f;
+  if (tr.shape === "twist") return [tr.x + tr.lx * k + Math.sin(y * 0.055 + tr.seed) * 3.2 * f, tr.z + tr.lz * k + Math.cos(y * 0.047 + tr.seed) * 2.6 * f];   // coiling as it climbs
+  return [tr.x + tr.lx * k, tr.z + tr.lz * k];
+};
+const tRad = (tr, y) => {
+  const f = clamp(y / tr.h, 0, 1), base = tr.r * (1 + 0.85 * Math.exp(-Math.max(y, 0) / 2.6));
+  if (tr.shape === "bottle") return base * (1 - 0.72 * f) * (1 + 0.62 * Math.exp(-(((y - 26) / 15) ** 2)));    // a baobab's swollen belly
+  if (tr.shape === "slim") return base * (1 - 0.7 * f);
+  return base * (1 - 0.62 * f);
+};
+// set the bark material for a tree's trunk, limbs and branches
+const bark = (b, tr, seed, circ) => { const [k, t] = tr.bark ?? [0, [1, 1, 1]]; b.set(MAT.BARK, t, seed, circ, k); };
 // you fly round the middle of the group, or round one tree (the centres cycle: the group, then each tree)
 const GC = [TREES.reduce((a, t) => a + t.x, 0) / TREES.length, TREES.reduce((a, t) => a + t.z, 0) / TREES.length];
 const CENTRES = [{ x: GC[0], z: GC[1], dist: 80, h: 30, look: 34 }, ...TREES.map((t, i) => ({ x: t.x + t.lx * 0.1, z: t.z + t.lz * 0.1, dist: 40, h: 26, look: CITY[i].tiers[CITY[i].tiers.length - 1] * 0.62 }))];
@@ -287,16 +316,30 @@ void main(){
   vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;
   vec3 P = vW; float m = vK.x, sd = vK.y; vec2 uv = vUv; vec3 tint = vC;
   vec3 alb = tint, emis = vec3(0.); float ao = 1., wrap = 0.1, spec = 0., h = 0., bk = 0.;
-  if (m < 0.5) {                                   // bark: deep furrows (periodic round the trunk), moss on the tops, lichen
-    float a = uv.x * 6.2832, R = vK.z / 6.2832;
+  if (m < 0.5) {                                   // bark (p2 = kind): furrowed, birch, spiral furrows, smooth and wrinkled
+    float kind = vK.w, a = uv.x * 6.2832 + (abs(kind - 2.) < 0.5 ? uv.y * 0.22 : 0.), R = vK.z / 6.2832;
     vec3 q = vec3(cos(a) * R * 1.9, sin(a) * R * 1.9, uv.y * 0.16);
     float f = fbm3(q + sd * 9.), rid = 1. - abs(2. * f - 1.), det = fbm3(q * vec3(4., 4., 9.));
-    h = rid * 0.75 + det * 0.25;
-    alb = mix(vec3(0.06, 0.05, 0.048), vec3(0.3, 0.26, 0.23), h) * tint;
     float moss = smoothstep(0.52, 0.72, fbm3(P * 0.45 + 3.) * 0.7 + N.y * 0.45 + 0.08 - rid * 0.15);
+    if (kind > 0.5 && kind < 1.5) {                // birch: chalky white, dark dashes across the trunk, black scars
+      vec3 qb = vec3(cos(a) * R * 0.9, sin(a) * R * 0.9, uv.y * 3.2);
+      float dash = smoothstep(0.66, 0.74, fbm3(qb + sd * 3.)), scar = smoothstep(0.72, 0.78, fbm3(q * 0.35 + 7.));
+      h = 1. - dash * 0.6 - scar * 0.8 + det * 0.15;
+      alb = mix(vec3(0.72, 0.7, 0.66) * (0.85 + 0.2 * det), vec3(0.06, 0.055, 0.05), max(dash * 0.85, scar));
+      moss *= 0.3;
+    } else if (kind > 2.5) {                       // baobab: smooth grey-pink, wrinkled in rings, a few deep folds
+      float wr = sin(uv.y * 7. + fbm3(q * 0.8) * 6.) * 0.5 + 0.5, fold = smoothstep(0.62, 0.7, rid);
+      h = wr * 0.35 + det * 0.25 - fold * 0.5;
+      alb = mix(vec3(0.34, 0.29, 0.27), vec3(0.5, 0.44, 0.41), wr * 0.6 + det * 0.4) * (1. - fold * 0.5);
+      moss *= 0.5;
+    } else {
+      h = rid * 0.75 + det * 0.25;
+      alb = mix(vec3(0.06, 0.05, 0.048), vec3(0.3, 0.26, 0.23), h);
+    }
+    alb *= tint;
     alb = mix(alb, vec3(0.09, 0.15, 0.05) * (0.7 + 0.5 * det), moss * 0.9);
-    alb = mix(alb, vec3(0.36, 0.4, 0.33), smoothstep(0.8, 0.84, n3(P * 5.)) * (1. - moss) * 0.35);
-    ao = 0.5 + 0.5 * h; bk = 0.07 * (1. - moss * 0.7);
+    alb = mix(alb, vec3(0.36, 0.4, 0.33), smoothstep(0.8, 0.84, n3(P * 5.)) * (1. - moss) * 0.35 * step(kind, 0.5));
+    ao = 0.5 + 0.5 * clamp(h, 0., 1.); bk = 0.07 * (1. - moss * 0.7) * (kind > 0.5 && kind < 1.5 ? 0.4 : 1.);
   } else if (abs(m - 1.) < 0.5) {                  // clapboard: lapped boards, painted, the paint worn through in places
     float row = floor(uv.y / 0.19), fy = fract(uv.y / 0.19);
     float jo = floor(uv.x / 2.3 + hash12(vec2(row, sd)) * 3.), tone = hash12(vec2(row, jo) + sd * 7.);
@@ -843,8 +886,9 @@ function autoWindows(R, len, h, max = 2) {
   return list;
 }
 // the kinds of house, sized: r is the radius it needs, top its height, stack where a room on its roof would stand
+let STYLE = null;      // the style of the city being built (set by city())
 function planHouse(R, kind, sc = 1) {
-  const [wm, wc] = pick(R, WALLS), [rm, rc] = pick(R, ROOFS);
+  const [wm, wc] = STYLE?.walls ? WALLS[pick(R, STYLE.walls)] : pick(R, WALLS), [rm, rc] = STYLE?.roofs ? ROOFS[pick(R, STYLE.roofs)] : pick(R, ROOFS);
   const H = { kind, seed: Math.floor(R() * 1e5), lean: [(R() - 0.5) * 0.08, (R() - 0.5) * 0.08], twist: (R() - 0.5) * 0.04, wm, wc, rm, rc };
   if (kind === "gable" || kind === "shed") {
     Object.assign(H, { w: (2.3 + R() * 1.9) * sc, d: (2.1 + R() * 1.3) * sc, h: 2.2 + R() * 0.6, over: 0.3 + R() * 0.2 });
@@ -982,25 +1026,27 @@ function city(b, sb, out, ti, o) {
   const T = TREES[ti], R = rng(o.seed), occ = out.occ, houses = [], TIERS = o.tiers, yLo = TIERS[0], yHi = TIERS[TIERS.length - 1];
   const fits = (x, z, r, y0, y1, skip = null, tag = null) => occ.every((o) => o === skip || (tag && o.tag === tag) || y1 < o.y0 || y0 > o.y1 || Math.hypot(x - o.x, z - o.z) > r + o.r);
   const claim = (x, z, r, y0, y1, tag = null) => { const o = { x, z, r, y0, y1, tag }; occ.push(o); return o; };
-  const green = (s) => out.clumps.push({ p: s.p, s: s.s, seed: R(), cell: s.cell ?? (R() < 0.3 ? 3 : 0), col: [0.09 + R() * 0.06, 0.16 + R() * 0.08, 0.09 + R() * 0.05], fl: [0.8, 0.66, 0.95], drape: s.drape });
+  const F = FOLIAGE[ti];
+  const green = (s) => { const look = s.drape ? F.drape(R) : F.leaf(R); if (!s.drape && s.cell === 3) look.cell = 3; out.clumps.push({ p: s.p, s: s.s, seed: R(), ...look, drape: s.drape }); };
   const sr = (y) => tRad(T, y) * 1.06 + 1.3;                       // everything keeps this far from the trunk's axis: the stair runs inside
   const axisD = (x, z, y) => { const [ax, az] = tAxis(T, y); return Math.hypot(x - ax, z - az); };
   const KINDS_LO = ["gable", "gable", "gable", "shed", "thatch", "aframe", "barrel", "witch", "gable", "shed"];
   const KINDS_HI = ["gable", "witch", "witch", "tower", "shed", "onion", "gable", "aframe", "dome", "thatch"];
-  const kindAt = (y) => pick(R, y < T.h * 0.3 ? KINDS_LO : KINDS_HI);
+  STYLE = o.style;
+  const kindAt = (y) => pick(R, y < (yLo + yHi) / 2 ? o.style?.lo ?? KINDS_LO : o.style?.hi ?? KINDS_HI);
 
   // a great limb from the trunk at height y toward angle a, its reach claimed so nothing is built through it
   const makeLimb = (y, a, len, rise, i, wig = 1.5, high = 0.1) => {
     const [ax, az] = tAxis(T, y), d = V(Math.sin(a), 0, Math.cos(a)), r0 = tRad(T, y) * 0.24;
     const P = (t) => V(ax, y, az).addScaledVector(d, tRad(T, y) * 0.7 + len * t).add(V(0, rise * t * t - 0.8 * Math.sin(t * Math.PI), 0)).add(V(-d.z, 0, d.x).multiplyScalar(Math.sin(t * 2.2) * wig * (i % 2 ? 1 : -1)));
     const rr = (t) => r0 * (1 - 0.65 * t);
-    b.room(0, 0, 0); b.set(MAT.BARK, [1, 1, 1], 300 + i, TAU * r0); b.tube(Array.from({ length: 13 }, (_, k) => P(k / 12)), rr, 10);
+    b.room(0, 0, 0); bark(b, T, 300 + i, TAU * r0); b.tube(Array.from({ length: 13 }, (_, k) => P(k / 12)), rr, 10);
     for (let t = 0.12; t <= 1; t += 0.06) { const p = P(t); claim(p.x, p.z, rr(t) + 0.35, p.y - rr(t) - 0.3, p.y + rr(t) + high, "limb" + ti + ":" + i); }
     // side branches with leaves, and greenery hanging along it
     for (let k = 0; k < 4; k++) {
       const t0 = 0.3 + k * 0.17 + R() * 0.08, p0 = P(t0), sa = a + (k % 2 ? 1 : -1) * (0.6 + R() * 0.6), sd = V(Math.sin(sa), 0, Math.cos(sa)), sl = 4 + R() * 4;
       const sp = Array.from({ length: 5 }, (_, q) => p0.clone().addScaledVector(sd, sl * q / 4).add(V(0, sl * 0.5 * (q / 4) ** 1.4, 0)));
-      b.set(MAT.BARK, [1, 1, 1], 320 + i * 10 + k, TAU * rr(t0) * 0.4); b.tube(sp, (t) => rr(t0) * 0.42 * (1 - 0.8 * t), 6);
+      bark(b, T, 320 + i * 10 + k, TAU * rr(t0) * 0.4); b.tube(sp, (t) => rr(t0) * 0.42 * (1 - 0.8 * t), 6);
       green({ p: sp[4], s: 2.4 + R() }); green({ p: sp[2].clone().add(V(0, 0.8, 0)), s: 1.8 + R() * 0.6 });
     }
     for (let k = 0; k < 6; k++) green({ p: P(0.2 + R() * 0.8).add(V(0, -rr(0.5) * 0.8, 0)), s: 1.4 + R() * 1.2, drape: true, cell: R() < 0.5 ? 2 : 3 });
@@ -1255,13 +1301,14 @@ function city(b, sb, out, ti, o) {
     let ok = true;
     for (let t = 0.25; t <= 0.8 && ok; t += 0.11) { const p = P(t); ok = occ.every((o) => p.y < o.y0 - 0.3 || p.y > o.y1 + 0.3 || Math.hypot(p.x - o.x, p.z - o.z) > o.r + 0.15); }
     if (!ok) continue;
-    b.room(0, 0, 0); b.set(MAT.BARK, [1, 1, 1], 1600 + k, TAU * r0); b.tube(Array.from({ length: 7 }, (_, q) => P(q / 6)), (t) => r0 * (1 - 0.8 * t), 6);
+    b.room(0, 0, 0); bark(b, T, 1600 + k, TAU * r0); b.tube(Array.from({ length: 7 }, (_, q) => P(q / 6)), (t) => r0 * (1 - 0.8 * t), 6);
     for (let q = 0; q < 5; q++) green({ p: P(0.45 + q * 0.14).add(V((R() - 0.5) * 2, 0.4 + R(), (R() - 0.5) * 2)), s: 1.8 + R() * 1.4, cell: R() < 0.2 ? 1 : 0 });
     if (R() < 0.6) green({ p: P(0.7), s: 1.6 + R(), drape: true, cell: R() < 0.5 ? 2 : 3 });
     made++;
   }
   // leaves crowding round every house: at its sides and back and over its roof, leaving the front and its windows clear
   for (const h of houses) {
+    if (R() > (F.around ?? 1)) continue;
     const n = 2 + Math.floor(R() * 3);
     for (let q = 0; q < n; q++) {
       const th = h.yaw + Math.PI + (R() < 0.5 ? -1 : 1) * (0.3 + R() * 1.9), rr = h.r * (0.75 + R() * 0.35) + 0.3;
@@ -1275,7 +1322,7 @@ function city(b, sb, out, ti, o) {
   for (const h of houses) if (h.deck && R() < 0.8) green({ p: h.deck[Math.floor(R() * h.deck.length)].clone().add(V(0, -0.15, 0)), s: 1.5 + R() * 1.4, drape: true, cell: R() < 0.5 ? 2 : 3 });
 
   // ivy and ferns on the bark, plants in tubs on the platforms
-  for (let k = 0, n = Math.round(140 * (yHi - yLo + 10) / 49); k < n; k++) {
+  for (let k = 0, n = Math.round(140 * F.ivy * (yHi - yLo + 10) / 49); k < n; k++) {
     const y = 4 + R() * (yHi + 4), a = R() * TAU;
     green({ p: at(T, a, tRad(T, y) * 1.02, y), s: 1.3 + R() * 1.6, cell: R() < 0.5 ? 3 : 0, drape: R() < 0.35 });
   }
@@ -1435,7 +1482,7 @@ function world(b, sb, out) {
 // A trunk is rings round its leaning axis, flared and buttressed at the foot; limbs are tubes that reach out and
 // up from the upper trunk, each with two side branches; leaf clumps sit at their tips and along them.
 function trunk(b, tr, dy, seg, y1) {
-  b.room(0, 0, 0); b.set(MAT.BARK, [1, 1, 1], tr.seed, TAU * tr.r * 1.7);
+  b.room(0, 0, 0); bark(b, tr, tr.seed, TAU * tr.r * 1.7);
   const ring = (y) => {
     const [ax, az] = tAxis(tr, y), r0 = tRad(tr, y), o = [];
     for (let j = 0; j <= seg; j++) {
@@ -1452,7 +1499,9 @@ function trunk(b, tr, dy, seg, y1) {
     if (y >= y1) break;
   }
 }
-// limbs, branches and leaf clumps for one tree. o: { n, y0, y1, len, scale, leaf: (R) => clump look, drape, far }
+// limbs, branches and leaf clumps for one tree. o: { n, y0, y1, len, scale, leaf: (R) => clump look, drape, far,
+// rise: [min, max] of the limbs' climb as a share of their length (negative: they weep), sub (the twigs' climb),
+// drapeN, dome: { n, r0, r1, y0, y1 } the clumps that fill the top (radii in metres, heights as shares of the tree) }
 function crown(b, tr, R, leaves, drapes, o) {
   const look = o.leaf;
   const clump = (p, s) => leaves.push({ p, s: s * (0.8 + R() * 0.45), seed: R(), ...look(R) });
@@ -1460,14 +1509,14 @@ function crown(b, tr, R, leaves, drapes, o) {
     const y = lerp(o.y0, o.y1, (i + R() * 0.8) / o.n), a = i * 2.39996 + tr.seed + R() * 0.7;
     const [ax, az] = tAxis(tr, y), r0 = tRad(tr, y);
     const d = V(Math.sin(a), 0, Math.cos(a)), L = o.len * (0.65 + R() * 0.6) * (1 - 0.4 * (y - o.y0) / (o.y1 - o.y0 + 1));
-    const rise = L * (0.2 + R() * 0.45), sideV = V(-d.z, 0, d.x).multiplyScalar((R() - 0.5) * L * 0.35), droop = L * 0.08 * R();
+    const rk = o.rise ?? [0.2, 0.65], rise = L * lerp(rk[0], rk[1], R()), sideV = V(-d.z, 0, d.x).multiplyScalar((R() - 0.5) * L * 0.35), droop = L * 0.08 * R();
     const P = (t) => V(ax, y, az).addScaledVector(d, r0 * 0.55 + L * t).add(V(0, rise * t ** 1.6 - droop * Math.sin(t * Math.PI), 0)).addScaledVector(sideV, Math.sin(t * 2.5));
     const rb = r0 * (o.far ? 0.3 : 0.34);
-    b.set(MAT.BARK, [1, 1, 1], tr.seed + i, TAU * rb);
+    bark(b, tr, tr.seed + i, TAU * rb);
     b.tube(Array.from({ length: o.far ? 5 : 9 }, (_, k, arr) => P(k / (o.far ? 4 : 8))), (t) => rb * (1 - 0.85 * t), o.far ? 5 : 8);
     for (let k = 0; k < 2; k++) {
       const t0 = 0.4 + k * 0.25 + R() * 0.1, p0 = P(t0), sa = a + (k ? 1 : -1) * (0.5 + R() * 0.6), sd = V(Math.sin(sa), 0, Math.cos(sa)), sl = L * (0.35 + R() * 0.25);
-      const sp = Array.from({ length: 4 }, (_, q) => p0.clone().addScaledVector(sd, sl * q / 3).add(V(0, sl * 0.45 * (q / 3) ** 1.3, 0)));
+      const sp = Array.from({ length: 4 }, (_, q) => p0.clone().addScaledVector(sd, sl * q / 3).add(V(0, sl * (o.sub ?? 0.45) * (q / 3) ** 1.3, 0)));
       if (!o.far) b.tube(sp, (t) => rb * (1 - 0.85 * t0) * 0.55 * (1 - 0.8 * t), 5);
       clump(sp[3], o.scale);
       if (!o.far) clump(sp[2].clone().add(V(0, 0.6, 0)), o.scale * 0.8);
@@ -1476,10 +1525,11 @@ function crown(b, tr, R, leaves, drapes, o) {
     for (let k = 0; k < (o.far ? 2 : 3); k++) clump(tip.clone().add(V((R() - 0.5) * 3, (R() - 0.2) * 2, (R() - 0.5) * 3)), o.scale * 1.1);
     clump(P(0.7).add(V(0, 0.8, 0)), o.scale * 0.9);
     if (!o.far) for (let k = 0; k < (o.dense ? 11 : 5); k++) clump(P(0.25 + R() * 0.75).add(V((R() - 0.5) * 4, (R() - 0.3) * 2.5, (R() - 0.5) * 4)), o.scale * (0.7 + R() * 0.3));
-    if (drapes && o.drape) for (let k = 0; k < (o.dense ? 6 : 4); k++) { const p = P(0.35 + R() * 0.6); drapes.push({ p: p.add(V(0, -0.2, 0)), s: 1.6 + R() * 1.6, seed: R(), ...o.drape(R) }); }
+    if (drapes && o.drape) for (let k = 0; k < (o.drapeN ?? (o.dense ? 6 : 4)); k++) { const p = P(0.3 + R() * 0.7); drapes.push({ p: p.add(V(0, -0.2, 0)), s: (o.drapeS ?? 1.6) * (1 + R()), seed: R(), ...o.drape(R) }); }
   }
-  for (let k = 0; k < (o.far ? 3 : o.dense ? 26 : 6); k++) {      // the dome of the crown, filled in
-    const a = R() * TAU, [ax, az] = tAxis(tr, tr.h * 0.9), rr = o.dense ? 4 + R() * 18 : 2.5, yy = o.dense ? tr.h * (0.68 + 0.27 * R()) - rr * 0.3 : tr.h * (0.88 + R() * 0.1);
+  const dm = o.dome ?? (o.dense ? { n: 26, r0: 4, r1: 22, y0: 0.68, y1: 0.95, drop: 0.3 } : { n: 3, r0: 2.5, r1: 2.5, y0: 0.88, y1: 0.98, drop: 0 });
+  for (let k = 0; k < (o.far ? 3 : dm.n); k++) {      // the dome of the crown, filled in
+    const a = R() * TAU, [ax, az] = tAxis(tr, tr.h * 0.9), rr = lerp(dm.r0, dm.r1, R()), yy = tr.h * lerp(dm.y0, dm.y1, R()) - rr * dm.drop;
     clump(V(ax + Math.sin(a) * rr, yy, az + Math.cos(a) * rr), o.scale * 1.2);
   }
 }
@@ -1489,7 +1539,7 @@ function roots(b, tr, R) {
   for (let i = 0; i < 6; i++) {
     const a = (i + R() * 0.5) / 6 * TAU + tr.seed, d = V(Math.sin(a), 0, Math.cos(a)), r0 = tr.r * 0.45;
     const pts = Array.from({ length: 6 }, (_, k) => { const t = k / 5; return V(tr.x, 2.5 - t * 3.2, tr.z).addScaledVector(d, tr.r * 1.2 + t * (4 + R() * 2)); });
-    b.set(MAT.BARK, [1, 1, 1], tr.seed + 50 + i, TAU * r0); b.tube(pts, (t) => r0 * (1 - 0.7 * t), 7);
+    bark(b, tr, tr.seed + 50 + i, TAU * r0); b.tube(pts, (t) => r0 * (1 - 0.7 * t), 7);
   }
 }
 
@@ -1769,11 +1819,18 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   world(b, sb, out);
   const green = (R) => ({ cell: 0, col: [0.09 + R() * 0.06, 0.16 + R() * 0.08, 0.1 + R() * 0.05], fl: [0, 0, 0] });
   const crownOf = (i, o) => ({ n: Math.round(42 * TREES[i].r / 5.4), y0: CITY[i].tiers[CITY[i].tiers.length - 1] + 4, y1: TREES[i].h * 0.95, len: 25 * TREES[i].r / 5.4, scale: 5.0 * (0.85 + 0.15 * TREES[i].r / 5.4), dense: true, ...o });
-  const LOOKS = [     // lilac blossom and wisteria; pink blossom and moss; wisteria; leaves turning gold
-    crownOf(0, { leaf: (R) => (R() < 0.22 ? { cell: 1, col: [0.1, 0.18, 0.1], fl: [0.8, 0.66, 0.95] } : green(R)), drape: (R) => ({ cell: R() < 0.6 ? 2 : 3, col: [0.12, 0.2, 0.1], fl: [0.68 + R() * 0.1, 0.55, 0.95] }) }),
-    crownOf(1, { leaf: (R) => (R() < 0.45 ? { cell: 1, col: [0.11, 0.17, 0.1], fl: [0.98, 0.62, 0.72] } : green(R)), drape: (R) => ({ cell: 3, col: [0.16 + R() * 0.05, 0.2, 0.1], fl: [0, 0, 0] }) }),
-    crownOf(2, { leaf: green, drape: (R) => ({ cell: 2, col: [0.12, 0.2, 0.1], fl: [0.62 + R() * 0.12, 0.52, 0.95] }) }),
-    crownOf(3, { leaf: (R) => (R() < 0.35 ? { cell: 0, col: [0.26 + R() * 0.06, 0.2 + R() * 0.04, 0.06], fl: [0, 0, 0] } : green(R)), drape: (R) => ({ cell: 3, col: [0.18, 0.2, 0.08], fl: [0, 0, 0] }) }),
+  const LOOKS = [
+    // the old giant: a broad, deep dome, lilac blossom here and there, wisteria hanging
+    crownOf(0, { leaf: FOLIAGE[0].leaf, drape: FOLIAGE[0].drape }),
+    // the baobab: stubby limbs climbing steeply from high up, a flat umbrella of dark leaves and pink flowers on top
+    crownOf(1, { n: 18, y0: 0.74 * TREES[1].h, y1: 0.9 * TREES[1].h, len: 13, rise: [0.55, 0.95], sub: 0.7, scale: 4.2,
+      dome: { n: 34, r0: 3, r1: 17, y0: 0.93, y1: 0.98, drop: 0.08 }, drapeN: 0, leaf: FOLIAGE[1].leaf, drape: null }),
+    // the coiled one: long limbs that arch out and hang, curtains of wisteria and moss to the mist
+    crownOf(2, { n: 30, y0: CITY[2].tiers[CITY[2].tiers.length - 1] + 8, len: 24, rise: [-0.5, -0.2], sub: -0.6, scale: 4.2, drapeN: 26, drapeS: 3.6,
+      dome: { n: 14, r0: 2, r1: 10, y0: 0.8, y1: 0.95, drop: 0.2 }, leaf: FOLIAGE[2].leaf, drape: FOLIAGE[2].drape }),
+    // the birch: a tall narrow crown of short climbing twigs, gone gold
+    crownOf(3, { n: 30, dense: false, y1: TREES[3].h * 0.98, len: 9, rise: [0.5, 1.0], sub: 0.8, scale: 3.0,
+      dome: { n: 22, r0: 1, r1: 6, y0: 0.72, y1: 0.99, drop: 0 }, drapeN: 0, drape: null, leaf: FOLIAGE[3].leaf }),
   ];
   TREES.forEach((tr, i) => { trunk(b, tr, 0.8, 28, tr.h * 0.94); roots(b, tr, R); crown(b, tr, R, leaves, drapes, LOOKS[i]); });
   for (const c of out.clumps) (c.drape ? drapes : leaves).push(c);
@@ -2067,7 +2124,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   let ang = VIEW0.ang, angT = ang, h = VIEW0.h, hT = h, dist = VIEW0.dist, distT = dist, dEff = dist;
   let ci = 0, cx = CENTRES[0].x, cz = CENTRES[0].z, cLook = CENTRES[0].look, lightTick = 0;
   let lookX = 0, lookY = 0, lookXT = 0, lookYT = 0, keyOrb = 0, keyH = 0, keyZoom = 0, glide = !reduced, glideDir = 1, roll = 0, angPrev = ang;
-  addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse") return; lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
+  addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse" || e.buttons) return; lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
   document.addEventListener("mouseout", (e) => { if (!e.relatedTarget) { lookXT = 0; lookYT = 0; } });
   const touches = new Map();
   let pinch = 0;
@@ -2080,10 +2137,10 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     if (!p) return;
     const dx = e.clientX - p[0], dy = e.clientY - p[1];
     p[0] = e.clientX; p[1] = e.clientY;
-    if (touches.size === 1) { angT -= dx * 0.0045 * 30 / Math.max(dist, 15); hT = clamp(hT + dy * 0.05, HMIN, HMAX); if (Math.abs(dx) > 1) glideDir = dx > 0 ? -1 : 1; }
+    if (touches.size === 1) { angT -= dx / innerWidth * 3.2; hT = clamp(hT + dy / innerHeight * 45, HMIN, HMAX); if (Math.abs(dx) > 1) glideDir = dx > 0 ? -1 : 1; }
     else if (touches.size === 2) { const s = spread(); if (pinch > 0) distT = clamp(distT * pinch / Math.max(s, 1), DMIN, DMAX); pinch = s; }
   }, { passive: true });
-  addEventListener("wheel", (e) => { distT = clamp(distT * Math.exp(e.deltaY * 0.0012), DMIN, DMAX); }, { passive: true });
+  addEventListener("wheel", (e) => { distT = clamp(distT * Math.exp(e.deltaY * 0.0018), DMIN, DMAX); }, { passive: true });
   const KEYS = { arrowleft: [-1, 0, 0], a: [-1, 0, 0], arrowright: [1, 0, 0], d: [1, 0, 0], arrowup: [0, 1, 0], w: [0, 1, 0], arrowdown: [0, -1, 0], s: [0, -1, 0], "+": [0, 0, -1], "=": [0, 0, -1], "-": [0, 0, 1], _: [0, 0, 1] };
   addEventListener("keydown", (e) => { const k = KEYS[e.key.toLowerCase()]; if (!k || e.metaKey || e.ctrlKey) return; if (k[0]) { keyOrb = k[0]; glideDir = k[0]; } if (k[1]) keyH = k[1]; if (k[2]) keyZoom = k[2]; });
   addEventListener("keyup", (e) => { const k = KEYS[e.key.toLowerCase()]; if (!k) return; if (k[0]) keyOrb = 0; if (k[1]) keyH = 0; if (k[2]) keyZoom = 0; });
@@ -2120,15 +2177,16 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     post.U.uExposure.value = 1.25 + night * 0.45;
 
     // flying round on the circle, pushed out wherever the village reaches further
-    const k = dt > 0 ? 1 - Math.exp(-dt * 2.2) : 1;
-    if (glide) angT += glideDir * dt * 1.05 / Math.max(dist, 15);
-    angT += keyOrb * dt * 3.0 / Math.max(dist, 15);
-    hT = clamp(hT + keyH * dt * 3.5, HMIN, HMAX); distT = clamp(distT + keyZoom * dt * 7, DMIN, DMAX);
+    // responsive: the camera catches up with what you ask in a fraction of a second, with only a little give
+    const k = dt > 0 ? 1 - Math.exp(-dt * 7) : 1;
+    if (glide && !keyOrb && touches.size === 0) angT += glideDir * dt * 1.8 / Math.max(dist, 15);
+    angT += keyOrb * dt * 0.75;                                       // about 43 degrees a second, near or far
+    hT = clamp(hT + keyH * dt * 10, HMIN, HMAX); distT = clamp(distT * Math.exp(keyZoom * dt * 1.1), DMIN, DMAX);
     ang += (angT - ang) * k; h += (hT - h) * k; dist += (distT - dist) * k;
-    const C = CENTRES[ci], kc = dt > 0 ? 1 - Math.exp(-dt * 0.8) : 1;       // the centre you fly round glides to the next one
+    const C = CENTRES[ci], kc = dt > 0 ? 1 - Math.exp(-dt * 2.2) : 1;       // the centre you fly round glides to the next one
     cx += (C.x - cx) * kc; cz += (C.z - cz) * kc; cLook += (C.look - cLook) * kc;
     const want = clearR(cx, cz, ang, h, dist);
-    dEff += (want - dEff) * (dt > 0 ? 1 - Math.exp(-dt * (want > dEff ? 3.5 : 1.5)) : 1);
+    dEff += (want - dEff) * (dt > 0 ? 1 - Math.exp(-dt * (want > dEff ? 8 : 4)) : 1);
     const px = cx + Math.sin(ang) * dEff, pz = cz + Math.cos(ang) * dEff, py = h + Math.sin(t * 0.37) * 0.25;
     lookX += (lookXT - lookX) * k; lookY += (lookYT - lookY) * k;
     const yaw0 = Math.atan2(cx - px, cz - pz), pitch0 = Math.atan2(lerp(h, cLook, 0.5) - py, dEff);
