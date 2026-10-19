@@ -9,6 +9,30 @@
 // ---------------------------------------------------------------------------
 export const worlds = [
   {
+    slug: "aerie",
+    title: "Aerie",
+    kicker: "A city in the trees",
+    tagline: "A city of treehouses in four giant trees, over the mist at moonrise.",
+    description:
+      "Some two hundred and forty crooked houses crowd four giant trees, each its own kind with its own town: stacked two and three high at odd angles, perched on brackets, swinging in pods on ropes. Limbs reach for the neighbouring trees with rope bridges across, cable cars run between them and down to a station in the mist, lifts ride up timber towers, and water runs from cisterns down the bark in pipes and falls from tub to tub. Fly round the whole group or round one tree at a time.",
+    date: "2026-10",
+    genre: "Scene",
+    tags: ["three.js", "GLSL", "procedural", "WebAudio"],
+    highlights: [
+      "Every house is planned, checked against everything already built and placed: the city is generated, and the same on every load",
+      "Rooms behind the windows are traced in a shader: wallpaper, shelves of books, curtains, a lamp, a plant on the sill",
+      "Let paper lanterns go into the sky, let night fall; crickets, frogs, wind chimes and creaking ropes synthesised live",
+    ],
+    play: "aerie/",
+    label: "Enter",
+    shots: [
+      { src: "aerie-1.webp", alt: "Giant trees full of lit treehouses, rope bridges strung between their limbs, lift towers rising from the mist, a cable car, the moon behind", caption: "Moonrise over the mist" },
+      { src: "aerie-2.webp", alt: "A coiled tree hung with wisteria and slate-blue towers, beside it a golden birch with a few red-roofed houses", caption: "The weeping tree and the golden birch" },
+      { src: "aerie-3.webp", alt: "A platform slung on ropes between two trees, a little tower house on it, rope bridges leading off to both", caption: "Halfway across: a platform slung between two trees" },
+      { src: "aerie-4.webp", alt: "A cable car cabin on twin cables running down from the trees to a station hut on a timber tower standing in the mist", caption: "The cable car down to the valley station" },
+    ],
+  },
+  {
     slug: "hearth",
     title: "Hearth",
     kicker: "A cabin in the spruces",
@@ -100,37 +124,6 @@ export const worlds = [
       { src: "shade-1.webp", alt: "Overgrown towers and hanging vines against a low sun, traffic crossing on an elevated highway", caption: "Into the sun" },
       { src: "shade-2.webp", alt: "Overgrown towers and a canopy roof seen from another direction", caption: "The other way" },
       { src: "shade-3.webp", alt: "Street level over the river, looking up into a vault of arches and vines", caption: "Down at the river" },
-    ],
-  },
-];
-
-// ---------------------------------------------------------------------------
-// UNLISTED — scenes that are live on the site (reachable by their own URL) but not
-// shown on the front page yet. To list one, move its object into `worlds` above.
-// ---------------------------------------------------------------------------
-export const unlisted = [
-  {
-    slug: "aerie",
-    title: "Aerie",
-    kicker: "A city in the trees",
-    tagline: "Crooked houses stacked up four giant trees of four kinds, their limbs reaching for each other over the mist at moonrise.",
-    description:
-      "Some two hundred and forty houses crowd four giant trees, each its own kind with its own town: a dense city in an old broad-crowned giant, a packed village of thatch and plaster in a baobab under a flat crown, slate-blue towers in a coiled tree that weeps wisteria, and a hamlet of red-roofed gables in a golden birch. Houses perch on brackets, stacked two and three high at odd angles, pods swinging on ropes, onion domes, glass greenhouses, witch's-hat towers. Limbs reach out toward the neighbouring trees, with a platform at each tip and a rope bridge across; one gap too wide to bridge has a platform slung on ropes between the trunks, and cable cars cross between the trees and down to a station on stilts in the mist. Lifts ride up and down timber towers from the forest floor, water pours from cisterns down through pipes and tubs, washing hangs between houses, hammocks and rope swings sway, and the mist lies far below. Fly round the whole group or round one tree at a time.",
-    date: "2026-10",
-    genre: "Scene",
-    tags: ["three.js", "GLSL", "procedural", "WebAudio"],
-    highlights: [
-      "Every house is planned, checked against everything already built and placed: the city is generated, and the same on every load",
-      "Rooms behind the windows are traced in a shader: wallpaper, shelves of books, curtains, a lamp, a plant on the sill",
-      "Let paper lanterns go into the sky, let night fall; crickets, frogs, wind chimes and creaking ropes synthesised live",
-    ],
-    play: "aerie/",
-    label: "Enter",
-    shots: [
-      { src: "aerie-1.webp", alt: "Giant trees full of lit treehouses, rope bridges strung between their limbs, lift towers rising from the mist, a cable car, the moon behind", caption: "Moonrise over the mist" },
-      { src: "aerie-2.webp", alt: "A coiled tree hung with wisteria and slate-blue towers, beside it a golden birch with a few red-roofed houses", caption: "The weeping tree and the golden birch" },
-      { src: "aerie-3.webp", alt: "A platform slung on ropes between two trees, a little tower house on it, rope bridges leading off to both", caption: "Halfway across: a platform slung between two trees" },
-      { src: "aerie-4.webp", alt: "A cable car cabin on twin cables running down from the trees to a station hut on a timber tower standing in the mist", caption: "The cable car down to the valley station" },
     ],
   },
 ];
