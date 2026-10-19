@@ -1493,7 +1493,7 @@ function waterworks(b, out, T, R, segs, fits, claim, n = 1) {
   starts.sort((p, q) => q.score - p.score);
 
   // building
-  const pipe = (pts, seed) => { b.room(0, 0, 0); b.set(MAT.METAL, [0.5, 0.3, 0.2], seed, 0.6); b.tube(pts, 0.09, 8); };
+  const pipe = (pts, seed) => { (out.pipes ||= []).push(pts); b.room(0, 0, 0); b.set(MAT.METAL, COPPER, seed, 0.55); b.tube(pts, 0.13, 10); };
   const fall = (sp, yEnd, last) => {                 // a stream from spout sp down to yEnd, thickening and breaking up
     const pts = [], dir = V(sp.x - tAxis(T, sp.y)[0], 0, sp.z - tAxis(T, sp.y)[1]).normalize();
     for (let t = 0; ; t += 0.03) { const p = sp.clone().addScaledVector(dir, 0.7 * t).add(V(0, -4.9 * t * t, 0)); pts.push(p); if (p.y <= yEnd) break; }
@@ -1513,6 +1513,31 @@ function waterworks(b, out, T, R, segs, fits, claim, n = 1) {
     b.set(MAT.METAL, IRON, 3421, 0.1); b.lathe([[0.65, 0.12], [0.66, 0.2]], 16); b.lathe([[0.68, 0.44], [0.69, 0.52]], 16);
     wb.set(1, [1, 1, 1], R(), 0); wb.room(tub.x, st.g.y, tub.z, 0); wb.lathe([[0.63, 0.54], [0, 0.54]], 16, { uFrac: true });
     claim(tub.x, tub.z, 0.75, st.g.y, st.g.y + 0.8);
+  };
+  // brackets holding a pipe to the bark, and hangers up to the platforms where it runs under one
+  const brackets = (pts, under) => {
+    b.room(0, 0, 0); b.set(MAT.METAL, IRON, 3431, 0.1);
+    for (const p of pts) {
+      const [ax, az] = tAxis(T, p.y), d = Math.hypot(p.x - ax, p.z - az);
+      if (d < tRad(T, p.y) + 0.5) claim(p.x, p.z, 0.3, p.y - 0.6, p.y + 0.6);
+      if (d < tRad(T, p.y) + 0.5) b.beam(p, V(ax + (p.x - ax) * (tRad(T, p.y) * 0.95) / d, p.y, az + (p.z - az) * (tRad(T, p.y) * 0.95) / d), 0.05, 0.05);
+      else if (under.some((y) => Math.abs(p.y - y) < 0.01)) b.beam(p, p.clone().add(V(0, 0.4, 0)), 0.04, 0.04);
+    }
+  };
+  // from the last tub: down through its platform, in under it to the trunk, and down the bare bark below the
+  // platforms, winding round it, to a spout low over the mist
+  const downRun = (st) => {
+    const { g, a, r } = st, y = g.y - 0.6, yEnd = 5;
+    const head = [at(T, a, r, g.y + (st.onDeck ? 0.2 : 0.05)), at(T, a, r, y)];
+    for (let rr = r - 1; rr > tRad(T, y) + 0.8; rr -= 1) head.push(at(T, a, rr, y));
+    for (const da of [0.9, -0.9, 0.5, -0.5, 1.5, -1.5, 0]) {
+      const pts = head.slice(), n = Math.ceil(Math.max((y - yEnd) / 1.2, Math.abs(da) * tRad(T, y) / 0.9));
+      for (let k = 0; k <= n; k++) { const f = k / n, yy = lerp(y, yEnd, f); pts.push(at(T, a + da * f, tRad(T, yy) + 0.22, yy)); }
+      pts.push(at(T, a + da, tRad(T, yEnd) + 1.0, yEnd));
+      const sp = at(T, a + da, tRad(T, yEnd) + 1.0, yEnd - 0.3);
+      if (clearPath(pts.slice(2)) && clearDrop(sp.x, sp.z, yEnd, 0.5)) return { pts, sp, y };
+    }
+    return null;
   };
   let built = 0;
   for (const s0 of starts) {
@@ -1539,19 +1564,17 @@ function waterworks(b, out, T, R, segs, fits, claim, n = 1) {
         const { run } = leg;
         pipe([...run.pts, run.sp], 3430);
         // brackets holding the pipe to the bark, and hangers under the platforms
-        b.set(MAT.METAL, IRON, 3431, 0.1);
-        for (const p of run.pts) {
-          const [ax, az] = tAxis(T, p.y), d = Math.hypot(p.x - ax, p.z - az);
-          if (d < tRad(T, p.y) + 0.5) b.beam(p, V(ax + (p.x - ax) * (tRad(T, p.y) * 0.95) / d, p.y, az + (p.z - az) * (tRad(T, p.y) * 0.95) / d), 0.05, 0.05);
-          else if (Math.abs(p.y - (run.g2.y - 0.6)) < 0.01 || Math.abs(p.y - (leg.from.g.y - 0.6)) < 0.01) b.beam(p, p.clone().add(V(0, 0.4, 0)), 0.04, 0.04);
-        }
+        brackets(run.pts, [run.g2.y - 0.6, leg.from.g.y - 0.6]);
         if (run.tub) { tubAt(run.tub); fall(run.sp, run.tub.g.y + 0.54, false); }
         else fall(run.sp, 0.5, true);
       }
     }
     // when the chain ends in a tub, its overflow goes on over the edge into the mist
-    const lastLeg = legs[legs.length - 1], end = lastLeg.kind === "fall" ? lastLeg.to : lastLeg.run.tub;
-    if (end && end.onDeck) {
+    const lastLeg = legs[legs.length - 1], end = lastLeg.kind === "fall" ? lastLeg.to : lastLeg.run.tub, down = end && downRun(end);
+    if (down) {
+      pipe([...down.pts, down.sp], 3446); brackets(down.pts, [down.y]); fall(down.sp, 0.5, true);
+      out.waterLegs[out.waterLegs.length - 1] += " down";
+    } else if (end && end.onDeck) {
       const run = underRun(end.g, end.a, end.r);
       if (run && !run.tub) { pipe([...run.pts, run.sp], 3445); fall(run.sp, 0.5, true); }
     } else if (end) {
@@ -2612,7 +2635,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   return {
     renderer, frame, toggleNight, setNight, toggleGlide, zoomBy, rise, setView, nextCentre, get centre() { return ci; }, look: lookAt, release, scene, camera, SU,
     get night() { return nightT > 0.5; }, get glide() { return glide; }, get height() { return (h - HMIN) / (HMAX - HMIN); },
-    parts: { water: out.waterLegs, lifts: out.lifts, cables: out.cables, spouts: out.spouts || [] },
+    parts: { water: out.waterLegs, lifts: out.lifts, cables: out.cables, spouts: out.spouts || [], pipes: out.pipes || [] },
     stats: { houses: out.houses, bridges: out.bridges, lifts: out.lifts.length, cables: out.cables.length, water: out.wb.count() / 3, tris: (vGeo.attributes.position.count + sGeo.attributes.position.count + fGeo.attributes.position.count) / 3, leaves: leaves.length, drapes: drapes.length, lights: allLights.length, bulbs: out.bulbs.length / 4, info: renderer.info.render },
   };
 }
