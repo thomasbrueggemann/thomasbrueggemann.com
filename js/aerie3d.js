@@ -29,13 +29,32 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
 // ---------------------------------------------------------------- layout (metres; y up, the forest floor at 0)
 // the great tree: base position, base radius, height, and how far the top leans off the base
-const TREES = [{ x: 0, z: 0, r: 5.4, h: 112, lx: 1.6, lz: -1.1, seed: 11 }];
+const TREES = [
+  { x: 0, z: 0, r: 5.4, h: 112, lx: 1.6, lz: -1.1, seed: 11 },      // the oldest and biggest, carrying the most houses
+  { x: 50, z: -20, r: 4.5, h: 96, lx: 1.2, lz: 1.0, seed: 23 },
+  { x: -36, z: -42, r: 4.7, h: 100, lx: -1.4, lz: -0.8, seed: 37 },
+  { x: -46, z: 24, r: 4.2, h: 90, lx: -1.0, lz: 1.3, seed: 41 },
+];
+// each tree's city: its platform levels, how many limbs, perched houses, bridges and leafy branches
+const CITY = [
+  { seed: 9, tiers: [14, 20.5, 27, 33.5, 40, 46.5, 53], nLimbs: 5, perched: 40, bridges: 24, branches: 100 },
+  { seed: 19, tiers: [16, 22.5, 29, 35.5, 42], nLimbs: 4, perched: 18, bridges: 12, branches: 60 },
+  { seed: 29, tiers: [13, 19.5, 26, 32.5, 39, 45.5], nLimbs: 4, perched: 22, bridges: 14, branches: 70 },
+  { seed: 39, tiers: [15, 21.5, 28, 34.5], nLimbs: 4, perched: 14, bridges: 10, branches: 50 },
+];
+// where the trees reach for each other: a limb from each with a platform at its tip, and a bridge across the gap;
+// a cable car high up between the two biggest; one gap too wide to bridge gets a platform slung on ropes between
+const LINKS = [
+  { a: 0, b: 1, y: 30 }, { a: 0, b: 1, y: 49, cable: true }, { a: 0, b: 2, y: 23 }, { a: 0, b: 3, y: 37 }, { a: 2, b: 3, y: 28, mid: true }, { a: 0, b: 3, y: 19 },
+];
 const tAxis = (tr, y) => { const k = (clamp(y, 0, tr.h) / tr.h) ** 2; return [tr.x + tr.lx * k, tr.z + tr.lz * k]; };
 const tRad = (tr, y) => tr.r * (1 + 0.85 * Math.exp(-Math.max(y, 0) / 2.6)) * (1 - 0.62 * clamp(y / tr.h, 0, 1));
-// you fly round the trunk
-const CTR = [0.6, -0.4];
-const DMIN = 16, DMAX = 74, HMIN = 6, HMAX = 66;
-const VIEW0 = { ang: 0.12, dist: 40, h: 28 };      // where you start: south of the tree, halfway up the city
+// you fly round the middle of the group, or round one tree (the centres cycle: the group, then each tree)
+const GC = [TREES.reduce((a, t) => a + t.x, 0) / TREES.length, TREES.reduce((a, t) => a + t.z, 0) / TREES.length];
+const CENTRES = [{ x: GC[0], z: GC[1], dist: 80, h: 30, look: 34 }, ...TREES.map((t, i) => ({ x: t.x + t.lx * 0.1, z: t.z + t.lz * 0.1, dist: 40, h: 26, look: CITY[i].tiers[CITY[i].tiers.length - 1] * 0.62 }))];
+const CTR = GC;
+const DMIN = 14, DMAX = 150, HMIN = 6, HMAX = 72;
+const VIEW0 = { ang: 0.26, dist: 80, h: 30 };      // where you start: south of the group, looking at all four trees
 
 const MOON_DIR = V(0.227, 0.213, -0.974).normalize();              // a big moon low behind the village, a little right of where you start
 const GLOW_DIR = V(-0.8, 0, -0.6).normalize();                   // the last of the sunset: a rose band low on the left
@@ -49,6 +68,7 @@ uniform vec3 uMoonDir, uMoonCol, uSkyA, uSkyG, uHor, uGlowDir, uGlowCol, uCity;
 uniform vec3 uLp[NL], uLc[NL];
 uniform float uLs[NL];
 uniform vec2 uCtr, uWind;
+uniform vec4 uTrees[4];   // per tree: x, z, size (radius / 5.4), the top platform's height
 uniform sampler2D uShadow; uniform mat4 uShadowM;
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float hash13(vec3 p){ p = fract(p * .1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
@@ -65,7 +85,11 @@ float fbm3(vec3 p){ return (n3(p) * .5 + n3(p * 2.03 + 7.1) * .25 + n3(p * 4.1 +
 
 const GLSL_LIGHT = /* glsl */`
 // how much open sky a point sees: less under the crowns over the village, more out in the open and up high
-float skyOpen(vec3 p){ return 1. - 0.5 * smoothstep(42., 20., length(p.xz - uCtr)) * smoothstep(80., 58., p.y); }
+float skyOpen(vec3 p){
+  float o = 1.;
+  for (int i = 0; i < 4; i++) { vec4 t = uTrees[i]; o = min(o, 1. - 0.5 * smoothstep(42. * t.z, 20. * t.z, length(p.xz - t.xy)) * smoothstep(t.w + 27., t.w + 5., p.y)); }
+  return o;
+}
 // the colour the mist and the far horizon take in a direction: lilac haze, the rose afterglow, the moon's halo
 vec3 fogSky(vec3 rd){
   vec3 hz = normalize(vec3(rd.x, 0., rd.z) + 1e-5);
@@ -107,7 +131,11 @@ vec3 warmSpec(vec3 P, vec3 N, vec3 V, float shin){
   return c;
 }
 // the light of all the windows together, a faint warmth inside the city
-vec3 cityGlow(vec3 P){ return uCity * smoothstep(26., 8., length(P.xz - uCtr)) * smoothstep(8., 15., P.y) * smoothstep(64., 54., P.y); }
+vec3 cityGlow(vec3 P){
+  float g = 0.;
+  for (int i = 0; i < 4; i++) { vec4 t = uTrees[i]; g += smoothstep(26. * t.z, 8. * t.z, length(P.xz - t.xy)) * smoothstep(8., 15., P.y) * smoothstep(t.w + 11., t.w + 1., P.y); }
+  return uCity * g;
+}
 // moonlight (shadowed), sky light dimmed under the crowns, the warm lights, and a sheen for glossy things
 vec3 shade(vec3 alb, vec3 N, vec3 P, float ao, float wrap, float spec){
   float sh = shadowAt(P, N);
@@ -847,6 +875,14 @@ function planHouse(R, kind, sc = 1) {
   }
   return H;
 }
+// a pennant on a thin pole at the tip of a roof (in the house's frame)
+function pennant(b, x, y, z, R) {
+  b.set(MAT.METAL, IRON, 1, 0.1); b.beam(V(x, y - 0.2, z), V(x, y + 1.0, z), 0.03, 0.03);
+  b.set(MAT.FABRIC, pick(R, [[0.75, 0.25, 0.28], [0.9, 0.75, 0.4], [0.4, 0.55, 0.7], [0.6, 0.45, 0.75]]), Math.floor(R() * 1e4));
+  const a = R() * TAU, d = V(Math.sin(a), 0, Math.cos(a));
+  const p0 = V(x, y + 1.0, z), p1 = V(x, y + 0.65, z), tip = p0.clone().lerp(p1, 0.5).addScaledVector(d, 0.75);
+  b.tri([p0.x, p0.y, p0.z, -d.z, 0, d.x, 0, 0], [p1.x, p1.y, p1.z, -d.z, 0, d.x, 0, 0], [tip.x, tip.y, tip.z, -d.z, 0, d.x, 0.5, 0.75]);
+}
 // build a planned house at (x, y, z) facing yaw (local +z, the side with the best windows, faces out)
 function buildHouse(b, sb, out, H, x, y, z, yaw) {
   const R = rng(H.seed), s = H.seed;
@@ -877,14 +913,14 @@ function buildHouse(b, sb, out, H, x, y, z, yaw) {
       gableRoof(b, w, d, H.h, H.rh, H.over, H.rm, H.rc, H.wm, H.wc, s + 1);
       if (R() < 0.35 && out.smoke.length < 6) out.smoke.push(stovepipe(b, w * 0.25, H.h + H.rh * 0.68, -d * 0.16, 1.2 + R() * 0.6, s + 2));
     } else if (k === "shed") shedRoof(b, w, d, H.h, H.rh, H.over, H.rm, H.rc, H.wm, H.wc, s + 1);
-    else coneRoof(b, w * 0.72, H.h, H.rh, H.over, H.rm, H.rc, s + 1, { curl: [(R() - 0.5) * 0.8, (R() - 0.5) * 0.8], seg: 20 });
+    else { const cu = [(R() - 0.5) * 0.8, (R() - 0.5) * 0.8]; coneRoof(b, w * 0.72, H.h, H.rh, H.over, H.rm, H.rc, s + 1, { curl: cu, seg: 20 }); if (R() < 0.5) pennant(b, cu[0], H.h + H.rh + 0.25, cu[1], R); }
     H.port = (sx) => b.world(sx * (w / 2 + 0.3), 0, 0);
     light(0, 1.5, d / 2 + 1.2);
     if (R() < 0.4) lantern(sb, b.world((door === "x-" ? -1 : 1) * (w / 2 + 0.25), H.h - 0.1, d / 2 - 0.3), 0.25, [1.0, 0.6 + R() * 0.15, 0.3], 5, s + 3, R() < 0.5 ? 0 : 1);
   } else if (k === "witch" || k === "thatch") {
     round(H.rad, H.h, H.wm, H.wc, Math.max(4, Math.round(H.rad * 2.6)), R() * TAU);
     if (H.ring) railing(b, Array.from({ length: 16 }, (_, i) => { const a = i / 16 * TAU; return V(Math.sin(a) * (H.rad + 0.3), 0, Math.cos(a) * (H.rad + 0.3)); }), true, [], TIMBER, s, 0.85);
-    if (k === "witch") coneRoof(b, H.rad, H.h, H.rh, H.over, H.rm, H.rc, s + 1, { curl: [(R() - 0.5) * 1.4, (R() - 0.5) * 1.4] });
+    if (k === "witch") { const cu = [(R() - 0.5) * 1.4, (R() - 0.5) * 1.4]; coneRoof(b, H.rad, H.h, H.rh, H.over, H.rm, H.rc, s + 1, { curl: cu }); if (R() < 0.4) pennant(b, cu[0], H.h + H.rh + 0.25, cu[1], R); }
     else coneRoof(b, H.rad, H.h, H.rh, H.over, MAT.THATCH, H.rc, s + 1, { seg: 32 });
     H.port = (sx) => b.world(sx * (H.rad + 0.3), 0, 0);
     light(0, 1.5, H.rad + 1.2);
@@ -904,7 +940,7 @@ function buildHouse(b, sb, out, H, x, y, z, yaw) {
     const f = RE / 1.6;
     b.set(MAT.METAL, COPPER, s + 1, 0.85);
     b.lathe([[1.5, 0.15], [1.82, 0.6], [1.86, 1.05], [1.55, 1.6], [0.85, 2.15], [0.3, 2.65], [0.07, 3.15], [0.05, 3.6]].map(([r, yy]) => [r * f, HE + yy * f]), 20);
-    if (!out.vane) out.vane = b.world(0, HE + 3.6 * f, 0);
+    if (out.vanes.length < 8) out.vanes.push(b.world(0, HE + 3.6 * f, 0));
     H.port = (sx) => b.world(sx * (RE + 0.3), 0, 0);
     light(0, 1.4, RE + 1.2);
   } else if (k === "aframe") {
@@ -928,7 +964,7 @@ function buildHouse(b, sb, out, H, x, y, z, yaw) {
     for (const sg of [-1, 1]) { b.push(wallFrame(V(0, 0, sg * (r * 1.22 + 0.02)), V(0, 0, sg))); windowAt(b, -0.3, cy - 0.3, 0.6, 0.6, 1, s + 5 + sg); b.pop(); }
     b.set(MAT.WOOD, TIMBER, s + 6);
     for (const xx of [-L * 0.3, L * 0.3]) { b.box(xx, 0.12, 0, 0.18, 0.24, r * 2.2); for (const sg of [-1, 1]) b.beam(V(xx, 0.1, sg * r), V(xx, cy * 0.6, sg * r * 1.1), 0.14, 0.14); }
-    if (!out.mill) { b.set(MAT.WOOD, TIMBER, s + 7); b.beam(V(0.3, cy + r * 1.1, 0), V(0.3, cy + r + 1.7, 0), 0.1, 0.1); out.mill = { p: b.world(0.3, cy + r + 1.7, 0.1), yaw }; }
+    if (out.mills.length < 6) { b.set(MAT.WOOD, TIMBER, s + 7); b.beam(V(0.3, cy + r * 1.1, 0), V(0.3, cy + r + 1.7, 0), 0.1, 0.1); out.mills.push({ p: b.world(0.3, cy + r + 1.7, 0.1), yaw }); }
     H.port = (sx) => b.world(sx * (L / 2 + 0.3), 0, 0);
     light(0, cy, r * 1.22 + 1.2);
   } else if (k === "dome") {
@@ -942,8 +978,8 @@ function buildHouse(b, sb, out, H, x, y, z, yaw) {
   return H;
 }
 
-function city(b, sb, out) {
-  const T = TREES[0], R = rng(9), occ = [], houses = [];
+function city(b, sb, out, ti, o) {
+  const T = TREES[ti], R = rng(o.seed), occ = out.occ, houses = [], TIERS = o.tiers, yLo = TIERS[0], yHi = TIERS[TIERS.length - 1];
   const fits = (x, z, r, y0, y1, skip = null, tag = null) => occ.every((o) => o === skip || (tag && o.tag === tag) || y1 < o.y0 || y0 > o.y1 || Math.hypot(x - o.x, z - o.z) > r + o.r);
   const claim = (x, z, r, y0, y1, tag = null) => { const o = { x, z, r, y0, y1, tag }; occ.push(o); return o; };
   const green = (s) => out.clumps.push({ p: s.p, s: s.s, seed: R(), cell: s.cell ?? (R() < 0.3 ? 3 : 0), col: [0.09 + R() * 0.06, 0.16 + R() * 0.08, 0.09 + R() * 0.05], fl: [0.8, 0.66, 0.95], drape: s.drape });
@@ -951,30 +987,70 @@ function city(b, sb, out) {
   const axisD = (x, z, y) => { const [ax, az] = tAxis(T, y); return Math.hypot(x - ax, z - az); };
   const KINDS_LO = ["gable", "gable", "gable", "shed", "thatch", "aframe", "barrel", "witch", "gable", "shed"];
   const KINDS_HI = ["gable", "witch", "witch", "tower", "shed", "onion", "gable", "aframe", "dome", "thatch"];
-  const kindAt = (y) => pick(R, y < 34 ? KINDS_LO : KINDS_HI);
+  const kindAt = (y) => pick(R, y < T.h * 0.3 ? KINDS_LO : KINDS_HI);
 
-  // the six great limbs, with their reach claimed so nothing is built through them
-  const LIMBS = [[17.5, 0.5], [24.5, 2.9], [31, 5.1], [37.5, 1.6], [44, 4.0], [51, 6.0]];
-  const limbs = LIMBS.map(([y, a], i) => {
-    const [ax, az] = tAxis(T, y), d = V(Math.sin(a), 0, Math.cos(a)), r0 = tRad(T, y) * 0.24, len = 17 + R() * 4, rise = 3 + R() * 2.5;
-    const P = (t) => V(ax, y, az).addScaledVector(d, tRad(T, y) * 0.7 + len * t).add(V(0, rise * t * t - 0.8 * Math.sin(t * Math.PI), 0)).add(V(-d.z, 0, d.x).multiplyScalar(Math.sin(t * 2.2) * 1.5 * (i % 2 ? 1 : -1)));
+  // a great limb from the trunk at height y toward angle a, its reach claimed so nothing is built through it
+  const makeLimb = (y, a, len, rise, i, wig = 1.5, high = 0.1) => {
+    const [ax, az] = tAxis(T, y), d = V(Math.sin(a), 0, Math.cos(a)), r0 = tRad(T, y) * 0.24;
+    const P = (t) => V(ax, y, az).addScaledVector(d, tRad(T, y) * 0.7 + len * t).add(V(0, rise * t * t - 0.8 * Math.sin(t * Math.PI), 0)).add(V(-d.z, 0, d.x).multiplyScalar(Math.sin(t * 2.2) * wig * (i % 2 ? 1 : -1)));
     const rr = (t) => r0 * (1 - 0.65 * t);
     b.room(0, 0, 0); b.set(MAT.BARK, [1, 1, 1], 300 + i, TAU * r0); b.tube(Array.from({ length: 13 }, (_, k) => P(k / 12)), rr, 10);
-    for (let t = 0.12; t <= 1; t += 0.08) { const p = P(t); claim(p.x, p.z, rr(t) + 0.35, p.y - rr(t) - 0.3, p.y + rr(t) + 0.1, "limb" + i); }
+    for (let t = 0.12; t <= 1; t += 0.06) { const p = P(t); claim(p.x, p.z, rr(t) + 0.35, p.y - rr(t) - 0.3, p.y + rr(t) + high, "limb" + ti + ":" + i); }
     // side branches with leaves, and greenery hanging along it
     for (let k = 0; k < 4; k++) {
-      const t0 = 0.3 + k * 0.2 + R() * 0.08, p0 = P(t0), sa = a + (k % 2 ? 1 : -1) * (0.6 + R() * 0.6), sd = V(Math.sin(sa), 0, Math.cos(sa)), sl = 4 + R() * 4;
+      const t0 = 0.3 + k * 0.17 + R() * 0.08, p0 = P(t0), sa = a + (k % 2 ? 1 : -1) * (0.6 + R() * 0.6), sd = V(Math.sin(sa), 0, Math.cos(sa)), sl = 4 + R() * 4;
       const sp = Array.from({ length: 5 }, (_, q) => p0.clone().addScaledVector(sd, sl * q / 4).add(V(0, sl * 0.5 * (q / 4) ** 1.4, 0)));
       b.set(MAT.BARK, [1, 1, 1], 320 + i * 10 + k, TAU * rr(t0) * 0.4); b.tube(sp, (t) => rr(t0) * 0.42 * (1 - 0.8 * t), 6);
       green({ p: sp[4], s: 2.4 + R() }); green({ p: sp[2].clone().add(V(0, 0.8, 0)), s: 1.8 + R() * 0.6 });
     }
-    for (const t of [1, 0.92]) green({ p: P(t).add(V((R() - 0.5) * 2, 0.6 + R(), (R() - 0.5) * 2)), s: 2.6 + R() });
     for (let k = 0; k < 6; k++) green({ p: P(0.2 + R() * 0.8).add(V(0, -rr(0.5) * 0.8, 0)), s: 1.4 + R() * 1.2, drape: true, cell: R() < 0.5 ? 2 : 3 });
     return { P, rr, a, y, i };
+  };
+  // first the limbs that reach for the neighbouring trees: a plank walk along the top, a platform at the tip
+  o.connectors.forEach((c, ci) => {
+    const y0 = c.y - 3, len = c.reach - tRad(T, y0) * 0.7, L = makeLimb(y0, c.a, len, 3, 50 + ci, 0, 1.8);
+    const tip = L.P(1), yP = tip.y + L.rr(1) + 0.1;
+    // the plank walk, with a rope rail on one side and lanterns along it
+    const side = V(Math.cos(c.a), 0, -Math.sin(c.a)), rail = [];
+    b.room(0, 0, 0);
+    for (let t = 0.1, k = 0; t <= 0.93; t += 0.33 / len, k++) {
+      const p = L.P(t).add(V(0, L.rr(t) + 0.03, 0)), q = L.P(Math.min(1, t + 0.01)).add(V(0, L.rr(Math.min(1, t + 0.01)) + 0.03, 0)), T2 = V().subVectors(q, p).normalize();
+      const up = V().crossVectors(T2, side).normalize();
+      b.push(new THREE.Matrix4().makeBasis(side, up, T2).setPosition(p)); b.set(MAT.WOOD, [0.42 + h1(k) * 0.1, 0.33, 0.24], 2000 + k); b.box(0, 0, 0, 0.8, 0.05, 0.24); b.pop();
+      if (k % 6 === 0) { const r0 = p.clone().addScaledVector(side, 0.42); b.set(MAT.WOOD, TIMBER, 2000); b.beam(r0.clone().add(V(0, -0.15, 0)), r0.clone().add(V(0, 1.0, 0)), 0.07, 0.07); rail.push(r0.clone().add(V(0, 0.98, 0))); if (k % 18 === 0) lantern(sb, r0.clone().add(V(0, 1.02, 0)), 0.1, [1.0, 0.62, 0.32], 4, 2100 + k + ci * 100, 1); }
+    }
+    b.set(MAT.ROPE, [0.5, 0.42, 0.3], 2001); if (rail.length > 1) b.tube(rail, 0.025, 4);
+    stringLights(out, rail, 0.5, ci + 2);
+    const pts = poly(tip.x, yP, tip.z, Array.from({ length: 9 }, () => 2.8 + R() * 0.5), R());
+    c.end = edgeAt(pts, tip.x, tip.z, c.a); c.tip = tip; c.yP = yP;
+    b.room(0, 0, 0); deck(b, pts, [c.end, edgeAt(pts, tip.x, tip.z, c.a + Math.PI)], 2200 + ci);
+    for (const p of [pts[1], pts[4], pts[7]]) b.beam(p.clone().lerp(tip, 0.25).add(V(0, -0.2, 0)), tip.clone().add(V(0, -L.rr(1) * 0.3, 0)), 0.14, 0.14);
+    claim(tip.x, tip.z, 3.4, yP - 1, yP + 4.5);
+    lantern(sb, c.end.clone().addScaledVector(side, 0.9).add(V(0, 2.3, 0)), 0.3, [1.0, 0.65, 0.35], 6, 2300 + ci);
+    b.set(MAT.WOOD, TIMBER, 2301); b.beam(c.end.clone().addScaledVector(side, 0.9), c.end.clone().addScaledVector(side, 0.9).add(V(0, 2.45, 0)), 0.12, 0.12);
+    out.lights.push({ p: c.end.clone().addScaledVector(side, 0.9).add(V(0, 1.8, 0)), c: WARM, i: 4, s: 1 });
+    if (c.cable) {                              // the cable car's station: a pylon with the wheel the cable runs over
+      const base = tip.clone().setY(yP).addScaledVector(side, -1.1);
+      b.set(MAT.WOOD, TIMBER, 2310); b.beam(base, base.clone().add(V(0, 4.2, 0)), 0.22, 0.22); b.beam(base.clone().add(V(0, 1.5, 0)).addScaledVector(side, 1.1), base.clone().add(V(0, 3.9, 0)), 0.1, 0.1);
+      b.set(MAT.METAL, IRON, 2311, 0.1); b.push(new THREE.Matrix4().makeTranslation(base.x, base.y + 4.25, base.z).multiply(new THREE.Matrix4().makeRotationY(c.a + Math.PI / 2)).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2))); b.lathe([[0.4, -0.05], [0.42, 0], [0.4, 0.05]], 16); b.pop();
+      c.top = base.clone().add(V(0, 4.25, 0));
+    } else if (R() < 0.7) {                     // a gatehouse beside the landing
+      const H = planHouse(R, pick(R, ["witch", "shed", "tower", "gable"]), 0.62), hp = tip.clone().addScaledVector(side, (R() < 0.5 ? -1 : 1) * 1.15).add(V(Math.sin(c.a), 0, Math.cos(c.a)).multiplyScalar(-0.5));
+      buildHouse(b, sb, out, H, hp.x, yP, hp.z, c.a + Math.PI / 2 + (R() - 0.5) * 0.4);
+      H.level = 2; houses.push(H);
+    }
+    c.limb = L;
   });
+  // then the great limbs, away from the ones reaching for the neighbours
+  const limbs = [];
+  for (let tries = 0; limbs.length < o.nLimbs && tries < 300; tries++) {
+    const y = lerp(yLo + 3, yHi - 2, (limbs.length + R() * 0.6) / o.nLimbs), a = R() * TAU;
+    if (o.connectors.some((c) => Math.abs(Math.atan2(Math.sin(a - c.a), Math.cos(a - c.a))) < 0.8 && Math.abs(c.y - y) < 12)) continue;
+    if (limbs.some((l) => Math.abs(Math.atan2(Math.sin(a - l.a), Math.cos(a - l.a))) < 0.6 && Math.abs(l.y - y) < 9)) continue;
+    limbs.push(makeLimb(y, a, (17 + R() * 4) * T.r / 5.4 + 2, 3 + R() * 2.5, limbs.length));
+  }
 
-  // platforms round the trunk in broken arcs, seven levels
-  const TIERS = [14, 20.5, 27, 33.5, 40, 46.5, 53];
+  // platforms round the trunk in broken arcs, one ring of them per level
   const segs = [];
   TIERS.forEach((y0, ti) => {
     let a = ti * 2.4 + R() * 0.5;
@@ -987,7 +1063,6 @@ function city(b, sb, out) {
       a += span + 0.25 + R() * 0.45;
     }
   });
-  const T0c = tAxis(T, 30);
   for (const g of segs) {
     const n = Math.max(4, Math.round((g.a1 - g.a0) * (g.rIn + 3) / 1.2)), y = g.y, t = 0.24, I = [], O = [];
     for (let i = 0; i <= n; i++) { const a = lerp(g.a0, g.a1, i / n); I.push(at(T, a, g.rIn, y)); O.push(at(T, a, g.rOut(a), y)); }
@@ -1039,7 +1114,7 @@ function city(b, sb, out) {
     for (const t of [0.48, 0.74, 0.97]) {
       const c = L.P(t), H = planHouse(R, pick(R, ["gable", "shed", "witch", "thatch", "aframe", "barrel", "tower", "gable", "dome"]), 0.85);
       const y = c.y + L.rr(t) + 0.12;
-      if (axisD(c.x, c.z, y) - H.r < sr(y) + 0.5 || !fits(c.x, c.z, H.r + 0.3, y + 0.02, y + H.top * 0.85, null, "limb" + li)) continue;
+      if (axisD(c.x, c.z, y) - H.r < sr(y) + 0.5 || !fits(c.x, c.z, H.r + 0.3, y + 0.02, y + H.top * 0.85, null, "limb" + ti + ":" + L.i)) continue;
       H.claim = claim(c.x, c.z, H.r + 0.3, y - L.rr(t), y + (H.stack ?? H.top * 0.85));
       const pts = poly(c.x, y, c.z, Array.from({ length: 8 }, () => H.r + 0.5 + R() * 0.4), R());
       b.room(0, 0, 0); deck(b, pts, [], 600 + li);
@@ -1051,7 +1126,7 @@ function city(b, sb, out) {
       const t = 0.62 + R() * 0.2, c = L.P(t), pv = c.clone().add(V(0, -L.rr(t), 0)), drop = 5 + R() * 2, base = pv.y - drop - 3.45;
       if (fits(pv.x, pv.z, 1.6, base - 0.3, pv.y - 0.5)) {
         claim(pv.x, pv.z, 1.6, base - 0.3, base + 3.5);
-        const lav = pick(R, [[0.58, 0.52, 0.76], [0.8, 0.62, 0.5], [0.5, 0.62, 0.6], [0.75, 0.5, 0.55]]), s = 700 + li * 10;
+        const lav = pick(R, [[0.58, 0.52, 0.76], [0.8, 0.62, 0.5], [0.5, 0.62, 0.6], [0.75, 0.5, 0.55]]), s = 700 + li * 10 + ti * 100;
         sb.st.piv = [pv.x, pv.y, pv.z, 0.014];
         sb.room(pv.x, base, pv.z, R() * TAU);
         sb.set(MAT.SCALE, lav, s); sb.lathe([[0.12, 0], [0.7, 0.25], [1.25, 0.9], [1.45, 1.6], [1.35, 2.3], [0.95, 2.95], [0.35, 3.35], [0.05, 3.45]], 28);
@@ -1072,8 +1147,8 @@ function city(b, sb, out) {
   });
 
   // houses perched on brackets straight off the trunk, between the platforms
-  for (let k = 0, placed = 0; k < 900 && placed < 46; k++) {
-    const y = 15 + R() * 42, a = R() * TAU, H = planHouse(R, pick(R, ["gable", "shed", "witch", "tower", "barrel", "gable", "onion"]), 0.85);
+  for (let k = 0, placed = 0; k < o.perched * 20 && placed < o.perched; k++) {
+    const y = yLo + 1 + R() * (yHi - yLo + 3), a = R() * TAU, H = planHouse(R, pick(R, ["gable", "shed", "witch", "tower", "barrel", "gable", "onion"]), 0.85);
     const rm = sr(y) + H.r * 0.95, p = at(T, a, rm, y);
     if (!fits(p.x, p.z, H.r * 0.95, y - 0.9, y + H.top * 0.85)) continue;
     H.claim = claim(p.x, p.z, H.r * 0.95, y - 0.9, y + (H.stack ?? H.top * 0.85));
@@ -1112,7 +1187,7 @@ function city(b, sb, out) {
     }
     return true;
   };
-  for (let i = 0; i < houses.length && nb < 26; i++) {
+  for (let i = 0; i < houses.length && nb < o.bridges; i++) {
     const A = houses[i];
     const cand = houses.map((B, j) => ({ B, j, d: Math.hypot(A.x - B.x, A.z - B.z) })).filter(({ B, j, d }) => j !== i && Math.abs(A.y - B.y) < 2.6 && d > A.r + B.r + 1.5 && d < A.r + B.r + 9 && !linked.has(Math.min(i, j) + ":" + Math.max(i, j))).sort((p, q) => p.d - q.d);
     for (const { B, j } of cand.slice(0, 2)) {
@@ -1121,13 +1196,13 @@ function city(b, sb, out) {
       if (!clear(pa, pb, A.claim, B.claim)) continue;
       linked.add(Math.min(i, j) + ":" + Math.max(i, j));
       b.room(0, 0, 0);
-      const br = bridge(b, pa, pb, 0.25 + pa.distanceTo(pb) * 0.05, 800 + nb);
+      const br = bridge(b, pa, pb, 0.25 + pa.distanceTo(pb) * 0.05, 800 + nb + ti * 100);
       if (nb % 2 === 0) stringLights(out, Array.from({ length: 21 }, (_, k) => br.rail(k / 20, 1).add(V(0, 0.04, 0))), 0.5, nb % 4 ? 3 + nb : 0);
       nb++;
       break;
     }
   }
-  out.bridges = nb;
+  out.bridges += nb;
 
   // the spiral stair round the trunk, from the lowest platform to the highest
   {
@@ -1140,7 +1215,7 @@ function city(b, sb, out) {
       b.set(MAT.WOOD, [0.45, 0.35, 0.25], 900 + i); b.box(0, 0, 0, 1.15, 0.06, 0.36); b.pop();
       b.set(MAT.WOOD, TIMBER, 900); b.beam(p.clone().addScaledVector(d, 0.5).add(V(0, -0.04, 0)), V(ax, y - 0.8, az).addScaledVector(d, ri * 0.97), 0.06, 0.06);
       if (i % 3 === 0) { const q = p.clone().addScaledVector(d, 0.52); b.beam(q, q.clone().add(V(0, 0.95, 0)), 0.06, 0.06); rail.push(q.clone().add(V(0, 0.95, 0))); }
-      if (i % 11 === 0) lantern(sb, V(ax, y + 2.2, az).addScaledVector(d, ri + 0.15), 0.2, [1.0, 0.62, 0.32], 4, 950 + i, 1);
+      if (i % 11 === 0) lantern(sb, V(ax, y + 2.2, az).addScaledVector(d, ri + 0.15), 0.2, [1.0, 0.62, 0.32], 4, 950 + i + ti * 1000, 1);
     }
     b.set(MAT.ROPE, [0.5, 0.42, 0.3], 901); b.tube(rail, 0.03, 5);
   }
@@ -1153,8 +1228,8 @@ function city(b, sb, out) {
     out.launch.push(g.O[Math.floor(g.O.length / 2)].clone().lerp(at(T, (g.a0 + g.a1) / 2, g.rIn, g.y), 0.3));
   });
   b.room(0, 0, 0);
-  for (let k = 0; k < 7; k++) fungus(b, T, 8 + k * 7.5, k * 2.1 + 0.3, 6, pick(R, [[0.25, 0.95, 0.85], [0.45, 0.75, 1.0], [0.55, 0.5, 1.0], [0.3, 1.0, 0.7]]), 1200 + k * 10);
-  out.lights.push({ p: at(T, 0.3, tRad(T, 8) + 1.3, 8), c: [0.3, 1.0, 0.9], i: 2.2, s: 0.8 });
+  for (let k = 0; k < TIERS.length; k++) fungus(b, T, TIERS[k] - 5, k * 2.1 + 0.3 + ti, 6, pick(R, [[0.25, 0.95, 0.85], [0.45, 0.75, 1.0], [0.55, 0.5, 1.0], [0.3, 1.0, 0.7]]), 1200 + k * 10 + ti * 100);
+  out.lights.push({ p: at(T, 0.3 + ti, tRad(T, yLo - 5) + 1.3, yLo - 5), c: [0.3, 1.0, 0.9], i: 2.2, s: 0.8 });
 
   // a rope ladder from the lowest platform down into the mist, and a basket on a pulley
   const low = segs.filter((g) => g.ti === 0);
@@ -1165,7 +1240,7 @@ function city(b, sb, out) {
     b.set(MAT.WOOD, TIMBER, 1301); b.beam(dv, dv.clone().add(V(0, 2.5, 0)), 0.14, 0.14); b.beam(dv.clone().add(V(0, 2.35, 0)), arm.clone().add(V(Math.sin(aq) * 0.15, 0, Math.cos(aq) * 0.15)), 0.12, 0.12);
     b.beam(dv.clone().add(V(0, 1.4, 0)), dv.clone().add(V(Math.sin(aq) * 0.9, 2.35, Math.cos(aq) * 0.9)), 0.08, 0.08);
     b.set(MAT.ROPE, [0.5, 0.42, 0.3], 1302); b.tube([arm.clone().add(V(0, -0.2, 0)), arm.clone().setY(0.5)], 0.016, 4);
-    out.basket = { top: arm.clone().add(V(0, -0.3, 0)) };
+    out.baskets.push({ top: arm.clone().add(V(0, -0.3, 0)), ph: R() });
   }
   // bunting between a few neighbours
   for (let i = 0, n = 0; i < houses.length && n < 6; i += 7) {
@@ -1174,8 +1249,8 @@ function city(b, sb, out) {
     bunting(b, V(A.x, A.y + A.top * 0.8, A.z), V(B.x, B.y + B.top * 0.8, B.z), 0.6, 1400 + i); n++;
   }
   // leafy branches growing out of the trunk between the houses, wherever there is room
-  for (let k = 0, made = 0; k < 1500 && made < 110; k++) {
-    const y = 10 + R() * 50, a = R() * TAU, [ax, az] = tAxis(T, y), d = V(Math.sin(a), 0, Math.cos(a)), len = 6 + R() * 6, rise = 2 + R() * 4, r0 = 0.28 + R() * 0.18;
+  for (let k = 0, made = 0; k < o.branches * 14 && made < o.branches; k++) {
+    const y = yLo - 4 + R() * (yHi - yLo + 8), a = R() * TAU, [ax, az] = tAxis(T, y), d = V(Math.sin(a), 0, Math.cos(a)), len = 6 + R() * 6, rise = 2 + R() * 4, r0 = 0.28 + R() * 0.18;
     const P = (t) => V(ax, y, az).addScaledVector(d, tRad(T, y) * 0.8 + len * t).add(V(0, rise * t * t, 0)).add(V(-d.z, 0, d.x).multiplyScalar(Math.sin(t * 3 + k) * 0.8));
     let ok = true;
     for (let t = 0.25; t <= 0.8 && ok; t += 0.11) { const p = P(t); ok = occ.every((o) => p.y < o.y0 - 0.3 || p.y > o.y1 + 0.3 || Math.hypot(p.x - o.x, p.z - o.z) > o.r + 0.15); }
@@ -1187,7 +1262,7 @@ function city(b, sb, out) {
   }
   // leaves crowding round every house: at its sides and back and over its roof, leaving the front and its windows clear
   for (const h of houses) {
-    const n = 3 + Math.floor(R() * 3);
+    const n = 2 + Math.floor(R() * 3);
     for (let q = 0; q < n; q++) {
       const th = h.yaw + Math.PI + (R() < 0.5 ? -1 : 1) * (0.3 + R() * 1.9), rr = h.r * (0.75 + R() * 0.35) + 0.3;
       const top = h.top ?? 3, y = h.y + (q === 0 ? top * (0.85 + R() * 0.3) : top * (0.35 + R() * 0.7));
@@ -1200,8 +1275,8 @@ function city(b, sb, out) {
   for (const h of houses) if (h.deck && R() < 0.8) green({ p: h.deck[Math.floor(R() * h.deck.length)].clone().add(V(0, -0.15, 0)), s: 1.5 + R() * 1.4, drape: true, cell: R() < 0.5 ? 2 : 3 });
 
   // ivy and ferns on the bark, plants in tubs on the platforms
-  for (let k = 0; k < 140; k++) {
-    const y = 4 + R() * 58, a = R() * TAU;
+  for (let k = 0, n = Math.round(140 * (yHi - yLo + 10) / 49); k < n; k++) {
+    const y = 4 + R() * (yHi + 4), a = R() * TAU;
     green({ p: at(T, a, tRad(T, y) * 1.02, y), s: 1.3 + R() * 1.6, cell: R() < 0.5 ? 3 : 0, drape: R() < 0.35 });
   }
   for (const g of segs) for (let k = 0; k < 3; k++) {
@@ -1210,7 +1285,150 @@ function city(b, sb, out) {
     b.room(p.x, g.y, p.z, 0); b.set(MAT.PLANK, [0.45, 0.32, 0.22], 1500 + k); b.lathe([[0.3, 0], [0.38, 0.45], [0, 0.45]], 10);
     out.flowers.push({ p: p.clone().add(V(0, 0.75, 0)), s: 0.5 + R() * 0.3, seed: R() });
   }
-  out.houses = houses.length;
+  details(b, sb, out, T, R, houses, segs, limbs, fits, claim, green);
+  out.houses += houses.length;
+}
+
+// small things that make it lived in: washing lines, hammocks, rope swings, birdhouses, rain barrels, a telescope
+function details(b, sb, out, T, R, houses, segs, limbs, fits, claim, green) {
+  const CLOTH = [[0.85, 0.82, 0.75], [0.75, 0.3, 0.3], [0.4, 0.55, 0.7], [0.9, 0.78, 0.45], [0.55, 0.65, 0.5], [0.7, 0.55, 0.75], [0.95, 0.92, 0.88]];
+  // leaves at the tips of the great limbs
+  for (const L of limbs) for (const t of [1, 0.92]) green({ p: L.P(t).add(V((R() - 0.5) * 2, 0.6 + R(), (R() - 0.5) * 2)), s: 2.6 + R() });
+  // washing hung out between neighbours
+  let lines = 0;
+  for (let i = 0; i < houses.length && lines < 4; i++) {
+    const A = houses[i];
+    const B = houses.find((h) => h !== A && Math.abs(h.y - A.y) < 1.2 && Math.hypot(h.x - A.x, h.z - A.z) > A.r + h.r + 0.8 && Math.hypot(h.x - A.x, h.z - A.z) < A.r + h.r + 5);
+    if (!B || R() < 0.4) continue;
+    const ab = V(B.x - A.x, 0, B.z - A.z).normalize(), y = Math.min(A.y, B.y) + 2.05;
+    const P0 = V(A.x, y, A.z).addScaledVector(ab, A.r * 0.8), P1 = V(B.x, y, B.z).addScaledVector(ab, -B.r * 0.8), m = P0.clone().lerp(P1, 0.5);
+    if (!fits(m.x, m.z, 0.3, y - 1.0, y, null, "deck")) continue;
+    const pts = sagLine(P0, P1, 0.25, 16), len = P0.distanceTo(P1), n = V().crossVectors(ab, UP);
+    b.room(0, 0, 0); b.set(MAT.ROPE, [0.7, 0.68, 0.62], 2700 + i); b.tube(pts, 0.01, 3);
+    for (let t = 0.12; t < 0.9; t += (0.5 + R() * 0.3) / len) {
+      if (R() < 0.2) continue;
+      const w = 0.3 + R() * 0.3, hh = 0.35 + R() * 0.5, q = sagLine(P0, P1, 0.25, 1000), at2 = (u) => q[Math.round(clamp(u, 0, 1) * 1000)];
+      const a = at2(t - w / 2 / len), c = at2(t + w / 2 / len);
+      b.set(MAT.FABRIC, pick(R, CLOTH), 2710 + i);
+      const vv = (p, dy, u) => [p.x, p.y - dy, p.z, n.x, 0, n.z, u, dy];
+      b.tri(vv(a, 0, 0), vv(c, 0, 1), vv(c, hh, 1)); b.tri(vv(a, 0, 0), vv(c, hh, 1), vv(a, hh * (0.9 + R() * 0.2), 0));
+    }
+    lines++;
+  }
+  // hammocks slung along the platform edges
+  let ham = 0;
+  for (const g of segs) {
+    if (ham >= 2 || g.O.length < 6 || R() < 0.5) continue;
+    const i = 1 + Math.floor(R() * (g.O.length - 4)), [ax, az] = tAxis(T, g.y);
+    const inw = (p) => p.clone().lerp(V(ax, g.y, az), 0.55 / p.distanceTo(V(ax, g.y, az)));
+    const A = inw(g.O[i]).add(V(0, 1.0, 0)), B = inw(g.O[i + 2]).add(V(0, 1.0, 0)), m = A.clone().lerp(B, 0.5);
+    if (A.distanceTo(B) < 2 || !fits(m.x, m.z, 0.8, g.y + 0.1, g.y + 1.5, null, "deck")) continue;
+    const pts = sagLine(A, B, 0.6, 12), d = V().subVectors(B, A).setY(0).normalize(), s = V().crossVectors(UP, d).multiplyScalar(0.38);
+    b.room(0, 0, 0); b.set(MAT.FABRIC, pick(R, [[0.75, 0.35, 0.3], [0.4, 0.5, 0.7], [0.85, 0.75, 0.5]]), 2800 + ham);
+    for (let k = 0; k < pts.length - 1; k++) {
+      const p = pts[k], q = pts[k + 1], f = (u) => Math.sin(u * Math.PI) * 0.12;
+      b.quad(p.clone().sub(s).add(V(0, f(k / 12), 0)), q.clone().sub(s).add(V(0, f((k + 1) / 12), 0)), q.clone().add(s).add(V(0, f((k + 1) / 12), 0)), p.clone().add(s).add(V(0, f(k / 12), 0)), [[0, 0], [0, 0], [1, 0], [1, 0]]);
+    }
+    b.set(MAT.ROPE, [0.6, 0.55, 0.45], 2801); b.tube([A.clone().add(V(0, 0.3, 0)), pts[1]], 0.012, 3); b.tube([B.clone().add(V(0, 0.3, 0)), pts[11]], 0.012, 3);
+    b.set(MAT.WOOD, TIMBER, 2802); b.beam(A.clone().add(V(0, -1.0, 0)), A.clone().add(V(0, 0.35, 0)), 0.09, 0.09); b.beam(B.clone().add(V(0, -1.0, 0)), B.clone().add(V(0, 0.35, 0)), 0.09, 0.09);
+    ham++;
+  }
+  // rope swings under the limbs, swinging
+  for (const L of limbs) {
+    if (R() < 0.45) continue;
+    const t = 0.45 + R() * 0.2, c = L.P(t), pv = c.clone().add(V(0, -L.rr(t), 0)), len = 3 + R() * 1.5;
+    if (!fits(pv.x, pv.z, 0.8, pv.y - len - 0.4, pv.y - 0.6)) continue;
+    const s = V(Math.cos(L.a), 0, -Math.sin(L.a)).multiplyScalar(0.32);
+    sb.st.piv = [pv.x, pv.y, pv.z, 0.1 + R() * 0.06];
+    sb.room(0, 0, 0); sb.set(MAT.ROPE, [0.5, 0.42, 0.3], 2900 + L.i);
+    for (const k of [-1, 1]) sb.tube([pv.clone().addScaledVector(s, k), pv.clone().addScaledVector(s, k).add(V(0, -len, 0))], 0.018, 4);
+    const seat = pv.clone().add(V(0, -len, 0));
+    sb.set(MAT.WOOD, [0.5, 0.36, 0.24], 2901); sb.beam(seat.clone().addScaledVector(s, -1.25), seat.clone().addScaledVector(s, 1.25), 0.3, 0.05);
+    sb.st.piv = [0, 0, 0, 0];
+  }
+  // birdhouses on the bark
+  for (let k = 0, made = 0; k < 40 && made < 8; k++) {
+    const y = TREES.indexOf(T) >= 0 ? 6 + R() * (segs.reduce((m, g) => Math.max(m, g.y), 0) - 2) : 10, a = R() * TAU, p = at(T, a, tRad(T, y) * 0.98 + 0.18, y);
+    if (!fits(p.x, p.z, 0.45, y - 0.3, y + 0.6)) continue;
+    b.room(p.x, y, p.z, a);
+    const col = pick(R, [[0.75, 0.4, 0.3], [0.4, 0.55, 0.65], [0.85, 0.75, 0.5], [0.55, 0.65, 0.45]]);
+    b.set(MAT.PLANK, col, 3000 + k); b.box(0, 0.17, 0.05, 0.28, 0.34, 0.26);
+    gableRoof(b, 0.26, 0.26, 0.34, 0.16, 0.05, MAT.SHINGLE, pick(R, ROOFS)[1], MAT.PLANK, col, 3001 + k);
+    b.set(MAT.WOOD, [0.02, 0.015, 0.01], 3002); b.box(0, 0.22, 0.185, 0.08, 0.08, 0.01);
+    b.set(MAT.WOOD, TIMBER, 3003); b.box(0, 0.12, 0.23, 0.02, 0.02, 0.1); b.box(0, -0.02, 0.0, 0.06, 0.08, 0.06);
+    claim(p.x, p.z, 0.4, y - 0.1, y + 0.6); made++;
+  }
+  // rain barrels on the platforms, a downpipe from above
+  for (const g of segs) {
+    if (R() < 0.6) continue;
+    const a = lerp(g.a0, g.a1, 0.2 + R() * 0.6), p = at(T, a, g.rOut(a) - 0.6, g.y);
+    if (!fits(p.x, p.z, 0.45, g.y + 0.05, g.y + 1.0, null, "deck")) continue;
+    b.room(p.x, g.y, p.z, R() * TAU);
+    b.set(MAT.BOARDV, [0.5, 0.35, 0.22], 3100); b.lathe([[0.28, 0], [0.33, 0.4], [0.28, 0.8], [0, 0.8]], 12);
+    b.set(MAT.METAL, IRON, 3101, 0.1); b.lathe([[0.31, 0.18], [0.31, 0.24]], 12); b.lathe([[0.31, 0.58], [0.31, 0.64]], 12);
+    b.set(MAT.METAL, [0.35, 0.33, 0.3], 3102, 0.4); b.tube([V(0.1, 0.75, 0), V(0.1, 2.3, 0), V(0.25, 2.5, 0)], 0.04, 6);
+    claim(p.x, p.z, 0.45, g.y, g.y + 2.5);
+  }
+  // a telescope on the highest platform, pointed at the moon
+  const top = segs.filter((g) => g.ti === CITY[TREES.indexOf(T)].tiers.length - 1);
+  for (const g of top.slice(0, 1)) {
+    const a = lerp(g.a0, g.a1, 0.5), p = at(T, a, g.rOut(a) - 0.9, g.y);
+    if (!fits(p.x, p.z, 0.6, g.y + 0.05, g.y + 1.8, null, "deck")) continue;
+    const tp = p.clone().add(V(0, 1.15, 0));
+    b.room(0, 0, 0); b.set(MAT.WOOD, TIMBER, 3200);
+    for (let k = 0; k < 3; k++) { const aa = k * TAU / 3; b.beam(p.clone().add(V(Math.sin(aa) * 0.45, 0, Math.cos(aa) * 0.45)), tp, 0.05, 0.05); }
+    b.set(MAT.METAL, BRASS, 3201, 0.2);
+    b.push(new THREE.Matrix4().makeTranslation(tp.x, tp.y, tp.z).multiply(new THREE.Matrix4().lookAt(V(), MOON_DIR, UP)).multiply(new THREE.Matrix4().makeRotationX(-Math.PI / 2)));
+    b.lathe([[0.06, 0.55], [0.06, 0.35], [0.075, 0.3], [0.075, -0.3], [0.09, -0.35], [0.1, -0.85], [0.08, -0.9]], 12); b.pop();
+    claim(p.x, p.z, 0.6, g.y, g.y + 1.8);
+  }
+}
+
+// all of it: plan where the trees reach for each other, build each tree's city, then bridge the gaps
+function world(b, sb, out) {
+  out.occ = [];
+  const cons = TREES.map(() => []);
+  for (const L of LINKS) {
+    const A = TREES[L.a], B = TREES[L.b], D = Math.hypot(B.x - A.x, B.z - A.z), gap = L.mid ? 24 : L.cable ? 14 : 10, reach = (D - gap) / 2;
+    L.ends = [{ a: Math.atan2(B.x - A.x, B.z - A.z), y: L.y, reach, cable: L.cable }, { a: Math.atan2(A.x - B.x, A.z - B.z), y: L.y, reach, cable: L.cable }];
+    cons[L.a].push(L.ends[0]); cons[L.b].push(L.ends[1]);
+  }
+  CITY.forEach((o, i) => city(b, sb, out, i, { ...o, connectors: cons[i] }));
+  const across = (A, B, seed) => {
+    b.room(0, 0, 0);
+    const br = bridge(b, A, B, 0.5 + A.distanceTo(B) * 0.045, seed);
+    for (const s of [-1, 1]) stringLights(out, Array.from({ length: 41 }, (_, k) => br.rail(k / 40, s).add(V(0, 0.04, 0))), 0.55, s > 0 ? seed % 7 + 1 : 0);
+    out.bridges++;
+  };
+  LINKS.forEach((L, li) => {
+    const [ca, cb] = L.ends;
+    if (L.cable) {
+      out.cables.push({ A: ca.top, B: cb.top, sag: 1.8 });
+      b.room(0, 0, 0); b.set(MAT.METAL, IRON, 2400, 0); b.tube(sagLine(ca.top, cb.top, 1.8, 60), 0.035, 5);
+      return;
+    }
+    if (L.mid) {
+      // a platform slung on ropes from both trunks, halfway across, with a little house on it
+      const M = ca.tip.clone().lerp(cb.tip, 0.5); M.y = (ca.yP + cb.yP) / 2 + 0.5;
+      const pts = poly(M.x, M.y, M.z, Array.from({ length: 10 }, (_, i) => 3.6 + 0.35 * Math.sin(i * 2.1)), 0.2);
+      const eA = edgeAt(pts, M.x, M.z, ca.a + Math.PI), eB = edgeAt(pts, M.x, M.z, cb.a + Math.PI);
+      b.room(0, 0, 0); deck(b, pts, [eA, eB], 2500);
+      b.set(MAT.ROPE, [0.45, 0.4, 0.32], 2501);
+      for (const [tr, ang] of [[TREES[L.a], ca.a], [TREES[L.b], cb.a]]) for (const s of [-1, 1]) {
+        const p = edgeAt(pts, M.x, M.z, ang + Math.PI + s * 1.1).add(V(0, 1.0, 0)), top = at(tr, ang + s * 0.25, tRad(tr, M.y + 20) * 0.95, M.y + 20);
+        b.tube(sagLine(p, top, 0.4, 16), 0.045, 5);
+      }
+      const side = V(Math.cos(ca.a), 0, -Math.sin(ca.a)), R = rng(4242), H = planHouse(R, "witch", 0.78);
+      const hp = M.clone().addScaledVector(side, 0.9);
+      buildHouse(b, sb, out, H, hp.x, M.y, hp.z, ca.a + Math.PI / 2);
+      lantern(sb, M.clone().addScaledVector(side, -1.6).add(V(0, 2.4, 0)), 0.25, [1.0, 0.6, 0.35], 6, 2502);
+      b.set(MAT.WOOD, TIMBER, 2503); b.beam(M.clone().addScaledVector(side, -1.6), M.clone().addScaledVector(side, -1.6).add(V(0, 2.55, 0)), 0.12, 0.12);
+      across(ca.end, eA, 2600 + li); across(eB, cb.end, 2650 + li);
+      out.houses++;
+      return;
+    }
+    across(ca.end, cb.end, 2600 + li);
+  });
 }
 
 // ---------------------------------------------------------------- the trees
@@ -1260,8 +1478,8 @@ function crown(b, tr, R, leaves, drapes, o) {
     if (!o.far) for (let k = 0; k < (o.dense ? 11 : 5); k++) clump(P(0.25 + R() * 0.75).add(V((R() - 0.5) * 4, (R() - 0.3) * 2.5, (R() - 0.5) * 4)), o.scale * (0.7 + R() * 0.3));
     if (drapes && o.drape) for (let k = 0; k < (o.dense ? 6 : 4); k++) { const p = P(0.35 + R() * 0.6); drapes.push({ p: p.add(V(0, -0.2, 0)), s: 1.6 + R() * 1.6, seed: R(), ...o.drape(R) }); }
   }
-  for (let k = 0; k < (o.far ? 3 : o.dense ? 40 : 6); k++) {      // the dome of the crown, filled in
-    const a = R() * TAU, [ax, az] = tAxis(tr, tr.h * 0.9), rr = o.dense ? 4 + R() * 18 : 2.5, yy = o.dense ? tr.h * (0.62 + 0.32 * R()) - rr * 0.35 : tr.h * (0.88 + R() * 0.1);
+  for (let k = 0; k < (o.far ? 3 : o.dense ? 26 : 6); k++) {      // the dome of the crown, filled in
+    const a = R() * TAU, [ax, az] = tAxis(tr, tr.h * 0.9), rr = o.dense ? 4 + R() * 18 : 2.5, yy = o.dense ? tr.h * (0.68 + 0.27 * R()) - rr * 0.3 : tr.h * (0.88 + R() * 0.1);
     clump(V(ax + Math.sin(a) * rr, yy, az + Math.cos(a) * rr), o.scale * 1.2);
   }
 }
@@ -1537,47 +1755,68 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     uMoonDir: { value: MOON_DIR.clone() }, uMoonCol: { value: V() }, uSkyA: { value: V() }, uSkyG: { value: V() }, uHor: { value: V() },
     uGlowDir: { value: GLOW_DIR.clone() }, uGlowCol: { value: V() },
     uLp: { value: Array.from({ length: NL }, () => V(0, -999, 0)) }, uLc: { value: Array.from({ length: NL }, () => V()) }, uLs: { value: new Array(NL).fill(1) },
-    uCity: { value: V(0.05, 0.028, 0.012) }, uCtr: { value: new THREE.Vector2(...CTR) }, uWind: { value: new THREE.Vector2(0.8, 0.5).normalize() },
+    uCity: { value: V(0.05, 0.028, 0.012) }, uCtr: { value: new THREE.Vector2(...CTR) }, uTrees: { value: TREES.map((t, i) => new THREE.Vector4(t.x, t.z, t.r / 5.4, CITY[i].tiers[CITY[i].tiers.length - 1])) }, uWind: { value: new THREE.Vector2(0.8, 0.5).normalize() },
     uShadow: { value: null }, uShadowM: { value: new THREE.Matrix4() }, uAtlas: { value: null },
   };
   const shader = (vert, frag, extra = {}) => new THREE.ShaderMaterial({ uniforms: SU, vertexShader: GLSL_COMMON + vert, fragmentShader: GLSL_COMMON + GLSL_LIGHT + GLSL_BUMP + frag, ...extra });
 
-  // ---- build: the village, the four great trees and their crowns, then the forest round them
+  // ---- build: the cities in the four great trees and the bridges between them, the crowns, then the forest round them
   HALOS.length = 0;
   const b = builder(), sb = builder(true), fb = builder();
-  const out = { lights: [], smoke: [], bulbs: [], flowers: [], clumps: [], vane: null, mill: null, basket: null, launch: [] };
+  const out = { lights: [], smoke: [], bulbs: [], flowers: [], clumps: [], vanes: [], mills: [], baskets: [], cables: [], launch: [], houses: 0, bridges: 0 };
   const leaves = [], drapes = [];
   const R = rng(2026);
-  city(b, sb, out);
+  world(b, sb, out);
   const green = (R) => ({ cell: 0, col: [0.09 + R() * 0.06, 0.16 + R() * 0.08, 0.1 + R() * 0.05], fl: [0, 0, 0] });
-  const LOOKS = [
-    { n: 42, y0: 57, y1: 106, len: 25, scale: 5.0, dense: true, leaf: (R) => (R() < 0.22 ? { cell: 1, col: [0.1, 0.18, 0.1], fl: [0.8, 0.66, 0.95] } : green(R)), drape: (R) => ({ cell: R() < 0.6 ? 2 : 3, col: [0.12, 0.2, 0.1], fl: [0.68 + R() * 0.1, 0.55, 0.95] }) },
+  const crownOf = (i, o) => ({ n: Math.round(42 * TREES[i].r / 5.4), y0: CITY[i].tiers[CITY[i].tiers.length - 1] + 4, y1: TREES[i].h * 0.95, len: 25 * TREES[i].r / 5.4, scale: 5.0 * (0.85 + 0.15 * TREES[i].r / 5.4), dense: true, ...o });
+  const LOOKS = [     // lilac blossom and wisteria; pink blossom and moss; wisteria; leaves turning gold
+    crownOf(0, { leaf: (R) => (R() < 0.22 ? { cell: 1, col: [0.1, 0.18, 0.1], fl: [0.8, 0.66, 0.95] } : green(R)), drape: (R) => ({ cell: R() < 0.6 ? 2 : 3, col: [0.12, 0.2, 0.1], fl: [0.68 + R() * 0.1, 0.55, 0.95] }) }),
+    crownOf(1, { leaf: (R) => (R() < 0.45 ? { cell: 1, col: [0.11, 0.17, 0.1], fl: [0.98, 0.62, 0.72] } : green(R)), drape: (R) => ({ cell: 3, col: [0.16 + R() * 0.05, 0.2, 0.1], fl: [0, 0, 0] }) }),
+    crownOf(2, { leaf: green, drape: (R) => ({ cell: 2, col: [0.12, 0.2, 0.1], fl: [0.62 + R() * 0.12, 0.52, 0.95] }) }),
+    crownOf(3, { leaf: (R) => (R() < 0.35 ? { cell: 0, col: [0.26 + R() * 0.06, 0.2 + R() * 0.04, 0.06], fl: [0, 0, 0] } : green(R)), drape: (R) => ({ cell: 3, col: [0.18, 0.2, 0.08], fl: [0, 0, 0] }) }),
   ];
   TREES.forEach((tr, i) => { trunk(b, tr, 0.8, 28, tr.h * 0.94); roots(b, tr, R); crown(b, tr, R, leaves, drapes, LOOKS[i]); });
   for (const c of out.clumps) (c.drape ? drapes : leaves).push(c);
   for (const f of out.flowers) leaves.push({ p: f.p, s: f.s, seed: f.seed, cell: 1, col: [0.12, 0.22, 0.1], fl: [[0.95, 0.5, 0.55], [0.95, 0.85, 0.5], [0.75, 0.6, 0.95]][Math.floor(f.seed * 3)] });
 
-  // how far out the village reaches round the circle you fly on, for each direction and height (2 m bands)
-  const NA = 90, NH = 36, EXT = new Float32Array(NA * NH), CLR = new Float32Array(NA * NH);
+  // where you must not fly: a grid of 1.5 m cells in 2 m bands, marked wherever anything is built, then grown by a
+  // few metres so you keep your distance
+  const G = { x0: GC[0] - 190, z0: GC[1] - 190, n: 254, cs: 1.5, nh: 40, hs: 2 };
+  const occG = new Uint8Array(G.n * G.n * G.nh);
   for (const P of [b.positions(), sb.positions()]) for (let i = 0; i < P.length; i += 3) {
-    const dx = P[i] - CTR[0], dz = P[i + 2] - CTR[1], y = P[i + 1]; if (y < 0) continue;
-    const a = Math.floor(((Math.atan2(dx, dz) / TAU) + 1) % 1 * NA) % NA, hb = Math.min(NH - 1, Math.floor(y / 2)), k = a * NH + hb;
-    EXT[k] = Math.max(EXT[k], Math.hypot(dx, dz));
+    const ix = Math.floor((P[i] - G.x0) / G.cs), iz = Math.floor((P[i + 2] - G.z0) / G.cs), iy = Math.floor(P[i + 1] / G.hs);
+    if (ix >= 0 && ix < G.n && iz >= 0 && iz < G.n && iy >= 0 && iy < G.nh) occG[(iy * G.n + iz) * G.n + ix] = 1;
   }
-  for (let a = 0; a < NA; a++) for (let hb = 0; hb < NH; hb++) {
-    let m = 0;
-    for (let da = -4; da <= 4; da++) for (let dh = -2; dh <= 2; dh++) { const hh = hb + dh; if (hh < 0 || hh >= NH) continue; m = Math.max(m, EXT[((a + da + NA) % NA) * NH + hh]); }
-    CLR[a * NH + hb] = m + 3.5;
-  }
-  const clearance = (ang, h) => { const a = ((ang / TAU) % 1 + 1) % 1 * NA, hb = clamp(h / 2, 0, NH - 1), a0 = Math.floor(a) % NA, a1 = (a0 + 1) % NA, f = a - Math.floor(a), h0 = Math.floor(hb), h1i = Math.min(NH - 1, h0 + 1), g = hb - h0;
-    const at2 = (ai, hi) => CLR[ai * NH + hi]; return lerp(lerp(at2(a0, h0), at2(a1, h0), f), lerp(at2(a0, h1i), at2(a1, h1i), f), g); };
+  const grow = (stride, len, r) => {
+    const src = occG.slice();
+    for (let i = 0; i < occG.length; i++) {
+      if (src[i]) continue;
+      const k = Math.floor(i / stride) % len;
+      for (let d = -r; d <= r; d++) { const kk = k + d; if (d && kk >= 0 && kk < len && src[i + d * stride]) { occG[i] = 1; break; } }
+    }
+  };
+  grow(1, G.n, 2); grow(G.n, G.n, 2); grow(G.n * G.n, G.nh, 1);
+  const free = (x, y, z) => {
+    const ix = Math.floor((x - G.x0) / G.cs), iz = Math.floor((z - G.z0) / G.cs), iy = Math.floor(y / G.hs);
+    return ix < 0 || ix >= G.n || iz < 0 || iz >= G.n || iy < 0 || iy >= G.nh || !occG[(iy * G.n + iz) * G.n + ix];
+  };
+  // the nearest free distance on the circle's radius to the one asked for (outward first, inward if that is nearer)
+  const clearR = (cx, cz, ang, h, d) => {
+    const s = Math.sin(ang), c = Math.cos(ang);
+    for (let k = 0; k < 240; k++) {
+      const dd = k * 0.5;
+      if (free(cx + s * (d + dd), h, cz + c * (d + dd))) return d + dd;
+      if (d - dd > 8 && free(cx + s * (d - dd), h, cz + c * (d - dd))) return d - dd;
+    }
+    return d;
+  };
 
   // the forest: tall trunks fading into the mist all round, with a gap toward the moon
   const MOON_AZ = Math.atan2(MOON_DIR.x, MOON_DIR.z);
   const farLeaf = (R) => ({ cell: 0, col: [0.07 + R() * 0.05, 0.13 + R() * 0.06, 0.1 + R() * 0.05], fl: [0, 0, 0] });
-  for (let i = 0, n = LITE ? 40 : 76; i < n; i++) {
+  for (let i = 0, n = LITE ? 40 : 80; i < n; i++) {
     let r, a;
-    do { r = 88 + 170 * Math.sqrt(R()); a = R() * TAU; } while (Math.abs(Math.atan2(Math.sin(a - MOON_AZ), Math.cos(a - MOON_AZ))) < 0.3 && r < 200);
+    do { r = 165 + 150 * Math.sqrt(R()); a = R() * TAU; } while (Math.abs(Math.atan2(Math.sin(a - MOON_AZ), Math.cos(a - MOON_AZ))) < 0.25 && r < 260);
     const tr = { x: CTR[0] + Math.sin(a) * r, z: CTR[1] + Math.cos(a) * r, r: 1.8 + R() * 2.0, h: 55 + R() * 40, lx: (R() - 0.5) * 2.5, lz: (R() - 0.5) * 2.5, seed: 100 + i };
     trunk(fb, tr, 3, 10, tr.h * 0.92);
     crown(fb, tr, R, leaves, null, { n: 10, y0: tr.h * 0.38, y1: tr.h * 0.92, len: 11, scale: 5.6, far: true, leaf: farLeaf });
@@ -1628,7 +1867,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   scene.add(sky);
 
   // ---- the moon's shadows, rendered once: the village, the swinging things at rest, the leaves cut out
-  const SHR = LITE ? 1024 : 2048;
+  const SHR = LITE ? 2048 : 3072;
   const shRT = new THREE.WebGLRenderTarget(SHR, SHR, { depthTexture: new THREE.DepthTexture(SHR, SHR), depthBuffer: true });
   const shScene = new THREE.Scene();
   const depthMat = new THREE.ShaderMaterial({ side: THREE.DoubleSide, vertexShader: "void main(){ gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.); }", fragmentShader: "void main(){ gl_FragColor = vec4(1.); }" });
@@ -1639,43 +1878,52 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   });
   shScene.add(new THREE.Mesh(vGeo, depthMat), new THREE.Mesh(sGeo, depthMat));
   for (const m of [leafMesh, drapeMesh]) { const c = new THREE.InstancedMesh(m.geometry, leafDepth, m.count); c.instanceMatrix = m.instanceMatrix; c.frustumCulled = false; shScene.add(c); }
-  const shCam = new THREE.OrthographicCamera(-48, 48, 48, -48, 1, 360);
-  shCam.position.set(CTR[0], 28, CTR[1]).addScaledVector(MOON_DIR, 170); shCam.lookAt(CTR[0], 28, CTR[1]); shCam.updateMatrixWorld(); shCam.updateProjectionMatrix();
+  const shCam = new THREE.OrthographicCamera(-100, 100, 100, -100, 1, 420);
+  shCam.position.set(GC[0], 28, GC[1]).addScaledVector(MOON_DIR, 200); shCam.lookAt(GC[0], 28, GC[1]); shCam.updateMatrixWorld(); shCam.updateProjectionMatrix();
   renderer.setRenderTarget(shRT); renderer.render(shScene, shCam); renderer.setRenderTarget(null);
   SU.uShadow.value = shRT.depthTexture; SU.uShadowM.value.multiplyMatrices(shCam.projectionMatrix, shCam.matrixWorldInverse);
 
   // ---- the warm lights: the brightest sixteen get a slot
-  // the warm lights: the brightest, spread out (none within 6 m of another) get a slot each
-  const lights = [];
-  for (const l of out.lights.filter((l) => l.i > 0).sort((p, q) => q.i - p.i)) if (lights.length < NL && lights.every((m) => m.p.distanceTo(l.p) > 6)) lights.push(l);
-  lights.forEach((l, i) => { SU.uLp.value[i].copy(l.p); SU.uLs.value[i] = l.s; });
+  // the warm lights: there are hundreds; the shaders take NL, so the ones nearest to where you look get the slots
+  // (spread out, none within 5 m of another; the ones already in keep their place unless a closer one needs it)
+  const allLights = out.lights.filter((l) => l.i > 0);
+  let lights = [];
+  const focus = V();
+  const pickLights = () => {
+    focus.copy(camera.position).add(V(0, 0, -22).applyQuaternion(camera.quaternion));
+    const ranked = allLights.map((l) => [l, l.p.distanceTo(focus) - (lights.includes(l) ? 5 : 0)]).sort((p, q) => p[1] - q[1]);
+    const next = [];
+    for (const [l] of ranked) { if (next.length >= NL) break; if (next.every((m) => m.p.distanceTo(l.p) > 5)) next.push(l); }
+    lights = next;
+    for (let i = 0; i < NL; i++) { const l = lights[i]; SU.uLp.value[i].copy(l ? l.p : V(0, -999, 0)); SU.uLs.value[i] = l ? l.s : 1; if (!l) SU.uLc.value[i].set(0, 0, 0); }
+  };
 
   // ---- glowing points: string lights, halos round the lanterns, fireflies, spores, wisps
-  const GP = [], GK = [], GC = [];
-  const gp = (x, y, z, kind, seed, size, c) => { GP.push(x, y, z); GK.push(kind, seed, size, 0); GC.push(...c); };
+  const GP = [], GK = [], GCOL = [];
+  const gp = (x, y, z, kind, seed, size, c) => { GP.push(x, y, z); GK.push(kind, seed, size, 0); GCOL.push(...c); };
   const BULB = [[3.2, 1.9, 0.85], [2.8, 1.4, 2.2], [1.4, 2.6, 2.6], [3.0, 2.4, 1.0], [2.2, 1.6, 3.0]];
   for (let i = 0; i < out.bulbs.length; i += 4) gp(out.bulbs[i], out.bulbs[i + 1], out.bulbs[i + 2], 0, h1(i), 0.08, out.bulbs[i + 3] < 0 ? BULB[0] : BULB[Math.floor(out.bulbs[i + 3] * BULB.length)]);
   for (const [x, y, z, br] of HALOS) gp(x, y, z, 1, h1(x + z), 1.7, [0.9 * br / 6, 0.5 * br / 6, 0.22 * br / 6]);
-  for (const l of lights) if (l.c !== WARM) gp(l.p.x, l.p.y, l.p.z, 1, h1(l.p.x), 2.2, l.c.map((c) => c * 0.12));
+  for (const l of allLights) if (l.c !== WARM) gp(l.p.x, l.p.y, l.p.z, 1, h1(l.p.x), 2.2, l.c.map((c) => c * 0.12));
   const FR = rng(99);
-  for (let i = 0, n = LITE ? 260 : 520; i < n; i++) { const a = FR() * TAU, r = 4 + 42 * Math.sqrt(FR()); gp(CTR[0] + Math.sin(a) * r, 2 + 36 * FR() ** 1.4, CTR[1] + Math.cos(a) * r, 2, FR(), 0.085, [2.0, 2.5, 0.6]); }
+  for (let i = 0, n = LITE ? 400 : 900; i < n; i++) { const t = TREES[i % 4], a = FR() * TAU, r = 4 + 40 * Math.sqrt(FR()); gp(t.x + Math.sin(a) * r, 2 + 38 * FR() ** 1.4, t.z + Math.cos(a) * r, 2, FR(), 0.085, [2.0, 2.5, 0.6]); }
   for (let i = 0, n = LITE ? 300 : 700; i < n; i++) gp(FR(), FR(), FR(), 3, FR(), 0.022, FR() < 0.5 ? [0.5, 0.55, 0.85] : [0.75, 0.55, 0.8]);
-  for (let i = 0; i < 14; i++) { const a = FR() * TAU, r = 10 + 28 * FR(); gp(CTR[0] + Math.sin(a) * r, 6 + 24 * FR(), CTR[1] + Math.cos(a) * r, 4, FR(), 0.9, [0.35, 0.6, 0.95]); }
+  for (let i = 0; i < 30; i++) { const t = TREES[i % 4], a = FR() * TAU, r = 10 + 28 * FR(); gp(t.x + Math.sin(a) * r, 6 + 24 * FR(), t.z + Math.cos(a) * r, 4, FR(), 0.9, [0.35, 0.6, 0.95]); }
   const glowGeo = new THREE.BufferGeometry();
   glowGeo.setAttribute("position", new THREE.Float32BufferAttribute(GP, 3));
   glowGeo.setAttribute("aK", new THREE.Float32BufferAttribute(GK, 4));
-  glowGeo.setAttribute("aCol", new THREE.Float32BufferAttribute(GC, 3));
+  glowGeo.setAttribute("aCol", new THREE.Float32BufferAttribute(GCOL, 3));
   const glowU = { ...SU, uPx: { value: 800 }, uBox0: { value: V() }, uBox: { value: V(40, 24, 40) } };
   const glowMat = new THREE.ShaderMaterial({ uniforms: glowU, vertexShader: GLSL_COMMON + GLSL_LIGHT + GLOW_VERT, fragmentShader: GLOW_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   const glows = new THREE.Points(glowGeo, glowMat); glows.frustumCulled = false; glows.renderOrder = 6;
   scene.add(glows);
 
   // ---- mist lying in the forest below, and a few veils drifting between the trees
-  const MIST = 52, mistGeo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0));
+  const MIST = 70, mistGeo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0));
   {
     const A = new Float32Array(MIST * 4), Bm = new Float32Array(MIST * 4), MR = rng(5);
     for (let i = 0; i < MIST; i++) {
-      const a = MR() * TAU, d = 12 + MR() * 110, hi = i % 4 === 0;
+      const a = MR() * TAU, d = 20 + MR() * 160, hi = i % 4 === 0;
       A.set([CTR[0] + Math.sin(a) * d, hi ? 9 + MR() * 14 : -1 + MR() * 4, CTR[1] + Math.cos(a) * d, 20 + MR() * 30], i * 4);
       Bm.set([hi ? 3 + MR() * 3 : 6 + MR() * 6, MR(), hi ? 0.1 + MR() * 0.08 : 0.25 + MR() * 0.2, 0], i * 4);
     }
@@ -1742,8 +1990,9 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   const smokeAcc = out.smoke.map(() => 0);
   const D = rng(31);
 
-  // ---- small moving parts: the weathervane on the dome, a windmill on the barrel, the basket on its pulley
-  const part = (fn) => { const pb = builder(); fn(pb); const m = new THREE.Mesh(pb.geometry(), buildMat); m.frustumCulled = false; scene.add(m); return m; };
+  // ---- small moving parts: weathervanes on the domes, windmills on the barrels, baskets on pulleys, the cable car
+  const part = (fn) => { const pb = builder(); fn(pb); const m = new THREE.Mesh(pb.geometry(), buildMat); m.frustumCulled = false; return m; };
+  const copies = (m, n) => Array.from({ length: n }, () => { const c = new THREE.Mesh(m.geometry, buildMat); c.frustumCulled = false; scene.add(c); return c; });
   const vane = part((p) => {
     p.room(0, 0, 0); p.set(MAT.METAL, IRON, 1601, 0.2);
     p.beam(V(0, -0.2, 0), V(0, 1.0, 0), 0.04, 0.04);
@@ -1752,7 +2001,8 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     p.quad(V(0, 0.75, -0.75), V(0, 0.75, -0.45), V(0, 1.0, -0.45), V(0, 1.05, -0.8));
     p.tri([0, 0.75, 0.55, 1, 0, 0, 0, 0], [0, 0.95, 0.55, 1, 0, 0, 1, 0], [0, 0.85, 0.75, 1, 0, 0, 0.5, 1]);
   });
-  vane.position.copy(out.vane || V(0, -50, 0));
+  const vanes = copies(vane, out.vanes.length);
+  vanes.forEach((v, i) => v.position.copy(out.vanes[i]));
   const mill = part((p) => {
     p.room(0, 0, 0); p.set(MAT.WOOD, TIMBER, 1611); p.lathe([[0.08, -0.1], [0.08, 0.1]], 8);
     for (let k = 0; k < 6; k++) {
@@ -1763,13 +2013,25 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
       p.quad(q0, q1, q1.clone().addScaledVector(s, 0.32), q0.clone().addScaledVector(s, 0.2));
     }
   });
-  out.mill ||= { p: V(0, -50, 0), yaw: 0 };
-  mill.position.copy(out.mill.p); mill.rotation.order = "YXZ"; mill.rotation.y = out.mill.yaw + Math.PI / 2;
+  const mills = copies(mill, out.mills.length);
+  mills.forEach((m, i) => { m.position.copy(out.mills[i].p); m.rotation.order = "YXZ"; m.rotation.y = out.mills[i].yaw + Math.PI / 2; });
   const basket = part((p) => {
     p.room(0, 0, 0); p.set(MAT.ROPE, [0.55, 0.42, 0.25], 1631); p.lathe([[0.3, -0.3], [0.38, 0.05], [0.4, 0.1]], 14, { uFrac: true });
     p.set(MAT.ROPE, [0.45, 0.38, 0.28], 1632); for (let k = 0; k < 4; k++) { const a = k / 4 * TAU; p.tube([V(Math.sin(a) * 0.38, 0.1, Math.cos(a) * 0.38), V(0, 0.9, 0)], 0.012, 3); }
     p.set(MAT.LANTERN, [1.0, 0.6, 0.3], 1633, 3); p.push(new THREE.Matrix4().makeTranslation(0, 0.12, 0)); p.lathe([[0.06, 0], [0.09, 0.08], [0.06, 0.18]], 8, { uFrac: true }); p.pop();
   });
+  const baskets = copies(basket, out.baskets.length);
+  // the cable car: a little cabin with lit windows under a trolley, crossing between the stations and resting at each
+  const gondola = part((p) => {
+    p.room(0, -2.6, 0, 0);
+    boxWalls(p, 1.5, 1.3, 1.35, MAT.PLANK, [0.62, 0.22, 0.2], 1650, { floor: true });
+    boxSides(p, 1.5, 1.3, { "z+": [{ a: 0.75, w: 0.95, h: 0.62, y: 0.5 }], "z-": [{ a: 0.75, w: 0.95, h: 0.62, y: 0.5 }], "x+": [{ a: 0.65, w: 0.5, h: 0.62, y: 0.5 }], "x-": [{ a: 0.65, w: 0.5, h: 0.62, y: 0.5 }] }, 1651, null);
+    gableRoof(p, 1.5, 1.3, 1.35, 0.45, 0.12, MAT.SHINGLE, [0.25, 0.3, 0.42], MAT.PLANK, [0.62, 0.22, 0.2], 1652);
+    p.room(0, 0, 0, 0); p.set(MAT.METAL, IRON, 1653, 0.1);
+    p.beam(V(0, -0.85, 0), V(0, 0.05, 0), 0.07, 0.07); p.beam(V(-0.35, 0.05, 0), V(0.35, 0.05, 0), 0.06, 0.12);
+    for (const x of [-0.3, 0.3]) { p.push(new THREE.Matrix4().makeTranslation(x, 0.1, 0).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))); p.lathe([[0.1, -0.03], [0.1, 0.03]], 10); p.pop(); }
+  });
+  const gondolas = copies(gondola, out.cables.length);
 
   // ---- sky lanterns, let go on request: paper lanterns that rise, drift and dwindle
   const MAXL = 36;
@@ -1803,6 +2065,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   // ---- input. The mouse looks round (its position, across the whole window); dragging, the arrow keys or WASD fly
   // round the village and up or down; the wheel, +/− or a pinch come closer. You glide round slowly on your own.
   let ang = VIEW0.ang, angT = ang, h = VIEW0.h, hT = h, dist = VIEW0.dist, distT = dist, dEff = dist;
+  let ci = 0, cx = CENTRES[0].x, cz = CENTRES[0].z, cLook = CENTRES[0].look, lightTick = 0;
   let lookX = 0, lookY = 0, lookXT = 0, lookYT = 0, keyOrb = 0, keyH = 0, keyZoom = 0, glide = !reduced, glideDir = 1, roll = 0, angPrev = ang;
   addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse") return; lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
   document.addEventListener("mouseout", (e) => { if (!e.relatedTarget) { lookXT = 0; lookYT = 0; } });
@@ -1837,7 +2100,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   addEventListener("resize", resize); resize();
 
   // ---- dusk and night
-  const DUSK = { moon: [0.34, 0.36, 0.5], skyA: [0.045, 0.05, 0.1], skyG: [0.012, 0.013, 0.02], hor: [0.042, 0.044, 0.088], glow: [0.2, 0.085, 0.1] };
+  const DUSK = { moon: [0.42, 0.44, 0.6], skyA: [0.055, 0.06, 0.12], skyG: [0.012, 0.013, 0.02], hor: [0.042, 0.044, 0.088], glow: [0.2, 0.085, 0.1] };
   const NIGHT = { moon: [0.2, 0.24, 0.37], skyA: [0.025, 0.03, 0.06], skyG: [0.007, 0.008, 0.013], hor: [0.045, 0.05, 0.095], glow: [0.015, 0.008, 0.012] };
   const mixv = (v, p, q, t) => v.set(p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t);
   let night = 0, nightT = 0;
@@ -1852,8 +2115,9 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     SU.uNight.value = night;
     mixv(SU.uMoonCol.value, DUSK.moon, NIGHT.moon, night); mixv(SU.uSkyA.value, DUSK.skyA, NIGHT.skyA, night); mixv(SU.uSkyG.value, DUSK.skyG, NIGHT.skyG, night);
     mixv(SU.uHor.value, DUSK.hor, NIGHT.hor, night); mixv(SU.uGlowCol.value, DUSK.glow, NIGHT.glow, night);
+    if (lightTick-- <= 0 || dt === 0) { pickLights(); lightTick = 8; }
     lights.forEach((l, i) => { const f = 0.9 + 0.06 * Math.sin(t * 7.1 + i * 3.1) + 0.04 * Math.sin(t * 12.9 + i); SU.uLc.value[i].set(...l.c).multiplyScalar(l.i * f * (1 + night * 0.25)); });
-    post.U.uExposure.value = 1.1 + night * 0.45;
+    post.U.uExposure.value = 1.25 + night * 0.45;
 
     // flying round on the circle, pushed out wherever the village reaches further
     const k = dt > 0 ? 1 - Math.exp(-dt * 2.2) : 1;
@@ -1861,11 +2125,13 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     angT += keyOrb * dt * 3.0 / Math.max(dist, 15);
     hT = clamp(hT + keyH * dt * 3.5, HMIN, HMAX); distT = clamp(distT + keyZoom * dt * 7, DMIN, DMAX);
     ang += (angT - ang) * k; h += (hT - h) * k; dist += (distT - dist) * k;
-    const want = Math.max(dist, clearance(ang, h));
-    dEff += (want - dEff) * (dt > 0 ? 1 - Math.exp(-dt * (want > dEff ? 3.5 : 1.2)) : 1);
-    const px = CTR[0] + Math.sin(ang) * dEff, pz = CTR[1] + Math.cos(ang) * dEff, py = h + Math.sin(t * 0.37) * 0.25;
+    const C = CENTRES[ci], kc = dt > 0 ? 1 - Math.exp(-dt * 0.8) : 1;       // the centre you fly round glides to the next one
+    cx += (C.x - cx) * kc; cz += (C.z - cz) * kc; cLook += (C.look - cLook) * kc;
+    const want = clearR(cx, cz, ang, h, dist);
+    dEff += (want - dEff) * (dt > 0 ? 1 - Math.exp(-dt * (want > dEff ? 3.5 : 1.5)) : 1);
+    const px = cx + Math.sin(ang) * dEff, pz = cz + Math.cos(ang) * dEff, py = h + Math.sin(t * 0.37) * 0.25;
     lookX += (lookXT - lookX) * k; lookY += (lookYT - lookY) * k;
-    const yaw0 = Math.atan2(CTR[0] - px, CTR[1] - pz), pitch0 = Math.atan2(lerp(h, 36, 0.5) - py, dEff);
+    const yaw0 = Math.atan2(cx - px, cz - pz), pitch0 = Math.atan2(lerp(h, cLook, 0.5) - py, dEff);
     const yaw = yaw0 - lookX, pitch = clamp(pitch0 + lookY, -1.2, 1.2);
     camera.position.set(px, py, pz);
     look.set(px + Math.sin(yaw) * Math.cos(pitch), py + Math.sin(pitch), pz + Math.cos(yaw) * Math.cos(pitch));
@@ -1878,10 +2144,19 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     glowU.uBox0.value.set(camera.position.x - 20, camera.position.y - 12, camera.position.z - 20);
 
     // the moving parts
-    vane.rotation.y = 0.6 + Math.sin(t * 0.13) * 0.5 + Math.sin(t * 0.71) * 0.08;
-    mill.rotation.z = -t * (0.9 + 0.3 * Math.sin(t * 0.2));
-    const bt = out.basket ? out.basket.top : V(0, -50, 0), cyc = (t * 0.035) % 1, travel = bt.y - 4.5;
-    basket.position.set(bt.x, bt.y - 1.0 - travel * (0.5 - 0.5 * Math.cos(Math.min(1, Math.abs(cyc * 2 - 1) * 1.25) * Math.PI)), bt.z);
+    vanes.forEach((v, i) => { v.rotation.y = 0.6 + Math.sin(t * 0.13) * 0.5 + Math.sin(t * 0.71 + i) * 0.08; });
+    mills.forEach((m, i) => { m.rotation.z = -t * (0.9 + 0.3 * Math.sin(t * 0.2 + i)) - i; });
+    baskets.forEach((bk, i) => {
+      const bt = out.baskets[i].top, cyc = (t * 0.035 + out.baskets[i].ph) % 1, travel = bt.y - 4.5;
+      bk.position.set(bt.x, bt.y - 1.0 - travel * (0.5 - 0.5 * Math.cos(Math.min(1, Math.abs(cyc * 2 - 1) * 1.25) * Math.PI)), bt.z);
+    });
+    gondolas.forEach((g, i) => {
+      const { A, B, sag } = out.cables[i], L = A.distanceTo(B), trip = L / 1.6, cyc = ((t + i * 20) / (trip + 12)) % 2;
+      const leg = cyc % 1, f = clamp((leg * (trip + 12) - 6) / trip, 0, 1), u0 = f * f * (3 - 2 * f), u = cyc < 1 ? u0 : 1 - u0;
+      const tt = clamp(u, 0.04, 0.96), p = A.clone().lerp(B, tt).add(V(0, -sag * 4 * tt * (1 - tt), 0));
+      g.position.copy(p); g.rotation.order = "YXZ"; g.rotation.y = Math.atan2(B.x - A.x, B.z - A.z) + Math.PI / 2;
+      g.rotation.z = Math.sin(t * 0.9 + i) * 0.025 * (u0 > 0 && u0 < 1 ? 1 : 0.3);
+    });
 
     // smoke
     if (dt > 0 || puffs.length === 0) {
@@ -1958,16 +2233,19 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   const setNight = (v) => { night = nightT = v; };
   const toggleGlide = () => { glide = !glide; return glide; };
   const zoomBy = (d) => { distT = clamp(distT + d, DMIN, DMAX); };
+  // fly round the next tree (or the whole group): the circle's centre glides over, you come in to its distance
+  const nextCentre = (i = (ci + 1) % CENTRES.length) => { ci = i; distT = CENTRES[ci].dist; hT = clamp(CENTRES[ci].h + (hT - CENTRES[ci].h) * 0.3, HMIN, HMAX); return ci; };
   const rise = (d) => { hT = clamp(hT + d, HMIN, HMAX); };
   // for screenshots: where you are on the circle (degrees), how far out, how high, and where you look
-  const setView = (angDeg = THREE.MathUtils.radToDeg(VIEW0.ang), d = VIEW0.dist, hh = VIEW0.h, lookXDeg = 0, lookYDeg = 0) => {
+  const setView = (angDeg = THREE.MathUtils.radToDeg(VIEW0.ang), d = VIEW0.dist, hh = VIEW0.h, lookXDeg = 0, lookYDeg = 0, centre = 0) => {
+    ci = centre; cx = CENTRES[ci].x; cz = CENTRES[ci].z; cLook = CENTRES[ci].look;
     ang = angT = angPrev = THREE.MathUtils.degToRad(angDeg); dist = distT = d; h = hT = hh;
-    dEff = Math.max(d, clearance(ang, h)); lookX = lookXT = THREE.MathUtils.degToRad(lookXDeg); lookY = lookYT = THREE.MathUtils.degToRad(lookYDeg); roll = 0;
+    dEff = clearR(cx, cz, ang, h, d); lookX = lookXT = THREE.MathUtils.degToRad(lookXDeg); lookY = lookYT = THREE.MathUtils.degToRad(lookYDeg); roll = 0;
   };
   const lookAt = (p, q) => { dbgCam = p ? [V(...p), V(...q)] : null; };
   return {
-    renderer, frame, toggleNight, setNight, toggleGlide, zoomBy, rise, setView, look: lookAt, release, scene, camera, SU,
+    renderer, frame, toggleNight, setNight, toggleGlide, zoomBy, rise, setView, nextCentre, get centre() { return ci; }, look: lookAt, release, scene, camera, SU,
     get night() { return nightT > 0.5; }, get glide() { return glide; }, get height() { return (h - HMIN) / (HMAX - HMIN); },
-    stats: { houses: out.houses, bridges: out.bridges, tris: (vGeo.attributes.position.count + sGeo.attributes.position.count + fGeo.attributes.position.count) / 3, leaves: leaves.length, drapes: drapes.length, lights: lights.length, bulbs: out.bulbs.length / 4, info: renderer.info.render },
+    stats: { houses: out.houses, bridges: out.bridges, tris: (vGeo.attributes.position.count + sGeo.attributes.position.count + fGeo.attributes.position.count) / 3, leaves: leaves.length, drapes: drapes.length, lights: allLights.length, bulbs: out.bulbs.length / 4, info: renderer.info.render },
   };
 }

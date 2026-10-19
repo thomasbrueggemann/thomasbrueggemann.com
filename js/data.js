@@ -112,10 +112,10 @@ export const unlisted = [
   {
     slug: "aerie",
     title: "Aerie",
-    kicker: "A city in a tree",
-    tagline: "A village of crooked houses stacked up one giant tree, above the mist at moonrise.",
+    kicker: "A city in the trees",
+    tagline: "Crooked houses stacked up four giant trees, their limbs reaching for each other over the mist at moonrise.",
     description:
-      "Some eighty houses crowd the trunk and the great limbs of a single tree: perched on brackets, stacked two and three high on each other's roofs at odd angles, a pod swinging on ropes, a barrel, an onion dome, a glass greenhouse, witch's-hat towers. Platforms ring the trunk in broken arcs, a spiral stair climbs inside them, rope bridges and strings of lights run between the houses, leaves crowd round them and ivy hangs off the edges, and the mist lies far below. Fly round it on a circle, up and down, closer or further out.",
+      "Some two hundred houses crowd the trunks and limbs of four giant trees: perched on brackets, stacked two and three high at odd angles, pods swinging on ropes, onion domes, glass greenhouses, witch's-hat towers. Limbs reach out toward the neighbouring trees, with a platform at each tip and a rope bridge across; one gap too wide to bridge has a platform slung on ropes between the trunks, and a cable car crosses high up. Washing hangs between houses, hammocks and rope swings sway, and the mist lies far below. Fly round the whole group or round one tree at a time.",
     date: "2026-10",
     genre: "Scene",
     tags: ["three.js", "GLSL", "procedural", "WebAudio"],
@@ -127,10 +127,10 @@ export const unlisted = [
     play: "aerie/",
     label: "Enter",
     shots: [
-      { src: "aerie-1.webp", alt: "A giant tree carrying dozens of lit treehouses on platforms and limbs, the moon behind it, mist below", caption: "Moonrise over the mist" },
-      { src: "aerie-2.webp", alt: "The tree city at night, paper lanterns rising into the sky past its lit windows", caption: "Lanterns let go at nightfall" },
-      { src: "aerie-3.webp", alt: "The whole tree from further out: its dense crown above, houses stacked up the trunk below", caption: "The whole tree, from out over the mist" },
-      { src: "aerie-4.webp", alt: "Close among the houses: shingled roofs, a stair between platforms, rooms stacked at angles, leaves all round", caption: "In among the houses" },
+      { src: "aerie-1.webp", alt: "Giant trees full of lit treehouses, rope bridges strung between their limbs, a cable car high up, the moon behind, mist below", caption: "Moonrise over the mist" },
+      { src: "aerie-2.webp", alt: "The four trees at night, only their windows, lanterns and strings of lights lit", caption: "Nightfall" },
+      { src: "aerie-3.webp", alt: "A platform slung on ropes between two trees, a little tower house on it, rope bridges leading off to both", caption: "Halfway across: a platform slung between two trees" },
+      { src: "aerie-4.webp", alt: "Close to the biggest tree: shingled roofs, rooms stacked at angles on platforms, a rope bridge, leaves all round", caption: "In among the houses" },
     ],
   },
 ];
