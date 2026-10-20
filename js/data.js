@@ -14,7 +14,7 @@ export const worlds = [
     kicker: "A city in the trees",
     tagline: "A city of treehouses in four giant trees, over the mist at moonrise. Walk it.",
     description:
-      "Some hundred and eighty crooked houses crowd four giant trees, each its own kind with its own town. Walk it in first person: up the street that spirals round each trunk past the doors, out along the limbs on plank walks, across the rope bridges between the trees. Go into the houses, each with a furnished, lamp-lit room of its own; ride the cable cars between the trees and down to a station in the mist, and the lifts to the forest floor. Or fly round the whole group.",
+      "Some hundred and eighty crooked houses crowd four giant trees, each its own kind with its own town. Walk it in first person: up the street that spirals round each trunk past the doors, out along the limbs on plank walks, across the rope bridges between the trees. Go into the houses, each with a furnished, lamp-lit room of its own; ride the cable cars between the trees and down to a station in the mist, and the lifts to the forest floor. It opens on the whole group from the air: jump inside to walk it.",
     date: "2026-10",
     genre: "First-person",
     tags: ["three.js", "GLSL", "procedural", "first-person", "WebAudio"],

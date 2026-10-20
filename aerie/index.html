@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Aerie — Thomas Brüggemann</title>
-  <meta name="description" content="A city of crooked treehouses in four giant trees at moonrise. Walk it: the streets spiralling up round the trunks, the plank walks out along the limbs, the rope bridges between the trees; ride the cable cars and the lifts, and go into the houses. Or fly round it. three.js.">
+  <meta name="description" content="A city of crooked treehouses in four giant trees at moonrise. Fly round it, then jump inside and walk it: the streets spiralling up round the trunks, the plank walks out along the limbs, the rope bridges between the trees; ride the cable cars and the lifts, and go into the houses. three.js.">
   <meta name="theme-color" content="#0a0c10">
   <link rel="canonical" href="https://thomasbrueggemann.com/aerie/">
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
@@ -47,7 +47,7 @@
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
     <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
-    <button id="mode" type="button" title="Walk, or fly round the trees (V)">Fly</button>
+    <button id="mode" type="button" title="Jump inside and walk it, or fly back out (V)">Jump inside</button>
     <button id="out" class="sq fly" type="button" title="Fly further out (−)" aria-label="Fly further out">−</button>
     <button id="in" class="sq fly" type="button" title="Come closer (+)" aria-label="Come closer">+</button>
     <button id="up" class="sq fly" type="button" title="Rise (↑)" aria-label="Rise">↑</button>
@@ -65,7 +65,7 @@
     let sayT = 0;
     const tell = (text, ms = 2200, big = false) => { say.textContent = text; say.classList.toggle("big", big); clearTimeout(sayT); sayT = setTimeout(() => { say.textContent = ""; }, ms); };
     const aerie = window.__aerie = startAerie3D(document.getElementById("aerie"), {
-      reduced,
+      reduced, mode: "fly",                                       // you start flying round it; Jump inside to walk it
       onEvent: (e) => { if (e === "fell") tell("You fell into the mist", 1700, true); },
     });
     let audio = null;
@@ -97,13 +97,13 @@
     const coarse = matchMedia("(pointer: coarse)").matches;
     const modeBtn = document.getElementById("mode"), cross = document.getElementById("cross"), tuse = document.getElementById("tuse"), tjump = document.getElementById("tjump");
     const HINTS = {
-      walk: coarse ? "Left thumb walks, right thumb looks · Ride at a cable car station · Fly to see it all" : "Click to look round · W A S D or the arrows to walk · Shift runs · Space jumps · E rides a cable car · V flies",
-      fly: coarse ? "Drag sideways to move between the trees, up or down to rise and sink · two fingers to fly round one · pinch to come closer · double-tap centres a tree" : "Drag or ← → to move between the trees · right-drag or Q E to fly round one · ↑ ↓ rise and sink · scroll to come closer · double-click centres a tree",
+      walk: coarse ? "Left thumb walks, right thumb looks · Ride at a cable car station · Fly to go back out" : "Click to look round · W A S D or the arrows to walk · Shift runs · Space jumps · E rides a cable car · V flies back out",
+      fly: coarse ? "Drag sideways to move between the trees, up or down to rise and sink · two fingers to fly round one · pinch to come closer · Jump inside to walk it" : "Drag or ← → to move between the trees · right-drag or Q E to fly round one · ↑ ↓ rise and sink · scroll to come closer · Jump inside (V) to walk it",
     };
     const showMode = () => {
       const walk = aerie.mode === "walk";
       document.querySelectorAll(".ui .fly").forEach((b) => { b.hidden = walk; });
-      modeBtn.textContent = walk ? "Fly" : "Walk";
+      modeBtn.textContent = walk ? "Fly" : "Jump inside";
       cross.hidden = !walk || coarse;
       tjump.hidden = !walk || !coarse;
       hint.textContent = HINTS[aerie.mode]; hint.hidden = false; wake(); place();
