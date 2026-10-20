@@ -76,6 +76,7 @@ export function makePost(renderer, { comp: compFrag, uniforms = {}, bloom = 0.32
   }
   const pass = (m, target) => { quad.material = m; renderer.setRenderTarget(target); renderer.render(quad, cam); };
   function render(scene, camera) {
+    if (!mips.length) { renderer.setRenderTarget(null); renderer.render(scene, camera); return; }     // a canvas too small to bloom (a hidden tab)
     renderer.setRenderTarget(sceneRT); renderer.render(scene, camera);
     if (prevRT) { copyU.tSrc.value = sceneRT.texture; pass(copy, prevRT); }
     downU.tSrc.value = sceneRT.texture; downU.uTexel.value.set(1 / sceneRT.width, 1 / sceneRT.height);

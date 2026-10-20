@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Aerie — Thomas Brüggemann</title>
-  <meta name="description" content="A city of crooked treehouses in four giant trees at moonrise: rooms stacked at odd angles, pods on ropes, limbs reaching for each other with rope bridges across, a cable car, lanterns and fireflies over the mist. Fly round it. three.js.">
+  <meta name="description" content="A city of crooked treehouses in four giant trees at moonrise. Walk it: the streets spiralling up round the trunks, the plank walks out along the limbs, the rope bridges between the trees; ride the cable cars and the lifts, and go into the houses. Or fly round it. three.js.">
   <meta name="theme-color" content="#0a0c10">
   <link rel="canonical" href="https://thomasbrueggemann.com/aerie/">
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
@@ -23,23 +23,37 @@
       font: 500 13px/1.3 "Inter Tight", system-ui, sans-serif; letter-spacing: .04em; color: rgba(232,230,225,.75); text-shadow: 0 1px 8px rgba(0,0,0,.6); transition: opacity .6s; }
     .hint.idle { opacity: 0; }
     .ui button.sq { min-width: 40px; }
+    .ui [hidden] { display: none; }
+    .say { position: fixed; left: 50%; bottom: calc(max(16px, env(safe-area-inset-bottom)) + 64px); transform: translateX(-50%); margin: 0; pointer-events: none;
+      font: 500 15px/1.3 "Inter Tight", system-ui, sans-serif; color: #e8e6e1; background: rgba(10,12,16,.55); padding: 8px 14px; border-radius: 999px; backdrop-filter: blur(6px); transition: opacity .3s; white-space: nowrap; }
+    .say:empty { opacity: 0; }
+    .say.big { bottom: 50%; font-size: 17px; }
+    .cross { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: rgba(232,230,225,.55); pointer-events: none; }
+    .tbtn { position: fixed; right: max(16px, env(safe-area-inset-right)); font: 500 15px/1 "Inter Tight", system-ui, sans-serif; color: #e8e6e1; background: rgba(10,12,16,.55);
+      border: 1px solid rgba(232,230,225,.3); border-radius: 999px; padding: 14px 18px; backdrop-filter: blur(6px); }
+    .tbtn[hidden] { display: none; }
     .ui a:hover, .ui button:hover, .ui a:focus-visible, .ui button:focus-visible { border-color: #e0a96d; color: #e0a96d; outline: none; }
   </style>
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
 </head>
 <body>
   <canvas id="aerie" aria-label="Four giant trees full of crooked treehouses at moonrise, their limbs joined by rope bridges, lit by lanterns and strings of lights, fireflies over the mist far below"></canvas>
-  <p class="hint" id="hint">Drag or ← → to move between the trees · right-drag or Q E to fly round one · ↑ ↓ rise and sink · scroll to come closer · double-click centres a tree</p>
+  <p class="hint" id="hint"></p>
+  <div class="cross" id="cross" hidden></div>
+  <p class="say" id="say" aria-live="polite"></p>
+  <button class="tbtn" id="tuse" type="button" hidden>Ride</button>
+  <button class="tbtn" id="tjump" type="button" hidden>Jump</button>
   <nav class="ui" id="ui">
     <a href="../">← Back</a>
     <button id="fs" type="button">Fullscreen</button>
     <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
-    <button id="out" class="sq" type="button" title="Fly further out (−)" aria-label="Fly further out">−</button>
-    <button id="in" class="sq" type="button" title="Come closer (+)" aria-label="Come closer">+</button>
-    <button id="up" class="sq" type="button" title="Rise (↑)" aria-label="Rise">↑</button>
-    <button id="down" class="sq" type="button" title="Sink (↓)" aria-label="Sink">↓</button>
-    <button id="tree" type="button" title="Fly to the next tree, or back out to see them all (T)">Next tree</button>
-    <button id="glide" type="button" aria-pressed="true" title="Glide round on your own, or hold still (G)">Gliding</button>
+    <button id="mode" type="button" title="Walk, or fly round the trees (V)">Fly</button>
+    <button id="out" class="sq fly" type="button" title="Fly further out (−)" aria-label="Fly further out">−</button>
+    <button id="in" class="sq fly" type="button" title="Come closer (+)" aria-label="Come closer">+</button>
+    <button id="up" class="sq fly" type="button" title="Rise (↑)" aria-label="Rise">↑</button>
+    <button id="down" class="sq fly" type="button" title="Sink (↓)" aria-label="Sink">↓</button>
+    <button id="tree" class="fly" type="button" title="Fly to the next tree, or back out to see them all (T)">Next tree</button>
+    <button id="glide" class="fly" type="button" aria-pressed="true" title="Glide round on your own, or hold still (G)">Gliding</button>
     <button id="lant" type="button" title="Let lanterns go into the sky (L)">Lanterns</button>
     <button id="night" type="button" aria-pressed="false" title="Let night fall, or go back to dusk (N)">Nightfall</button>
   </nav>
@@ -47,7 +61,13 @@
     import { startAerie3D } from "../js/aerie3d.js";
     import { createAerieAudio } from "../js/aerie-audio.js";
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const aerie = window.__aerie = startAerie3D(document.getElementById("aerie"), { reduced });
+    const say = document.getElementById("say");
+    let sayT = 0;
+    const tell = (text, ms = 2200, big = false) => { say.textContent = text; say.classList.toggle("big", big); clearTimeout(sayT); sayT = setTimeout(() => { say.textContent = ""; }, ms); };
+    const aerie = window.__aerie = startAerie3D(document.getElementById("aerie"), {
+      reduced,
+      onEvent: (e) => { if (e === "fell") tell("You fell into the mist", 1700, true); },
+    });
     let audio = null;
 
     const snd = document.getElementById("snd");
@@ -73,12 +93,47 @@
     const glide = () => { const on = aerie.toggleGlide(); glideBtn.textContent = on ? "Gliding" : "Holding still"; glideBtn.setAttribute("aria-pressed", String(on)); };
     glideBtn.onclick = glide;
     if (!aerie.glide) { glideBtn.textContent = "Holding still"; glideBtn.setAttribute("aria-pressed", "false"); }
+    // walking or flying: the buttons and the hint that go with each
+    const coarse = matchMedia("(pointer: coarse)").matches;
+    const modeBtn = document.getElementById("mode"), cross = document.getElementById("cross"), tuse = document.getElementById("tuse"), tjump = document.getElementById("tjump");
+    const HINTS = {
+      walk: coarse ? "Left thumb walks, right thumb looks · Ride at a cable car station · Fly to see it all" : "Click to look round · W A S D or the arrows to walk · Shift runs · Space jumps · E rides a cable car · V flies",
+      fly: coarse ? "Drag sideways to move between the trees, up or down to rise and sink · two fingers to fly round one · pinch to come closer · double-tap centres a tree" : "Drag or ← → to move between the trees · right-drag or Q E to fly round one · ↑ ↓ rise and sink · scroll to come closer · double-click centres a tree",
+    };
+    const showMode = () => {
+      const walk = aerie.mode === "walk";
+      document.querySelectorAll(".ui .fly").forEach((b) => { b.hidden = walk; });
+      modeBtn.textContent = walk ? "Fly" : "Walk";
+      cross.hidden = !walk || coarse;
+      tjump.hidden = !walk || !coarse;
+      hint.textContent = HINTS[aerie.mode]; hint.hidden = false; wake(); place();
+    };
+    // the touch buttons stand above the bar of buttons, however many rows it takes; the prompt above those
+    const place = () => { const b = innerHeight - ui.getBoundingClientRect().top + 12; tjump.style.bottom = b + "px"; tuse.style.bottom = b + 58 + "px"; say.style.bottom = b + (coarse ? 116 : 4) + "px"; };
+    addEventListener("resize", place);
+    const toggleMode = () => { aerie.setMode(aerie.mode === "walk" ? "fly" : "walk"); showMode(); treeLabel(); };
+    modeBtn.onclick = toggleMode;
+    tuse.onclick = () => aerie.use();
+    tjump.addEventListener("pointerdown", (e) => { e.stopPropagation(); aerie.jump(); });
+    // what you can do where you stand
+    const PROMPT = { board: [coarse ? "" : "E · Ride the cable car", "Ride"], out: [coarse ? "" : "E · Step out", "Step out"], wait: ["The cable car is on its way", ""] };
+    let shown = "";
+    setInterval(() => {
+      const p = aerie.mode === "walk" ? aerie.prompt : "";
+      if (p === shown) return;
+      shown = p;
+      const [line, btn] = PROMPT[p] || ["", ""];
+      if (!say.classList.contains("big")) { clearTimeout(sayT); say.textContent = line; }
+      tuse.hidden = !(coarse && btn); tuse.textContent = btn;
+    }, 150);
     const lanterns = () => { aerie.release(); audio?.release(); };
     document.getElementById("lant").onclick = lanterns;
     const nightBtn = document.getElementById("night");
     const night = () => { const on = aerie.toggleNight(); nightBtn.textContent = on ? "Back to dusk" : "Nightfall"; nightBtn.setAttribute("aria-pressed", String(on)); if (audio) audio.night = on; };
     nightBtn.onclick = night;
     setInterval(() => { if (audio?.on) audio.height = aerie.height; }, 250);     // higher up, more wind in the leaves
+    let stride = 0;
+    setInterval(() => { const n = aerie.stride; if (n !== stride && audio?.on && aerie.mode === "walk" && !aerie.riding) audio.step(aerie.onEarth); stride = n; }, 50);
 
     const ui = document.getElementById("ui"), fs = document.getElementById("fs");
     if (!document.documentElement.requestFullscreen) fs.hidden = true;
@@ -90,10 +145,12 @@
       const k = e.key.toLowerCase();
       if (k === "f") toggleFs();
       if (k === "m") snd.click();
-      if (k === "g") glide();
-      if (k === "t") nextTree();
       if (k === "l") lanterns();
       if (k === "n") night();
+      if (k === "v") toggleMode();
+      if (aerie.mode !== "fly") return;
+      if (k === "g") glide();
+      if (k === "t") nextTree();
       if (k === "home" || k === "0") { aerie.resetView(); treeLabel(); }
     });
 
@@ -101,12 +158,12 @@
     let t;
     const hint = document.getElementById("hint");
     const wake = () => { ui.classList.remove("idle"); hint.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => { ui.classList.add("idle"); hint.classList.add("idle"); }, 3000); };
-    if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag sideways to move between the trees, up or down to rise and sink · two fingers to fly round one · pinch to come closer · double-tap centres a tree";
-    addEventListener("pointerdown", () => { hint.hidden = true; });
-    addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) hint.hidden = true; });
+    addEventListener("pointerdown", (e) => { if (e.target.closest?.(".ui, .tbtn")) return; hint.hidden = true; });
+    addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow") || "wasd".includes(e.key.toLowerCase())) hint.hidden = true; });
     addEventListener("wheel", () => { hint.hidden = true; }, { once: true, passive: true });
     ["pointermove", "pointerdown", "keydown"].forEach((ev) => addEventListener(ev, wake, { passive: true }));
     ui.addEventListener("focusin", wake);
+    showMode();
     wake();
   </script>
 </body>

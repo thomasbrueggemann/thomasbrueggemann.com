@@ -4,11 +4,14 @@
 // copper onion dome, a round house with a thatched collar, a barrel, an egg-shaped pod on ropes, a stack of three rooms
 // each turned on the last, a glass greenhouse, an A-frame and a thin tower. Rope bridges, a spiral stair, ladders and
 // a zip line join them; lanterns, strings of lights, glowing fungus on the bark, fireflies and drifting spores light
-// the dusk, and the mist lies far below. You fly round the village on a circle. Everything is procedural and seeded,
-// so the village is the same on every load. Only dependency: three.js.
+// the dusk, and the mist lies far below. You walk it, first person: up the street that spirals round each trunk, out
+// along the limbs, over the bridges between the trees, into the houses (each has a room inside, built as you come to
+// its door), riding the cable cars and the lifts; or you fly round it on a circle. Everything is procedural and
+// seeded, so the village is the same on every load. Only dependency: three.js.
 
 import * as THREE from "three";
 import { makePost } from "./post.js";
+import { walkWorld, makeWalker, walkInput, reachable, BODY } from "./aerie-walk.js";
 
 const TAU = Math.PI * 2;
 const h1 = (n) => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
@@ -89,7 +92,8 @@ const VIEW0 = { ang: 0.26, dist: 80, h: 30 };      // where you start: south of 
 
 const MOON_DIR = V(0.227, 0.213, -0.974).normalize();              // a big moon low behind the village, a little right of where you start
 const GLOW_DIR = V(-0.8, 0, -0.6).normalize();                   // the last of the sunset: a rose band low on the left
-const NL = 24;                                                   // warm lights (lanterns and lit rooms) every surface sees
+const NL = 24;
+const LANE = 1.3;                                                // the lane round the trunk on every platform, between the stair and the houses, the doors opening onto it                                                   // warm lights (lanterns and lit rooms) every surface sees
 
 // ---------------------------------------------------------------- GLSL shared by every material
 const GLSL_COMMON = /* glsl */`
@@ -113,6 +117,16 @@ float n3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.-2.*f);
 const mat2 ROT = mat2(0.8, -0.6, 0.6, 0.8);
 float fbm(vec2 p){ float s = 0., a = .5; for(int i=0;i<4;i++){ s += a*vnoise(p); p = ROT * p * 2.03 + vec2(1.7, 9.2); a *= .5; } return s / .9375; }
 float fbm3(vec3 p){ return (n3(p) * .5 + n3(p * 2.03 + 7.1) * .25 + n3(p * 4.1 + 3.3) * .125) / .875; }
+// walking up to a door or standing inside: that house's door is cut open (uDoorA: centre x, z and half-width, height,
+// uDoorB: normal, on) and, inside, all of its own walls, windows and roof are cut away (uRoomA: half-size or radius,
+// top, kind 1 box / 2 round); the room inside is a mesh of its own. uRoomM takes the world into the house's frame
+uniform mat4 uRoomM; uniform vec4 uRoomA, uDoorA, uDoorB;
+bool roomCut(vec3 P){
+  vec3 q = (uRoomM * vec4(P, 1.)).xyz;
+  if (uDoorB.z > 0.5) { vec2 d = q.xz - uDoorA.xy; if (abs(dot(d, uDoorB.xy)) < 0.26 && abs(dot(d, vec2(uDoorB.y, -uDoorB.x))) < uDoorA.z && q.y > -0.02 && q.y < uDoorA.w) return true; }
+  if (uRoomA.w > 0.5 && q.y > 0.03 && q.y < uRoomA.y) return uRoomA.w < 1.5 ? abs(q.x) < uRoomA.x && abs(q.z) < uRoomA.z : length(q.xz) < uRoomA.x;
+  return false;
+}
 `;
 
 const GLSL_LIGHT = /* glsl */`
@@ -339,6 +353,9 @@ float furrow(float a, float z, float R, float pw, float sd, float lc, float lz, 
 }
 float lines(float x, float w){ float f = abs(fract(x + 0.5) - 0.5); return 1. - smoothstep(w * 0.5, w * 0.5 + fwidth(x) * 1.2, f); }
 void main(){
+  #ifndef INTERIOR
+  if (roomCut(vW)) discard;
+  #endif
   vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;
   vec3 P = vW; float m = vK.x, sd = vK.y, pw = length(fwidth(vW)); vec2 uv = vUv; vec3 tint = vC;
   vec3 alb = tint, emis = vec3(0.); float ao = 1., wrap = 0.1, spec = 0., h = 0., bk = 0.;
@@ -763,7 +780,9 @@ function stovepipe(b, x, y, z, h, seed) {
   return b.world(top.x, top.y + 0.35, top.z);
 }
 // a railing along a path of points (y = the floor), posts about every 1.2 m; segments near `gaps` are left open
-function railing(b, pts, closed, gaps = [], col = TIMBER, seed = 0, h = 1.0) {
+// (`skip(p)` opens it wherever else it says, e.g. through a house standing over the edge; the main builder also
+// records each rail as a wall for walking)
+function railing(b, pts, closed, gaps = [], col = TIMBER, seed = 0, h = 1.0, skip = null) {
   const P = [];
   const n = closed ? pts.length : pts.length - 1;
   for (let i = 0; i < n; i++) {
@@ -771,7 +790,7 @@ function railing(b, pts, closed, gaps = [], col = TIMBER, seed = 0, h = 1.0) {
     for (let j = 0; j < k; j++) P.push(a.clone().lerp(c, j / k));
   }
   if (!closed) P.push(pts[pts.length - 1].clone());
-  const open = (p) => gaps.some((g) => Math.hypot(p.x - g.x, p.z - g.z) < 0.9);
+  const open = (p) => gaps.some((g) => Math.hypot(p.x - g.x, p.z - g.z) < 0.9) || (skip && skip(p));
   b.set(MAT.WOOD, col, seed);
   for (let i = 0; i < P.length; i++) {
     const a = P[i], c = P[(i + 1) % P.length];
@@ -780,6 +799,7 @@ function railing(b, pts, closed, gaps = [], col = TIMBER, seed = 0, h = 1.0) {
     if ((i === P.length - 1 && !closed) || open(c)) continue;
     b.beam(a.clone().add(V(0, h, 0)), c.clone().add(V(0, h, 0)), 0.12, 0.06);
     b.beam(a.clone().add(V(0, h * 0.5, 0)), c.clone().add(V(0, h * 0.5, 0)), 0.05, 0.05);
+    if (b.walk) { const wa = b.world(a.x, a.y, a.z), wc = b.world(c.x, c.y, c.z); b.walk.seg(wa, wc, Math.min(wa.y, wc.y) - 0.3, Math.max(wa.y, wc.y) + h + 0.05); }
   }
 }
 // an irregular polygon round (cx, cz) at height y: one radius per corner
@@ -797,6 +817,7 @@ function deck(b, pts, gaps, seed, { rail = true, t = 0.22 } = {}) {
   for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; b.quad(V(p.x, y - t, p.z), V(q.x, y - t, q.z), V(q.x, y, q.z), V(p.x, y, p.z)); }
   for (let i = 0; i < n; i++) b.beam(c.clone().setY(y - t - 0.12), pts[i].clone().lerp(c, 0.04).setY(y - t - 0.12), 0.16, 0.24);
   if (rail) railing(b, pts, true, gaps, TIMBER, seed);
+  if (b.walk) for (let i = 0; i < n; i++) b.walk.tri(b.world(c.x, y, c.z), b.world(pts[i].x, y, pts[i].z), b.world(pts[(i + 1) % n].x, y, pts[(i + 1) % n].z));
   return pts;
 }
 // where a ray from (cx, cz) at angle a leaves a deck polygon
@@ -839,6 +860,11 @@ function bridge(b, A, B, sag, seed) {
     for (const [P0, t] of [[A, 0], [B, 1]]) { const p = P0.clone().addScaledVector(side, s * 0.56); b.beam(p.clone().add(V(0, -0.3, 0)), p.clone().add(V(0, 1.3, 0)), 0.13, 0.13); }
     b.set(MAT.ROPE, [0.5, 0.42, 0.3], seed);
   }
+  if (b.walk) {                                   // walking: the planks as a floor, the rope rails as walls
+    const C = Array.from({ length: N + 1 }, (_, i) => cur(i / N).add(V(0, 0.045, 0)));
+    b.walk.ribbon(C, 0.48);
+    for (const s of [-1, 1]) b.walk.rail(C.map((p) => p.clone().addScaledVector(side, s * 0.5)), 1.1);
+  }
   return { rail, cur, side };
 }
 // a rope ladder from top down to bottom
@@ -853,11 +879,11 @@ function ladder(b, top, bot, seed) {
 // a sagging line from A to B, as points
 const sagLine = (A, B, sag, n = 20) => Array.from({ length: n + 1 }, (_, i) => { const t = i / n; return A.clone().lerp(B, t).add(V(0, -sag * 4 * t * (1 - t), 0)); });
 // lights strung along a path: a bulb every `step` metres
-function stringLights(out, pts, step = 0.45, pal = 0) {
+function stringLights(out, pts, step = 0.45, pal = 0, skip = null) {
   let acc = 0;
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1], c = pts[i], l = a.distanceTo(c);
-    while (acc < l) { const p = a.clone().lerp(c, acc / l); out.bulbs.push(p.x, p.y - 0.06, p.z, pal ? h1(out.bulbs.length * 0.37 + pal) : -1); acc += step; }
+    while (acc < l) { const p = a.clone().lerp(c, acc / l); if (!skip || !skip(p)) out.bulbs.push(p.x, p.y - 0.06, p.z, pal ? h1(out.bulbs.length * 0.37 + pal) : -1); acc += step; }
     acc -= l;
   }
 }
@@ -904,10 +930,12 @@ function fungus(b, tr, y, a, n, glow, seed) {
 
 // ---------------------------------------------------------------- the city in the tree
 // Houses are planned (kind and size), checked against everything already placed (each thing claims a cylinder),
-// then built. Platforms ring the trunk at seven levels in broken arcs; houses crowd along them, some hanging out over
-// the edge on brackets; six great limbs carry more houses and a pod or two on ropes; then rooms are stacked on the
-// roofs, each turned on the one below, two or three high where there is space; rope bridges join houses at like
-// heights; a spiral stair climbs the trunk inside it all.
+// then built. Platforms go round the trunk in broken arcs, each a little higher than the last, so that they climb the
+// tree in a spiral, a level a turn; flights of steps across the gaps make them one street from the lowest to the
+// highest, with a lane along the inner edge that the doors open onto. Houses crowd along the arcs, some hanging out
+// over the edge on brackets; the limbs leave from the platforms' outer edges with plank walks along their tops, the
+// great ones carrying more houses on decks and a pod or two on ropes, the others reaching for the neighbouring trees;
+// then rooms are stacked on the roofs, each turned on the one below; rope bridges join houses at like heights.
 const deg = Math.PI / 180;
 const at = (tr, a, r, y) => { const [ax, az] = tAxis(tr, y), b = V(ax + Math.sin(a) * r, y, az + Math.cos(a) * r); return b; };
 const toward = (a, c) => Math.atan2(c.x - a.x, c.z - a.z);
@@ -977,11 +1005,26 @@ function pennant(b, x, y, z, R) {
   const p0 = V(x, y + 1.0, z), p1 = V(x, y + 0.65, z), tip = p0.clone().lerp(p1, 0.5).addScaledVector(d, 0.75);
   b.tri([p0.x, p0.y, p0.z, -d.z, 0, d.x, 0, 0], [p1.x, p1.y, p1.z, -d.z, 0, d.x, 0, 0], [tip.x, tip.y, tip.z, -d.z, 0, d.x, 0.5, 0.75]);
 }
-// build a planned house at (x, y, z) facing yaw (local +z, the side with the best windows, faces out)
+// the sides of a box room: where each wall starts (seen from outside, x running to the right) and which way it faces
+const BOX_SIDES = (w, d) => ({ "z+": [V(-w / 2, 0, d / 2), V(0, 0, 1), w], "z-": [V(w / 2, 0, -d / 2), V(0, 0, -1), w], "x+": [V(w / 2, 0, d / 2), V(1, 0, 0), d], "x-": [V(-w / 2, 0, -d / 2), V(-1, 0, 0), d] });
+// the side of a box whose outward face points nearest local angle phi (0 = +z, pi/2 = +x)
+const sideToward = (phi) => ["z+", "x+", "z-", "x-"][((Math.round(phi / (Math.PI / 2)) % 4) + 4) % 4];
+const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+// is (x, z) inside house H (pad metres of margin)?
+function insideHouse(H, x, z, pad = 0) {
+  const dx = x - H.x, dz = z - H.z, c = Math.cos(H.yaw), s = Math.sin(H.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c;
+  if (H.box) return Math.abs(lx) < H.box[0] / 2 + pad && Math.abs(lz) < H.box[1] / 2 + pad;
+  const r = H.round ?? H.oct ?? H.r;
+  return Math.hypot(lx, lz) < r + pad;
+}
+// build a planned house at (x, y, z) facing yaw (local +z, the side with the best windows, faces out). With H.doorTo
+// (a world angle, sin/cos as everywhere) the door goes on the side facing that way: onto the lane or the walk, so you
+// can get in. Openings are kept in H.door and H.wins (house frame) for the room inside; the walls go into the walk.
 function buildHouse(b, sb, out, H, x, y, z, yaw) {
   const R = rng(H.seed), s = H.seed;
-  Object.assign(H, { x, y, z, yaw });
+  Object.assign(H, { x, y, z, yaw, wins: [] });
   b.room(x, y, z, yaw, bend(H.lean[0], H.lean[1], H.twist));
+  const phi = H.doorTo != null ? wrapA(H.doorTo - yaw) : null;
   const light = (lx, ly, lz, i = 3.5 + R() * 2.5, c = WARM) => out.lights.push({ p: b.world(lx, ly, lz), c, i, s: 1 });
   const round = (rad, h, wm, wc, n, doorA) => {
     b.set(MAT.WOOD, TIMBER, s); b.lathe([[rad + 0.35, 0], [0, 0]], 24); b.lathe([[rad + 0.35, -0.25], [rad + 0.35, 0]], 24); b.lathe([[0, -0.25], [rad + 0.35, -0.25]], 24);
@@ -990,43 +1033,52 @@ function buildHouse(b, sb, out, H, x, y, z, yaw) {
     for (let k = 0; k < n; k++) {
       const th = doorA + k * TAU / n, nn = V(Math.sin(th), 0, Math.cos(th));
       b.push(wallFrame(nn.clone().multiplyScalar(rad), nn));
-      if (k === 0) doorAt(b, -0.42, 0.84, Math.min(1.95, h - 0.25), pick(R, DOORS), s + 1);
-      else { const t = R() < 0.4 ? 1 : R() < 0.5 ? 2 : 0, w = t === 1 ? 0.6 : 0.62, hh = t === 0 ? 0.95 : t === 2 ? 1.25 : 0.6; windowAt(b, -w / 2, Math.min(0.95, h - 0.35 - hh), w, hh, t, s * 7 + k, { box: t === 0 && R() < 0.4 }, out); }
+      if (k === 0) { const dh = Math.min(1.95, h - 0.25); doorAt(b, -0.42, 0.84, dh, pick(R, DOORS), s + 1); H.door = { th, w: 0.84, h: dh, o: nn.clone().multiplyScalar(rad), n: nn }; }
+      else { const t = R() < 0.4 ? 1 : R() < 0.5 ? 2 : 0, w = t === 1 ? 0.6 : 0.62, hh = t === 0 ? 0.95 : t === 2 ? 1.25 : 0.6, wy = Math.min(0.95, h - 0.35 - hh); windowAt(b, -w / 2, wy, w, hh, t, s * 7 + k, { box: t === 0 && R() < 0.4 }, out); H.wins.push({ th, w, h: hh, y: wy, t }); }
       b.pop();
     }
   };
   const k = H.kind;
   if (k === "gable" || k === "shed" || k === "tower") {
-    const w = k === "tower" ? H.w : H.w, d = k === "tower" ? H.w : H.d;
+    const w = H.w, d = k === "tower" ? H.w : H.d;
     boxWalls(b, w, d, H.h, H.wm, H.wc, s);
-    const door = R() < 0.5 ? "x-" : "x+", other = door === "x-" ? "x+" : "x-";
-    const spec = { "z+": autoWindows(R, w, H.h), "z-": autoWindows(R, w, H.h, 1), [other]: autoWindows(R, d, H.h, 1), [door]: [{ door: true, a: d / 2, w: 0.82, h: Math.min(1.95, H.h - 0.2), col: pick(R, DOORS) }] };
-    if (k === "tower") for (const sd of ["z+", "x+", "x-", "z-"]) { if (sd === door) continue; spec[sd] = []; for (let yy = 1.0; yy < H.h - 1.0; yy += 1.35) spec[sd].push({ a: w / 2, w: 0.45, h: 0.62, y: yy, t: R() < 0.2 ? 2 : 0 }); }
+    let door = R() < 0.5 ? "x-" : "x+";
+    if (phi != null) door = sideToward(phi);
+    const S = BOX_SIDES(w, d), spec = {};
+    for (const sd of ["z+", "z-", "x+", "x-"]) if (sd !== door) spec[sd] = autoWindows(R, S[sd][2], H.h, sd === "z+" ? 2 : 1);
+    if (k === "tower") for (const sd of ["z+", "x+", "x-", "z-"]) { if (sd === door) continue; spec[sd] = []; for (let yy = 1.0; yy < H.h - 1.0; yy += 1.35) spec[sd].push({ a: S[sd][2] / 2, w: 0.45, h: 0.62, y: yy, t: R() < 0.2 ? 2 : 0 }); }
+    const dh = Math.min(1.95, H.h - 0.2);
+    spec[door] = [{ door: true, a: S[door][2] / 2, w: 0.82, h: dh, col: pick(R, DOORS) }];
     boxSides(b, w, d, spec, s, out);
+    for (const [sd, list] of Object.entries(spec)) for (const it of list) if (!it.door) H.wins.push({ side: sd, a: it.a, w: it.w, h: it.h ?? it.w, y: it.y ?? 0.95, t: it.t || 0 });
+    const [o, n] = S[door], u = V().crossVectors(UP, n);
+    H.door = { side: door, a: S[door][2] / 2, w: 0.82, h: dh, o: o.clone().addScaledVector(u, S[door][2] / 2), n };
+    H.box = [w, d];
     if (k === "gable") {
       gableRoof(b, w, d, H.h, H.rh, H.over, H.rm, H.rc, H.wm, H.wc, s + 1);
-      if (R() < 0.35 && out.smoke.length < 6) out.smoke.push(stovepipe(b, w * 0.25, H.h + H.rh * 0.68, -d * 0.16, 1.2 + R() * 0.6, s + 2));
+      if (R() < 0.35 && out.smoke.length < 6) { out.smoke.push(stovepipe(b, w * 0.25, H.h + H.rh * 0.68, -d * 0.16, 1.2 + R() * 0.6, s + 2)); H.stove = [w * 0.25, -d * 0.16]; }
     } else if (k === "shed") shedRoof(b, w, d, H.h, H.rh, H.over, H.rm, H.rc, H.wm, H.wc, s + 1);
     else { const cu = [(R() - 0.5) * 0.8, (R() - 0.5) * 0.8]; coneRoof(b, w * 0.72, H.h, H.rh, H.over, H.rm, H.rc, s + 1, { curl: cu, seg: 20 }); if (R() < 0.5) pennant(b, cu[0], H.h + H.rh + 0.25, cu[1], R); }
-    H.port = (sx) => b.world(sx * (w / 2 + 0.3), 0, 0);
     light(0, 1.5, d / 2 + 1.2);
-    if (R() < 0.4) lantern(sb, b.world((door === "x-" ? -1 : 1) * (w / 2 + 0.25), H.h - 0.1, d / 2 - 0.3), 0.25, [1.0, 0.6 + R() * 0.15, 0.3], 5, s + 3, R() < 0.5 ? 0 : 1);
+    if (R() < 0.4) { const lp = H.door.o.clone().addScaledVector(u, 0.75).addScaledVector(n, 0.28); lantern(sb, b.world(lp.x, Math.min(H.h - 0.1, 2.3), lp.z), 0.25, [1.0, 0.6 + R() * 0.15, 0.3], 5, s + 3, R() < 0.5 ? 0 : 1); }
   } else if (k === "witch" || k === "thatch") {
-    round(H.rad, H.h, H.wm, H.wc, Math.max(4, Math.round(H.rad * 2.6)), R() * TAU);
-    if (H.ring) railing(b, Array.from({ length: 16 }, (_, i) => { const a = i / 16 * TAU; return V(Math.sin(a) * (H.rad + 0.3), 0, Math.cos(a) * (H.rad + 0.3)); }), true, [], TIMBER, s, 0.85);
+    const da = R() * TAU;
+    round(H.rad, H.h, H.wm, H.wc, Math.max(4, Math.round(H.rad * 2.6)), phi ?? da);
+    if (H.ring) railing(b, Array.from({ length: 16 }, (_, i) => { const a = i / 16 * TAU; return V(Math.sin(a) * (H.rad + 0.3), 0, Math.cos(a) * (H.rad + 0.3)); }), true, [H.door.o.clone().multiplyScalar((H.rad + 0.3) / H.rad)], TIMBER, s, 0.85);
     if (k === "witch") { const cu = [(R() - 0.5) * 1.4, (R() - 0.5) * 1.4]; coneRoof(b, H.rad, H.h, H.rh, H.over, H.rm, H.rc, s + 1, { curl: cu }); if (R() < 0.4) pennant(b, cu[0], H.h + H.rh + 0.25, cu[1], R); }
     else coneRoof(b, H.rad, H.h, H.rh, H.over, MAT.THATCH, H.rc, s + 1, { seg: 32 });
-    H.port = (sx) => b.world(sx * (H.rad + 0.3), 0, 0);
+    H.round = H.rad;
     light(0, 1.5, H.rad + 1.2);
   } else if (k === "onion") {
-    const RE = H.rad, HE = H.h;
+    const RE = H.rad, HE = H.h, qd = phi != null ? (((Math.round(phi / (TAU / 8) - 1)) % 8) + 8) % 8 : 0;
     b.set(MAT.WOOD, TIMBER, s); b.lathe([[RE + 0.3, 0], [0, 0]], 8, { a0: TAU / 16, a1: TAU + TAU / 16 }); b.lathe([[RE + 0.3, -0.25], [RE + 0.3, 0]], 8, { a0: TAU / 16, a1: TAU + TAU / 16 });
     for (let q = 0; q < 8; q++) {
       const a = (q + 0.5) * TAU / 8, c = (q + 1.5) * TAU / 8, p = V(Math.sin(a) * RE, 0, Math.cos(a) * RE), pq = V(Math.sin(c) * RE, 0, Math.cos(c) * RE);
       b.set(H.wm === MAT.SCALE ? MAT.BOARDV : H.wm, H.wc, s + q, 0, HE); b.face(p, V().subVectors(pq, p), V(0, HE, 0));
-      const n = V().crossVectors(V().subVectors(pq, p), UP).normalize().negate(), fw = p.distanceTo(pq);
+      const n = V().crossVectors(V().subVectors(pq, p), UP).normalize(), fw = p.distanceTo(pq);      // facing out
       b.push(wallFrame(p, n));
-      if (q === 0) doorAt(b, fw / 2 - 0.38, 0.76, 1.85, pick(R, DOORS), s + 20); else if (q % 2 === 0) windowAt(b, fw / 2 - 0.28, 0.75, 0.56, 1.2, R() < 0.5 ? 2 : 0, s + q);
+      if (q === qd) { doorAt(b, fw / 2 - 0.38, 0.76, 1.85, pick(R, DOORS), s + 20); H.door = { q, w: 0.76, h: 1.85, o: p.clone().lerp(pq, 0.5), n }; }
+      else if ((q - qd) % 2 === 0) { const t = R() < 0.5 ? 2 : 0; windowAt(b, fw / 2 - 0.28, 0.75, 0.56, 1.2, t, s + q); H.wins.push({ q, w: 0.56, h: 1.2, y: 0.75, t }); }
       b.pop();
       b.set(MAT.WOOD, TRIM, s); b.beam(p, p.clone().setY(HE), 0.12, 0.12);
     }
@@ -1035,16 +1087,19 @@ function buildHouse(b, sb, out, H, x, y, z, yaw) {
     b.set(MAT.METAL, COPPER, s + 1, 0.85);
     b.lathe([[1.5, 0.15], [1.82, 0.6], [1.86, 1.05], [1.55, 1.6], [0.85, 2.15], [0.3, 2.65], [0.07, 3.15], [0.05, 3.6]].map(([r, yy]) => [r * f, HE + yy * f]), 20);
     if (out.vanes.length < 8) out.vanes.push(b.world(0, HE + 3.6 * f, 0));
-    H.port = (sx) => b.world(sx * (RE + 0.3), 0, 0);
+    H.oct = RE;
     light(0, 1.4, RE + 1.2);
   } else if (k === "aframe") {
     boxWalls(b, H.w, H.d, H.h, MAT.PLANK, [0.84, 0.78, 0.66], s, { floor: true });
     gableRoof(b, H.w, H.d, H.h, H.rh, H.over, H.rm, H.rc, MAT.PLANK, [0.84, 0.78, 0.66], s + 1);
-    const ww = Math.min(1.3, H.d * 0.42);
-    b.push(wallFrame(V(H.w / 2, 0, 0), V(1, 0, 0))); windowAt(b, -ww / 2, 0.5, ww, ww, 1, s + 2); b.pop();
-    b.push(wallFrame(V(-H.w / 2, 0, 0), V(-1, 0, 0))); doorAt(b, -0.4, 0.8, Math.min(1.8, H.rh * 0.55), pick(R, DOORS), s + 3); b.pop();
-    H.port = (sx) => b.world(sx * (H.w / 2 + 0.3), 0, 0);
-    light(H.w / 2 + 1.2, 1.2, 0);
+    const ww = Math.min(1.3, H.d * 0.42), sx = phi != null && Math.sin(phi) > 0 ? 1 : -1;     // the door on the gable end nearest the way in
+    b.push(wallFrame(V(-sx * H.w / 2, 0, 0), V(-sx, 0, 0))); windowAt(b, -ww / 2, 0.5, ww, ww, 1, s + 2); b.pop();
+    const dh = Math.min(1.8, H.rh * 0.55);
+    b.push(wallFrame(V(sx * H.w / 2, 0, 0), V(sx, 0, 0))); doorAt(b, -0.4, 0.8, dh, pick(R, DOORS), s + 3); b.pop();
+    H.wins.push({ side: sx > 0 ? "x-" : "x+", a: H.d / 2, w: ww, h: ww, y: 0.5, t: 1 });
+    H.door = { side: sx > 0 ? "x+" : "x-", a: H.d / 2, w: 0.8, h: dh, o: V(sx * H.w / 2, 0, 0), n: V(sx, 0, 0) };
+    H.box = [H.w, H.d];
+    light(-sx * (H.w / 2 + 1.2), 1.2, 0);
   } else if (k === "barrel") {
     const L = H.len, r = H.rad, cy = r + 0.3;
     b.push(new THREE.Matrix4().makeTranslation(-L / 2, cy, 0).multiply(new THREE.Matrix4().makeRotationZ(-Math.PI / 2)));
@@ -1059,17 +1114,45 @@ function buildHouse(b, sb, out, H, x, y, z, yaw) {
     b.set(MAT.WOOD, TIMBER, s + 6);
     for (const xx of [-L * 0.3, L * 0.3]) { b.box(xx, 0.12, 0, 0.18, 0.24, r * 2.2); for (const sg of [-1, 1]) b.beam(V(xx, 0.1, sg * r), V(xx, cy * 0.6, sg * r * 1.1), 0.14, 0.14); }
     if (out.mills.length < 6) { b.set(MAT.WOOD, TIMBER, s + 7); b.beam(V(0.3, cy + r * 1.1, 0), V(0.3, cy + r + 1.7, 0), 0.1, 0.1); out.mills.push({ p: b.world(0.3, cy + r + 1.7, 0.1), yaw }); }
-    H.port = (sx) => b.world(sx * (L / 2 + 0.3), 0, 0);
+    H.box = [L + 0.1, r * 2.44]; H.solid = true;
     light(0, cy, r * 1.22 + 1.2);
   } else if (k === "dome") {
     b.set(MAT.WOOD, TIMBER, s); b.lathe([[H.rad + 0.3, 0], [0, 0]], 24); b.lathe([[H.rad + 0.3, -0.25], [H.rad + 0.3, 0]], 24);
     b.set(MAT.PLANK, [0.8, 0.78, 0.72], s); b.lathe([[H.rad, 0], [H.rad, 0.55]], 24);
     b.set(MAT.GLASS, [1, 1, 1], s + 1); b.lathe(Array.from({ length: 10 }, (_, q) => { const f = q / 9 * Math.PI / 2; return [Math.max(0.04, H.rad * Math.cos(f)), 0.55 + H.rad * Math.sin(f) * 1.08]; }), 20, { uR: H.rad });
     b.set(MAT.METAL, COPPER, s + 2, 0.8); b.push(new THREE.Matrix4().makeTranslation(0, 0.55 + H.rad * 1.08 - 0.05, 0)); b.lathe([[0.15, 0], [0.18, 0.12], [0.05, 0.35], [0.02, 0.6]], 10); b.pop();
-    H.port = (sx) => b.world(sx * (H.rad + 0.3), 0, 0);
+    H.round = H.rad; H.solid = true;
     light(0, 1.3, 0, 5.5, [0.6, 1.0, 0.45]);
   }
+  H.enter = phi != null && !H.solid && !!H.door;
+  if (b.walk) houseBody(b, H);
   return H;
+}
+// a house for walking: its floor, and its walls as an outline, open at the door if you can get in
+function houseBody(b, H) {
+  const wk = b.walk, y0 = H.y - 0.25, y1 = H.y + Math.min(H.top, 4.5), wp = (p) => b.world(p.x, 0, p.z);
+  let ring;
+  if (H.box) {
+    const [w, d] = H.box, hd = H.kind === "aframe" ? Math.max(0.65, d / 2 * (1 - (1.9 - H.h) / H.rh)) : d / 2;
+    ring = [V(-w / 2, 0, hd), V(w / 2, 0, hd), V(w / 2, 0, -hd), V(-w / 2, 0, -hd)];
+  } else {
+    const r = H.round ?? H.oct, n = H.oct ? 8 : 20, a0 = H.oct ? TAU / 16 : 0;
+    ring = Array.from({ length: n }, (_, i) => { const a = a0 + i / n * TAU; return V(Math.sin(a) * r, 0, Math.cos(a) * r); });
+  }
+  const W = ring.map(wp), c = wp(V());
+  for (let i = 0; i < W.length; i++) wk.tri(c.clone().setY(H.y), W[i].clone().setY(H.y), W[(i + 1) % W.length].clone().setY(H.y));
+  const D = H.enter ? H.door : null, dc = D && wp(D.o), hw = D ? D.w / 2 + 0.06 : 0;
+  for (let i = 0; i < W.length; i++) {
+    const a = W[i], q = W[(i + 1) % W.length];
+    if (!D) { wk.seg(a, q, y0, y1); continue; }
+    // split the side through the door: keep what lies more than half a door's width from it
+    const ex = q.x - a.x, ez = q.z - a.z, L = Math.hypot(ex, ez), t = ((dc.x - a.x) * ex + (dc.z - a.z) * ez) / (L * L);
+    const off = Math.abs((dc.x - a.x) * ez - (dc.z - a.z) * ex) / L;
+    if (off > 0.25 || t * L < -hw || t * L > L + hw) { wk.seg(a, q, y0, y1); continue; }
+    const t0 = (t * L - hw) / L, t1 = (t * L + hw) / L;
+    if (t0 > 0) wk.seg(a, a.clone().lerp(q, t0), y0, y1);
+    if (t1 < 1) wk.seg(a.clone().lerp(q, t1), q, y0, y1);
+  }
 }
 
 function city(b, sb, out, ti, o) {
@@ -1085,84 +1168,161 @@ function city(b, sb, out, ti, o) {
   STYLE = o.style;
   const kindAt = (y) => pick(R, y < (yLo + yHi) / 2 ? o.style?.lo ?? KINDS_LO : o.style?.hi ?? KINDS_HI);
 
-  // a great limb from the trunk at height y toward angle a, its reach claimed so nothing is built through it
-  const makeLimb = (y, a, len, rise, i, wig = 1.5, high = 0.1) => {
+  // a limb from the trunk at height y toward angle a: its centre line P(t) and radius rr(t), t = 0 at the trunk
+  const limbPath = (y, a, len, rise, i, wig) => {
     const [ax, az] = tAxis(T, y), d = V(Math.sin(a), 0, Math.cos(a)), r0 = tRad(T, y) * 0.24;
     const P = (t) => V(ax, y, az).addScaledVector(d, tRad(T, y) * 0.7 + len * t).add(V(0, rise * t * t - 0.8 * Math.sin(t * Math.PI), 0)).add(V(-d.z, 0, d.x).multiplyScalar(Math.sin(t * 2.2) * wig * (i % 2 ? 1 : -1)));
-    const rr = (t) => r0 * (1 - 0.65 * t);
+    return { P, rr: (t) => r0 * (1 - 0.65 * t), r0 };
+  };
+  // build it, its reach claimed (with headroom over it, for the walk along its top) so nothing is built through it;
+  // side branches leave from its flanks, below the walk
+  const makeLimb = (y, a, len, rise, i, wig = 1.5, high = 2.4) => {
+    const { P, rr, r0 } = limbPath(y, a, len, rise, i, wig);
     b.room(0, 0, 0); bark(b, T, 300 + i, TAU * r0); b.tube(Array.from({ length: 13 }, (_, k) => P(k / 12)), rr, 10);
     for (let t = 0.12; t <= 1; t += 0.06) { const p = P(t); claim(p.x, p.z, rr(t) + 0.35, p.y - rr(t) - 0.3, p.y + rr(t) + high, "limb" + ti + ":" + i); }
-    // side branches with leaves, and greenery hanging along it
     for (let k = 0; k < 4; k++) {
-      const t0 = 0.3 + k * 0.17 + R() * 0.08, p0 = P(t0), sa = a + (k % 2 ? 1 : -1) * (0.6 + R() * 0.6), sd = V(Math.sin(sa), 0, Math.cos(sa)), sl = 4 + R() * 4;
+      const t0 = 0.3 + k * 0.17 + R() * 0.08, sa = a + (k % 2 ? 1 : -1) * (0.6 + R() * 0.6), sd = V(Math.sin(sa), 0, Math.cos(sa)), sl = 4 + R() * 4;
+      const p0 = P(t0).addScaledVector(sd, rr(t0) * 0.8).add(V(0, -rr(t0) * 0.2, 0));
       const sp = Array.from({ length: 5 }, (_, q) => p0.clone().addScaledVector(sd, sl * q / 4).add(V(0, sl * 0.5 * (q / 4) ** 1.4, 0)));
       bark(b, T, 320 + i * 10 + k, TAU * rr(t0) * 0.4); b.tube(sp, (t) => rr(t0) * 0.42 * (1 - 0.8 * t), 6);
       green({ p: sp[4], s: 2.4 + R() }); green({ p: sp[2].clone().add(V(0, 0.8, 0)), s: 1.8 + R() * 0.6 });
     }
     for (let k = 0; k < 6; k++) green({ p: P(0.2 + R() * 0.8).add(V(0, -rr(0.5) * 0.8, 0)), s: 1.4 + R() * 1.2, drape: true, cell: R() < 0.5 ? 2 : 3 });
-    return { P, rr, a, y, i };
+    return { P, rr, a, y, i, len, decks: [] };
   };
-  // first the limbs that reach for the neighbouring trees: a plank walk along the top, a platform at the tip
-  o.connectors.forEach((c, ci) => {
-    const y0 = c.y - 3, len = c.reach - tRad(T, y0) * 0.7, L = makeLimb(y0, c.a, len, 3, 50 + ci, 0, 1.8);
-    const tip = L.P(1), yP = tip.y + L.rr(1) + 0.1;
-    // the plank walk, with a rope rail on one side and lanterns along it
-    const side = V(Math.cos(c.a), 0, -Math.sin(c.a)), rail = [];
+  // a limb that leaves from platform g at angle a: its root is set so that it passes under the deck and comes out
+  // just below the outer edge, where its walk begins, level with the deck; for a connector the rise is set too, so
+  // that its tip is at tipY
+  const hangLimb = (g, a, len, rise, i, wig, tipY = null) => {
+    let y = g.y - 3;
+    for (let it = 0; it < 5; it++) {
+      const { P, rr } = limbPath(y, a, len, rise, i, wig), tw = clamp((g.rOut(a) + 0.4 - tRad(T, y) * 0.7) / len, 0.05, 0.6);
+      let m = -Infinity; for (let t = 0.04; t <= tw; t += 0.02) m = Math.max(m, P(t).y + rr(t) - y);
+      y = g.y - 0.3 - m;
+      if (tipY != null) rise = clamp(tipY - y, -3, 9);
+    }
+    const L = makeLimb(y, a, len, rise, i, wig, 2.4);
+    L.g = g; L.tw = clamp((g.rOut(a) - 0.25 - tRad(T, y) * 0.7) / len, 0.03, 0.6); L.ramp = 3.5 / len;
+    const e = L.P(L.tw); g.gaps.push(e.setY(g.y));
+    return L;
+  };
+  const inArc = (g, a, m) => { const u = ((a - g.a0) % TAU + TAU) % TAU; return u > m && u < g.a1 - g.a0 - m; };
+  // a plank walk along the top of a limb from t0 to t1, posts and a rope rail each side; yAt bends its height (to meet
+  // a deck), lamps >= 0 hangs lanterns and strings lights along it, cap closes the far end
+  const limbWalk = (L, t0, t1, seed, { lamps = -1, yAt = null, cap = false } = {}) => {
+    const top = (t) => { const p = L.P(t).add(V(0, L.rr(t) + 0.03, 0)); if (yAt) p.y = yAt(t, p.y); return p; };
+    const pts = [], rails = [[], []], edge = [[], []];
     b.room(0, 0, 0);
-    for (let t = 0.1, k = 0; t <= 0.93; t += 0.33 / len, k++) {
-      const p = L.P(t).add(V(0, L.rr(t) + 0.03, 0)), q = L.P(Math.min(1, t + 0.01)).add(V(0, L.rr(Math.min(1, t + 0.01)) + 0.03, 0)), T2 = V().subVectors(q, p).normalize();
-      const up = V().crossVectors(T2, side).normalize();
-      b.push(new THREE.Matrix4().makeBasis(side, up, T2).setPosition(p)); b.set(MAT.WOOD, [0.42 + h1(k) * 0.1, 0.33, 0.24], 2000 + k); b.box(0, 0, 0, 0.8, 0.05, 0.24); b.pop();
-      if (k % 6 === 0) { const r0 = p.clone().addScaledVector(side, 0.42); b.set(MAT.WOOD, TIMBER, 2000); b.beam(r0.clone().add(V(0, -0.15, 0)), r0.clone().add(V(0, 1.0, 0)), 0.07, 0.07); rail.push(r0.clone().add(V(0, 0.98, 0))); if (k % 18 === 0) lantern(sb, r0.clone().add(V(0, 1.02, 0)), 0.1, [1.0, 0.62, 0.32], 4, 2100 + k + ci * 100, 1); }
+    const n = Math.max(2, Math.ceil((t1 - t0) * L.len / 0.33));
+    for (let k = 0; k <= n; k++) {
+      const t = lerp(t0, t1, k / n), p = top(t), T2 = V().subVectors(top(Math.min(1, t + 0.01)), top(Math.max(0, t - 0.01))).normalize();
+      const side = V(T2.z, 0, -T2.x).normalize(), up = V().crossVectors(T2, side).normalize();
+      b.push(new THREE.Matrix4().makeBasis(side, up, T2).setPosition(p)); b.set(MAT.WOOD, [0.42 + h1(k + seed) * 0.1, 0.33, 0.24], seed + k); b.box(0, 0, 0, 0.8, 0.05, 0.24); b.pop();
+      pts.push(p.clone().add(V(0, 0.025, 0)));
+      for (const sg of [0, 1]) {
+        const r0 = p.clone().addScaledVector(side, sg ? 0.42 : -0.42); edge[sg].push(r0);
+        if (k % 6 && k !== n) continue;
+        b.set(MAT.WOOD, TIMBER, seed); b.beam(r0.clone().add(V(0, -0.15, 0)), r0.clone().add(V(0, 1.0, 0)), 0.07, 0.07);
+        rails[sg].push(r0.clone().add(V(0, 0.98, 0)));
+        if (lamps >= 0 && sg && k % 18 === 0) lantern(sb, r0.clone().add(V(0, 1.02, 0)), 0.1, [1.0, 0.62, 0.32], 4, seed + 100 + k + lamps * 100, 1);
+      }
     }
-    b.set(MAT.ROPE, [0.5, 0.42, 0.3], 2001); if (rail.length > 1) b.tube(rail, 0.025, 4);
-    stringLights(out, rail, 0.5, ci + 2);
-    const pts = poly(tip.x, yP, tip.z, Array.from({ length: 9 }, () => 2.8 + R() * 0.5), R());
-    c.end = edgeAt(pts, tip.x, tip.z, c.a); c.tip = tip; c.yP = yP;
-    b.room(0, 0, 0); deck(b, pts, [c.end, edgeAt(pts, tip.x, tip.z, c.a + Math.PI)], 2200 + ci);
-    for (const p of [pts[1], pts[4], pts[7]]) b.beam(p.clone().lerp(tip, 0.25).add(V(0, -0.2, 0)), tip.clone().add(V(0, -L.rr(1) * 0.3, 0)), 0.14, 0.14);
-    claim(tip.x, tip.z, 3.4, yP - 1, yP + 4.5);
-    const lp = c.end.clone().lerp(tip.clone().setY(yP), 0.35).addScaledVector(side, 0.8);        // a lamp post on the deck by the landing
-    b.set(MAT.WOOD, TIMBER, 2301); b.beam(lp, lp.clone().add(V(0, 2.45, 0)), 0.12, 0.12);
-    lantern(sb, lp.clone().add(V(0, 2.4, 0)), 0.3, [1.0, 0.65, 0.35], 6, 2300 + ci);
-    out.lights.push({ p: lp.clone().add(V(0, 1.8, 0)), c: WARM, i: 4, s: 1 });
-    if (c.cable) {                              // the cable car's station: a pylon with the wheel the cable runs over
-      const base = tip.clone().setY(yP).addScaledVector(side, -1.1);
-      b.set(MAT.WOOD, TIMBER, 2310); b.beam(base, base.clone().add(V(0, 4.2, 0)), 0.22, 0.22); b.beam(base.clone().add(V(0, 1.5, 0)).addScaledVector(side, 1.1), base.clone().add(V(0, 3.9, 0)), 0.1, 0.1);
-      const arm = side.clone().multiplyScalar(1.3);
-      b.beam(base.clone().add(V(0, 4.0, 0)).sub(arm), base.clone().add(V(0, 4.0, 0)).add(arm), 0.16, 0.2);
-      b.set(MAT.METAL, IRON, 2311, 0.1);
-      for (const sg of [-1, 1]) { const w = base.clone().add(V(0, 4.25, 0)).addScaledVector(side, sg * 1.15); b.push(new THREE.Matrix4().makeTranslation(w.x, w.y, w.z).multiply(new THREE.Matrix4().makeRotationY(c.a + Math.PI / 2)).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2))); b.lathe([[0.4, -0.05], [0.42, 0], [0.4, 0.05]], 16); b.pop(); }
-      c.top = base.clone().add(V(0, 4.25, 0));
-    } else if (R() < 0.7) {                     // a gatehouse beside the landing
-      const H = planHouse(R, pick(R, ["witch", "shed", "tower", "gable"]), 0.62), hp = tip.clone().addScaledVector(side, (R() < 0.5 ? -1 : 1) * 1.15).add(V(Math.sin(c.a), 0, Math.cos(c.a)).multiplyScalar(-0.5));
-      buildHouse(b, sb, out, H, hp.x, yP, hp.z, c.a + Math.PI / 2 + (R() - 0.5) * 0.4);
-      H.level = 2; houses.push(H);
+    b.set(MAT.ROPE, [0.5, 0.42, 0.3], seed + 1);
+    for (const r of rails) if (r.length > 1) b.tube(r, 0.025, 4);
+    if (cap) { b.set(MAT.WOOD, TIMBER, seed); b.beam(rails[0][rails[0].length - 1], rails[1][rails[1].length - 1], 0.08, 0.06); }
+    if (lamps >= 0) stringLights(out, rails[1], 0.5, lamps + 2);
+    if (b.walk) {
+      b.walk.ribbon(pts, 0.42);
+      for (const e of edge) b.walk.rail(e, 1.0);
+      if (cap) b.walk.seg(edge[0][edge[0].length - 1], edge[1][edge[1].length - 1], pts[pts.length - 1].y - 0.3, pts[pts.length - 1].y + 1.0);
     }
-    c.limb = L;
-  });
-  // then the great limbs, away from the ones reaching for the neighbours
-  const limbs = [];
-  for (let tries = 0; limbs.length < o.nLimbs && tries < 300; tries++) {
-    const y = lerp(yLo + 3, yHi - 2, (limbs.length + R() * 0.6) / o.nLimbs), a = R() * TAU;
-    if (o.connectors.some((c) => Math.abs(Math.atan2(Math.sin(a - c.a), Math.cos(a - c.a))) < 0.8 && Math.abs(c.y - y) < 12)) continue;
-    if (limbs.some((l) => Math.abs(Math.atan2(Math.sin(a - l.a), Math.cos(a - l.a))) < 0.6 && Math.abs(l.y - y) < 9)) continue;
-    limbs.push(makeLimb(y, a, (17 + R() * 4) * T.r / 5.4 + 2, 3 + R() * 2.5, limbs.length));
-  }
+    return pts;
+  };
+  // a flight of treads along a path of points (each the top of a tread), w wide, stringers under the edges, posts and
+  // rope rails both sides
+  const steps = (P, w, seed) => {
+    b.room(0, 0, 0);
+    const rails = [[], []], edge = [[], []];
+    for (let i = 0; i < P.length; i++) {
+      const p = P[i], d = V().subVectors(P[Math.min(P.length - 1, i + 1)], P[Math.max(0, i - 1)]).setY(0).normalize(), side = V(d.z, 0, -d.x);
+      b.push(new THREE.Matrix4().makeBasis(side, UP, d).setPosition(p.x, p.y - 0.03, p.z)); b.set(MAT.WOOD, [0.45 + h1(i + seed) * 0.08, 0.35, 0.25], seed + i); b.box(0, 0, 0, w, 0.06, 0.34); b.pop();
+      for (const sg of [0, 1]) {
+        const e = p.clone().addScaledVector(side, sg ? w / 2 - 0.04 : 0.04 - w / 2); edge[sg].push(e);
+        if (i % 3 && i !== P.length - 1) continue;
+        b.set(MAT.WOOD, TIMBER, seed); b.beam(e.clone().add(V(0, -0.3, 0)), e.clone().add(V(0, 0.98, 0)), 0.07, 0.07);
+        rails[sg].push(e.clone().add(V(0, 0.95, 0)));
+      }
+    }
+    b.set(MAT.WOOD, TIMBER, seed + 1); for (const e of edge) b.tube(e.map((p) => p.clone().add(V(0, -0.14, 0))), 0.07, 4);
+    b.set(MAT.ROPE, [0.5, 0.42, 0.3], seed + 2); for (const r of rails) if (r.length > 1) b.tube(r, 0.025, 4);
+    if (b.walk) { b.walk.ribbon(P, w / 2); for (const e of edge) b.walk.rail(e, 1.0); }
+  };
 
-  // platforms round the trunk in broken arcs, one ring of them per level
-  const segs = [];
+  // platforms round the trunk in broken arcs. Going round, each arc stands a little higher than the one before, so the
+  // arcs climb the tree in one spiral, a level a turn; steps across the gaps join them into one street from the lowest
+  // platform to the highest, with the doors along it
+  const segs = [], base = R() * TAU, rise = (TIERS[TIERS.length - 1] - TIERS[0]) / Math.max(1, TIERS.length - 1);
+  const helixY = (a) => TIERS[0] - rise * 0.5 + rise * (a - base) / TAU;
   TIERS.forEach((y0, ti) => {
-    let a = ti * 2.4 + R() * 0.5;
-    const n = ti === TIERS.length - 1 ? 3 : 4 + (R() < 0.5 ? 1 : 0), end = a + TAU - 0.3;
+    let a = base + ti * TAU + R() * 0.05;
+    const n = ti === TIERS.length - 1 ? 3 : 4 + (R() < 0.5 ? 1 : 0), end = base + (ti + 1) * TAU - 0.3;
     for (let k = 0; k < n && a < end; k++) {
-      const span = Math.min(end - a, (TAU - 0.45 * n) / n * (0.6 + R() * 0.7)), y = y0 + (R() - 0.5) * 2.0;
-      const rIn = sr(y), dep = 4.4 + R() * 2.4, ph = R() * 9;
-      const rOut = (aa) => rIn + dep + 0.9 * Math.sin(aa * 3 + ph) + 0.5 * Math.sin(aa * 7 + ph * 2);
-      segs.push({ y, a0: a, a1: a + span, rIn, rOut, dep, ti });
+      const span = Math.min(end - a, (TAU - 0.45 * n) / n * (0.6 + R() * 0.7)); R();
+      const y = helixY(a + span / 2), g = { y, a0: a, a1: a + span, rIn: sr(y), dep: 4.4 + R() * 2.4 + LANE, ph: R() * 9, ti };
+      g.rOut = (aa) => g.rIn + g.dep + 0.9 * Math.sin(aa * 3 + g.ph) + 0.5 * Math.sin(aa * 7 + g.ph * 2);
+      if (span > 0.35) segs.push(g);
       a += span + 0.25 + R() * 0.45;
     }
   });
+  // the climb from the lowest level to the highest is shared out over the gaps, so every flight of steps between two
+  // arcs is as steep as every other
+  const share = () => {
+    segs.sort((p, q) => p.a0 - q.a0);
+    const G = segs.reduce((m, g, i) => m + (i ? Math.max(0, g.a0 - segs[i - 1].a1) : 0), 0);
+    let acc = 0;
+    segs.forEach((g, i) => { if (i) acc += Math.max(0, g.a0 - segs[i - 1].a1); g.y = TIERS[0] + (yHi - yLo) * acc / G; g.rIn = sr(g.y); });
+  };
+  share();
+  // each limb reaching for a neighbour leaves from a platform a couple of metres below where its tip should be: of
+  // the places on the spiral at its angle, the one nearest that height. If that falls in a gap, the arcs either side
+  // are stretched or shortened to take it in
+  {
+    const lo = segs[0].a0 + 0.45, hi = segs[segs.length - 1].a1 - 0.45;
+    const hAt = (a) => segs.reduce((p, q) => (Math.abs((q.a0 + q.a1) / 2 - a) < Math.abs((p.a0 + p.a1) / 2 - a) ? q : p)).y;
+    for (const c of o.connectors) {
+      let ac = null;
+      for (let k = -2; k < TIERS.length + 2; k++) { const a = c.a + k * TAU; if (a < lo || a > hi) continue; if (ac == null || Math.abs(hAt(a) - c.y + 2.2) < Math.abs(hAt(ac) - c.y + 2.2)) ac = a; }
+      if (ac == null) continue;
+      let k = segs.findIndex((h) => ac > h.a0 - 0.35 && ac < h.a1 + 0.35), g = segs[k];
+      if (k < 0) { k = segs.findIndex((h) => h.a0 > ac); g = k > 0 && ac - segs[k - 1].a1 < segs[k].a0 - ac ? segs[--k] : segs[k]; }
+      if (!g) continue;
+      if (ac > g.a1 - 0.35) g.a1 = ac + 0.4;
+      if (ac < g.a0 + 0.35) g.a0 = ac - 0.4;
+      const A = segs[k - 1], B = segs[k + 1];
+      if (A) A.a1 = Math.min(A.a1, g.a0 - 0.12);
+      if (B) B.a0 = Math.max(B.a0, g.a1 + 0.12);
+      c.g = g;
+    }
+    for (let i = segs.length - 1; i >= 0; i--) if (segs[i].a1 - segs[i].a0 < 0.3 && !o.connectors.some((c) => c.g === segs[i])) segs.splice(i, 1);
+    share();
+  }
+
+  // steps along the lane across the gaps between the arcs, wherever the way is clear
+  {
+    const chain = segs.slice().sort((p, q) => p.a0 - q.a0);
+    for (let i = 0; i + 1 < chain.length; i++) {
+      const A = chain[i], B = chain[i + 1], rA = A.rIn + LANE / 2, rB = B.rIn + LANE / 2;
+      const a0 = A.a1 - 0.03, a1 = B.a0 + 0.03, len = (a1 - a0) * (rA + rB) / 2, dy = B.y - A.y;
+      if (a1 <= a0 || len > 10 || Math.abs(dy) > len * 1.2) continue;
+      const n = Math.max(3, Math.ceil(Math.max(len / 0.3, Math.abs(dy) / 0.26)));
+      const P = Array.from({ length: n + 1 }, (_, q) => { const f = q / n; return at(T, lerp(a0, a1, f), lerp(rA, rB, f), lerp(A.y, B.y, f)); });
+      if (!P.every((p) => fits(p.x, p.z, 0.75, p.y - 0.4, p.y + 2.2, null, "deck"))) continue;
+      steps(P, LANE - 0.1, 3600 + i);
+      for (const p of P) claim(p.x, p.z, 0.7, p.y - 0.4, p.y + 2.2, "lane");
+      A.linkEnd = B.linkStart = true;
+    }
+  }
+
   for (const g of segs) {
     const n = Math.max(4, Math.round((g.a1 - g.a0) * (g.rIn + 3) / 1.2)), y = g.y, t = 0.24, I = [], O = [];
     for (let i = 0; i <= n; i++) { const a = lerp(g.a0, g.a1, i / n); I.push(at(T, a, g.rIn, y)); O.push(at(T, a, g.rOut(a), y)); }
@@ -1173,18 +1333,74 @@ function city(b, sb, out, ti, o) {
       b.quad(...q, uvq(q));
       const dn = q.map((p) => p.clone().setY(y - t));
       b.quad(dn[3], dn[2], dn[1], dn[0], uvq([dn[3], dn[2], dn[1], dn[0]]));
+      b.walk?.quad(...q);
     }
     b.set(MAT.WOOD, TIMBER, 400);
     for (let i = 0; i < n; i++) {
       b.quad(O[i].clone().setY(y - t), O[i + 1].clone().setY(y - t), O[i + 1], O[i]);
       b.quad(I[i + 1].clone().setY(y - t), I[i].clone().setY(y - t), I[i], I[i + 1]);
-      if (i % 2 === 0) { b.beam(I[i].clone().setY(y - t - 0.1), O[i].clone().setY(y - t - 0.1), 0.16, 0.22); brace(b, T, O[i].x, y - t, O[i].z, 3.8 + R(), 401 + i); }
+      if (i % 2 === 0) { b.beam(I[i].clone().setY(y - t - 0.1), O[i].clone().setY(y - t - 0.1), 0.16, 0.22); brace(b, T, O[i].x, y - t, O[i].z, 2.2 + R() * 0.3, 401 + i); }      // short enough to clear the heads on the lane below
     }
     b.quad(I[0].clone().setY(y - t), O[0].clone().setY(y - t), O[0], I[0]);
     b.quad(O[n].clone().setY(y - t), I[n].clone().setY(y - t), I[n], O[n]);
-    g.O = O; g.gaps = [];
+    g.O = O; g.I = I; g.gaps = []; g.houses = [];
     for (let i = 0; i <= n; i += 2) claim(lerp(I[i].x, O[i].x, 0.5), lerp(I[i].z, O[i].z, 0.5), g.dep * 0.5 + 0.3, y - t - 0.35, y + 0.02, "deck");
+    for (let i = 0; i <= n; i++) { const p = at(T, lerp(g.a0, g.a1, i / n), g.rIn + LANE / 2, y); claim(p.x, p.z, LANE / 2 - 0.05, y + 0.05, y + 2.3, "lane"); }
   }
+  // the limbs that reach for the neighbouring trees: a plank walk along the top from the platform it leaves, a
+  // platform at the tip
+  o.connectors.forEach((c, ci) => {
+    // its tip as high as the link wants, within what the walk out to it can climb
+    const len = c.reach - tRad(T, c.y - 3) * 0.7, run = c.g && Math.max(2, c.reach - c.g.rOut(c.a) - 3.2), tipY = c.g ? c.g.y + clamp(c.y - c.g.y, -0.3 * run, 0.4 * run) : c.y;
+    const L = c.g ? hangLimb(c.g, c.a, len, 3, 50 + ci, 0, tipY) : makeLimb(c.y - 3, c.a, len, 3, 50 + ci, 0, 2.4);
+    const tip = L.P(1), yP = tip.y + L.rr(1) + 0.1;
+    const side = V(Math.cos(c.a), 0, -Math.sin(c.a));
+    const pts = poly(tip.x, yP, tip.z, Array.from({ length: 9 }, () => 2.8 + R() * 0.5), R());
+    c.end = edgeAt(pts, tip.x, tip.z, c.a); c.tip = tip; c.yP = yP;
+    if (!out.spawn && !c.cable && c.g) { const p = tip.clone().lerp(c.end, -0.25); out.spawn = { x: p.x, y: yP, z: p.z, yaw: c.a }; }   // where you start: looking across the bridge
+    const back = edgeAt(pts, tip.x, tip.z, c.a + Math.PI), tE = 1 - (Math.hypot(back.x - tip.x, back.z - tip.z) - 0.15) / len;
+    // the walk leaves the platform level with its deck and rises over its last few metres to meet the one at the tip
+    if (L.g) limbWalk(L, L.tw, tE, 2000 + ci * 50, { lamps: ci, yAt: (t, y) => lerp(lerp(L.g.y, y, smooth(L.tw, L.tw + L.ramp, t)), yP, smooth(tE - 7 / len, tE, t)) });
+    b.room(0, 0, 0); deck(b, pts, [c.end, back], 2200 + ci);
+    for (const p of [pts[1], pts[4], pts[7]]) b.beam(p.clone().lerp(tip, 0.25).add(V(0, -0.2, 0)), tip.clone().add(V(0, -L.rr(1) * 0.3, 0)), 0.14, 0.14);
+    claim(tip.x, tip.z, 3.4, yP - 1, yP + 4.5);
+    const lp = c.end.clone().lerp(tip.clone().setY(yP), 0.35).addScaledVector(side, 0.8);        // a lamp post on the deck by the landing
+    b.set(MAT.WOOD, TIMBER, 2301); b.beam(lp, lp.clone().add(V(0, 2.45, 0)), 0.12, 0.12);
+    b.walk?.circle(lp.x, lp.z, 0.1, yP, yP + 2.5);
+    lantern(sb, lp.clone().add(V(0, 2.4, 0)), 0.3, [1.0, 0.65, 0.35], 6, 2300 + ci);
+    out.lights.push({ p: lp.clone().add(V(0, 1.8, 0)), c: WARM, i: 4, s: 1 });
+    if (c.cable) {                              // the cable car's station: a pylon with the wheel the cable runs over
+      const base = tip.clone().setY(yP).addScaledVector(side, -1.1);
+      b.set(MAT.WOOD, TIMBER, 2310); b.beam(base, base.clone().add(V(0, 4.2, 0)), 0.22, 0.22); b.beam(base.clone().add(V(0, 1.5, 0)).addScaledVector(side, 1.1), base.clone().add(V(0, 3.9, 0)), 0.1, 0.1);
+      b.walk?.circle(base.x, base.z, 0.16, yP, yP + 4.2);
+      const arm = side.clone().multiplyScalar(1.3);
+      b.beam(base.clone().add(V(0, 4.0, 0)).sub(arm), base.clone().add(V(0, 4.0, 0)).add(arm), 0.16, 0.2);
+      b.set(MAT.METAL, IRON, 2311, 0.1);
+      for (const sg of [-1, 1]) { const w = base.clone().add(V(0, 4.25, 0)).addScaledVector(side, sg * 1.15); b.push(new THREE.Matrix4().makeTranslation(w.x, w.y, w.z).multiply(new THREE.Matrix4().makeRotationY(c.a + Math.PI / 2)).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2))); b.lathe([[0.4, -0.05], [0.42, 0], [0.4, 0.05]], 16); b.pop(); }
+      c.top = base.clone().add(V(0, 4.25, 0)); c.deckC = tip.clone().setY(yP); c.deckPts = pts;
+    } else if (R() < 0.7) {                     // a gatehouse beside the landing
+      const H = planHouse(R, pick(R, ["witch", "shed", "tower", "gable"]), 0.62), hp = tip.clone().addScaledVector(side, (R() < 0.5 ? -1 : 1) * 1.15).add(V(Math.sin(c.a), 0, Math.cos(c.a)).multiplyScalar(-0.5));
+      H.doorTo = toward(hp, tip);
+      buildHouse(b, sb, out, H, hp.x, yP, hp.z, c.a + Math.PI / 2 + (R() - 0.5) * 0.4);
+      H.level = 2; houses.push(H);
+    }
+    c.limb = L;
+  });
+  // then the great limbs, away from the ones reaching for the neighbours, each leaving from a platform
+  const limbs = [];
+  for (let tries = 0; limbs.length < o.nLimbs && tries < 300; tries++) {
+    const yT = lerp(yLo + 3, yHi - 2, (limbs.length + R() * 0.6) / o.nLimbs);
+    const g = segs.filter((h) => h.a1 - h.a0 > 0.8).sort((p, q) => Math.abs(p.y - yT) - Math.abs(q.y - yT))[Math.floor(R() * 3)];
+    if (!g) continue;
+    const a = lerp(g.a0 + 0.35, g.a1 - 0.35, R());
+    if (o.connectors.some((c) => Math.abs(wrapA(a - c.a)) < 0.8 && Math.abs(c.y - g.y) < 12)) continue;
+    if (limbs.some((l) => Math.abs(wrapA(a - l.a)) < 0.6 && Math.abs(l.g.y - g.y) < 9)) continue;
+    limbs.push(hangLimb(g, a, (17 + R() * 4) * T.r / 5.4 + 2, 3 + R() * 2.5, limbs.length, 1.5));
+  }
+
+  out.levels.push(segs.map((g) => [ti, +g.y.toFixed(1), +g.a0.toFixed(2), +g.a1.toFixed(2)]));      // the arcs of the spiral, for checking: tree, height, from and to (radians round)
+  // lifts up from the forest floor to the low platforms, planned before the houses so the way to them stays clear
+  lifts(b, out, T, R, segs, fits, claim, o.lifts ?? 1);
 
   // houses along the platforms, close together, a few hanging out over the edge
   for (const g of segs) {
@@ -1193,14 +1409,16 @@ function city(b, sb, out, ti, o) {
     let first = true;
     while (a < g.a1) {
       const kind = top && first ? "onion" : kindAt(g.y), H = planHouse(R, kind);
-      const over = R() < 0.25 ? g.dep * 0.5 + R() * 1.2 : R() * 0.6, rm = g.rIn + H.r * 0.95 + over;
+      const over = R() < 0.25 ? g.dep * 0.5 + R() * 1.2 : R() * 0.6, rm = g.rIn + LANE + H.r * 0.95 + over;
       const wa = (2 * H.r * 0.92) / rm, ac = a + wa / 2;
       if (ac + wa / 2 > g.a1 + 0.05) break;
       const p = at(T, ac, rm, g.y);
-      if (fits(p.x, p.z, H.r * 0.92, g.y + 0.03, g.y + H.top * 0.85) && axisD(p.x, p.z, g.y) - H.r * 0.95 >= sr(g.y) - 0.1) {
+      if (fits(p.x, p.z, H.r * 0.92, g.y + 0.03, g.y + H.top * 0.85) && axisD(p.x, p.z, g.y) - H.r * 0.95 >= sr(g.y) + LANE - 0.1) {
         H.claim = claim(p.x, p.z, H.r * 0.92, g.y + 0.03, g.y + (H.stack ?? H.top * 0.85));
-        buildHouse(b, sb, out, H, p.x, g.y, p.z, ac + (kind === "barrel" ? Math.PI / 2 : 0) + (R() - 0.5) * 0.7);
-        if (rm + H.r > g.rOut(ac) + 0.3) { b.room(0, 0, 0); for (const s of [-1, 1]) { const q = at(T, ac + s * wa * 0.3, rm + H.r * 0.6, g.y - 0.25); brace(b, T, q.x, q.y, q.z, 4.5, H.seed + s); } }
+        const [ax, az] = tAxis(T, g.y); H.doorTo = Math.atan2(ax - p.x, az - p.z);      // the door onto the lane
+        g.houses.push(H);
+        buildHouse(b, sb, out, H, p.x, g.y, p.z, ac + (kind === "barrel" || kind === "aframe" ? Math.PI / 2 : 0) + (R() - 0.5) * 0.7);    // an A-frame's gable door toward the lane
+        if (rm + H.r > g.rOut(ac) + 0.3) { b.room(0, 0, 0); for (const s of [-1, 1]) { const q = at(T, ac + s * wa * 0.3, rm + H.r * 0.6, g.y - 0.25); brace(b, T, q.x, q.y, q.z, 2.4, H.seed + s); } }
         H.level = 0; houses.push(H);
         if (kind === "onion") g.placedOnion = true;
         first = false;
@@ -1214,10 +1432,17 @@ function city(b, sb, out, ti, o) {
     for (const t of [0.48, 0.74, 0.97]) {
       const c = L.P(t), H = planHouse(R, pick(R, ["gable", "shed", "witch", "thatch", "aframe", "barrel", "tower", "gable", "dome"]), 0.85);
       const y = c.y + L.rr(t) + 0.12;
+      // the first deck must be far enough out for the walk from the platform to climb (or drop) to it
+      const run = (t - L.tw) * L.len - H.r - 1.4;
+      if (!L.decks.length && run < Math.max(0.8, Math.abs(y - L.g.y) / 0.75)) continue;
       if (axisD(c.x, c.z, y) - H.r < sr(y) + 0.5 || !fits(c.x, c.z, H.r + 0.3, y + 0.02, y + H.top * 0.85, null, "limb" + ti + ":" + L.i)) continue;
       H.claim = claim(c.x, c.z, H.r + 0.3, y - L.rr(t), y + (H.stack ?? H.top * 0.85));
-      const pts = poly(c.x, y, c.z, Array.from({ length: 8 }, () => H.r + 0.5 + R() * 0.4), R());
-      b.room(0, 0, 0); deck(b, pts, [], 600 + li);
+      // a deck wide enough to walk round the house, open where the walk along the limb comes in and goes on
+      const pts = poly(c.x, y, c.z, Array.from({ length: 8 }, () => H.r + 1.0 + R() * 0.4), R());
+      const back = L.P(Math.max(0, t - 0.15)), fwd = L.P(Math.min(1, t + 0.15)), eIn = edgeAt(pts, c.x, c.z, toward(c, back)), eOut = edgeAt(pts, c.x, c.z, toward(c, fwd));
+      b.room(0, 0, 0); deck(b, pts, t < 0.9 ? [eIn, eOut] : [eIn], 600 + li);
+      L.decks.push({ t, rin: Math.hypot(eIn.x - c.x, eIn.z - c.z) - 0.2, rout: t < 0.9 ? Math.hypot(eOut.x - c.x, eOut.z - c.z) - 0.2 : 9 });
+      H.doorTo = toward(c, back);
       for (const p of [pts[0], pts[2], pts[4], pts[6]]) b.beam(p.clone().lerp(c, 0.3).add(V(0, -0.2, 0)), c.clone().add(V(0, -L.rr(t) * 0.3, 0)), 0.14, 0.14);
       buildHouse(b, sb, out, H, c.x, y, c.z, L.a + (R() - 0.5) * 1.2 + (H.kind === "barrel" ? Math.PI / 2 : 0));
       H.level = 0; H.deck = pts; houses.push(H);
@@ -1243,6 +1468,12 @@ function city(b, sb, out, ti, o) {
         sb.st.piv = [0, 0, 0, 0];
       }
     }
+    // the walk along the limb from the stair, from deck to deck
+    let t0 = L.tw;
+    const first = L.decks.length ? Math.min(...L.decks.map((d) => d.t - d.rin / L.len)) : 1, ramp = Math.min(L.ramp, (first - L.tw) * 0.92);
+    const yAt = (t, y) => lerp(L.g.y, y, smooth(L.tw, L.tw + ramp, t));
+    for (const dk of L.decks.sort((p, q) => p.t - q.t)) { const t1 = dk.t - dk.rin / L.len; if (t1 > t0 + 0.02) limbWalk(L, t0, t1, 2400 + li * 60 + ti * 7, { yAt }); t0 = dk.t + dk.rout / L.len; }
+    if (t0 < 0.95) limbWalk(L, t0, 0.97, 2440 + li * 60 + ti * 7, { cap: true, yAt });
   });
 
   // houses perched on brackets straight off the trunk, between the platforms
@@ -1253,7 +1484,7 @@ function city(b, sb, out, ti, o) {
     H.claim = claim(p.x, p.z, H.r * 0.95, y - 0.9, y + (H.stack ?? H.top * 0.85));
     buildHouse(b, sb, out, H, p.x, y, p.z, a + (H.kind === "barrel" ? Math.PI / 2 : 0) + (R() - 0.5) * 0.5);
     b.room(0, 0, 0);
-    for (const sg of [-1, 0, 1]) { const q = at(T, a + sg * H.r * 0.6 / rm, rm + H.r * 0.4, y - 0.26); brace(b, T, q.x, q.y, q.z, 2.8 + R(), H.seed + sg); }
+    for (const sg of [-1, 0, 1]) { const q = at(T, a + sg * H.r * 0.6 / rm, rm + H.r * 0.4, y - 0.26); brace(b, T, q.x, q.y, q.z, 2.2 + R() * 0.3, H.seed + sg); }
     const wr = rm + H.wall * 0.97, span = Math.min(H.r * 1.6, 3.2) / (wr + 0.5);
     const bm = [at(T, a - span / 2, wr + 0.45, y - 0.1), at(T, a + span / 2, wr + 0.45, y - 0.1)];
     b.set(MAT.DECK, [0.5, 0.42, 0.34], H.seed); b.beam(bm[0], bm[1], 0.9, 0.18);
@@ -1280,9 +1511,9 @@ function city(b, sb, out, ti, o) {
   const linked = new Set();
   let nb = 0;
   const clear = (A, B, a, c) => {
-    for (let k = 1; k < 10; k++) {
-      const p = A.clone().lerp(B, k / 10);
-      if (axisD(p.x, p.z, p.y) < tRad(T, p.y) + 0.9) return false;
+    for (let k = 1, n = Math.max(10, Math.ceil(A.distanceTo(B) / 0.4)); k < n; k++) {
+      const p = A.clone().lerp(B, k / n);
+      if (axisD(p.x, p.z, p.y) < sr(p.y) + LANE + 0.3) return false;               // never across the lane round the trunk
       for (const o of occ) if (o !== a && o !== c && o.tag !== "deck" && p.y > o.y0 - 1.3 && p.y < o.y1 + 0.2 && Math.hypot(p.x - o.x, p.z - o.z) < o.r - 0.1) return false;
     }
     return true;
@@ -1304,31 +1535,22 @@ function city(b, sb, out, ti, o) {
   }
   out.bridges += nb;
 
-  // the spiral stair round the trunk, from the lowest platform to the highest
-  {
-    const y0 = TIERS[0] - 0.9, y1 = TIERS[TIERS.length - 1] + 0.6, turns = 4.3, N = Math.round(turns * 34), rail = [];
-    b.room(0, 0, 0);
-    for (let i = 0; i <= N; i++) {
-      const t = i / N, y = lerp(y0, y1, t), a = 0.4 + turns * TAU * t, [ax, az] = tAxis(T, y), ri = tRad(T, y) * 0.98;
-      const d = V(Math.sin(a), 0, Math.cos(a)), p = V(ax, y, az).addScaledVector(d, ri + 0.6);
-      b.push(new THREE.Matrix4().makeBasis(d, UP, V(-Math.cos(a), 0, Math.sin(a))).setPosition(p));
-      b.set(MAT.WOOD, [0.45, 0.35, 0.25], 900 + i); b.box(0, 0, 0, 1.15, 0.06, 0.36); b.pop();
-      b.set(MAT.WOOD, TIMBER, 900); b.beam(p.clone().addScaledVector(d, 0.5).add(V(0, -0.04, 0)), V(ax, y - 0.8, az).addScaledVector(d, ri * 0.97), 0.06, 0.06);
-      if (i % 3 === 0) { const q = p.clone().addScaledVector(d, 0.52); b.beam(q, q.clone().add(V(0, 0.95, 0)), 0.06, 0.06); rail.push(q.clone().add(V(0, 0.95, 0))); }
-      if (i % 11 === 0) lantern(sb, V(ax, y + 2.2, az).addScaledVector(d, ri + 0.15), 0.2, [1.0, 0.62, 0.32], 4, 950 + i + ti * 1000, 1);
-    }
-    b.set(MAT.ROPE, [0.5, 0.42, 0.3], 901); b.tube(rail, 0.03, 5);
-  }
-
-  lifts(b, out, T, R, segs, fits, claim, o.lifts ?? 1);
   waterworks(b, out, T, R, segs, fits, claim, ti === 0 ? 2 : 1);
   // lights strung along the platform rails, lanterns at the platform ends, fungus on the bark below
   // (railings, the pulley, bunting and the like are given in world coordinates: reset the builder's frame first,
   // or they inherit the last house's or fungus's and end up hanging in the sky)
   b.room(0, 0, 0);
   segs.forEach((g, i) => {
-    railing(b, g.O, false, g.gaps, TIMBER, 1000 + i);
-    if (i % 2 === 0) stringLights(out, g.O.map((p) => p.clone().add(V(0, 1.03, 0))), 0.5, i % 4 ? 2 + i : 0);
+    // the outer edge (open where a house stands out over it), the inner edge (open where the stair lands), and the ends
+    // (open across the lane where steps go on over the gap to the next arc)
+    const inH = (p) => g.houses.some((H) => insideHouse(H, p.x, p.z, 0.3));
+    railing(b, g.O, false, g.gaps, TIMBER, 1000 + i, 1.0, inH);
+    railing(b, g.I, false, g.landA != null ? [at(T, g.landA, g.rIn, g.y)] : [], TIMBER, 1050 + i, 1.0, inH);
+    for (const [aE, link] of [[g.a0, g.linkStart], [g.a1, g.linkEnd]]) {
+      const P = [at(T, aE, g.rIn + (link ? LANE - 0.05 : 0), g.y), at(T, aE, g.rOut(aE), g.y)];
+      railing(b, [P[0], P[0].clone().lerp(P[1], 0.5), P[1]], false, [], TIMBER, 1080 + i, 1.0, inH);
+    }
+    if (i % 2 === 0) stringLights(out, g.O.map((p) => p.clone().add(V(0, 1.03, 0))), 0.5, i % 4 ? 2 + i : 0, inH);
     lantern(sb, g.O[0].clone().add(V(0, 1.05, 0)), 0.12, [1.0, 0.65, 0.35], 5, 1100 + i);
     out.launch.push(g.O[Math.floor(g.O.length / 2)].clone().lerp(at(T, (g.a0 + g.a1) / 2, g.rIn, g.y), 0.3));
   });
@@ -1367,15 +1589,16 @@ function city(b, sb, out, ti, o) {
     made++;
   }
   // leaves crowding round every house: at its sides and back and over its roof, leaving the front and its windows clear
+  // (and the door: with a door on the lane, only the sides)
   for (const h of houses) {
     if (R() > (F.around ?? 1)) continue;
     const n = 2 + Math.floor(R() * 3);
     for (let q = 0; q < n; q++) {
-      const th = h.yaw + Math.PI + (R() < 0.5 ? -1 : 1) * (0.3 + R() * 1.9), rr = h.r * (0.75 + R() * 0.35) + 0.3;
+      const sd = R() < 0.5 ? -1 : 1, sp = R(), th = h.doorTo != null ? h.doorTo + sd * (1.15 + sp * 0.8) : h.yaw + Math.PI + sd * (0.3 + sp * 1.9), rr = h.r * (0.75 + R() * 0.35) + 0.3;
       const top = h.top ?? 3, y = h.y + (q === 0 ? top * (0.85 + R() * 0.3) : top * (0.35 + R() * 0.7));
       green({ p: V(h.x + Math.sin(th) * rr, y, h.z + Math.cos(th) * rr), s: 1.4 + R() * 1.2, cell: R() < 0.15 ? 1 : 0 });
     }
-    if (R() < 0.45) { const th = h.yaw + Math.PI + (R() - 0.5) * 2.5; green({ p: V(h.x + Math.sin(th) * h.r * 0.9, h.y - 0.2, h.z + Math.cos(th) * h.r * 0.9), s: 1.4 + R() * 1.4, drape: true, cell: R() < 0.5 ? 2 : 3 }); }
+    if (R() < 0.45) { const th = h.doorTo != null ? h.doorTo + Math.PI + (R() - 0.5) * 2.0 : h.yaw + Math.PI + (R() - 0.5) * 2.5; green({ p: V(h.x + Math.sin(th) * h.r * 0.9, h.y - 0.2, h.z + Math.cos(th) * h.r * 0.9), s: 1.4 + R() * 1.4, drape: true, cell: R() < 0.5 ? 2 : 3 }); }
   }
   // ivy hanging in curtains from the platform edges
   for (const g of segs) for (let i = 1; i < g.O.length; i += 2) if (R() < 0.55) green({ p: g.O[i].clone().add(V(0, -0.15, 0)), s: 1.4 + R() * 1.6, drape: true, cell: 3 });
@@ -1390,10 +1613,11 @@ function city(b, sb, out, ti, o) {
     const a = lerp(g.a0, g.a1, R()), p = at(T, a, g.rOut(a) - 0.5, g.y);
     if (!fits(p.x, p.z, 0.5, g.y + 0.05, g.y + 1.5)) continue;
     b.room(p.x, g.y, p.z, 0); b.set(MAT.PLANK, [0.45, 0.32, 0.22], 1500 + k); b.lathe([[0.3, 0], [0.38, 0.45], [0, 0.45]], 10);
+    b.walk?.circle(p.x, p.z, 0.38, g.y - 0.2, g.y + 0.6);
     out.flowers.push({ p: p.clone().add(V(0, 0.75, 0)), s: 0.5 + R() * 0.3, seed: R() });
   }
   details(b, sb, out, T, R, houses, segs, limbs, fits, claim, green);
-  out.houses += houses.length;
+  out.houses += houses.length; out.houseList.push(...houses);
 }
 
 // lifts from the forest floor up to the low platforms: a timber tower beside the platform's edge with a pulley on top;
@@ -1407,6 +1631,7 @@ function lifts(b, out, T, R, segs, fits, claim, n) {
       const a = lerp(g.a0 + 0.15, g.a1 - 0.15, R()), rL = g.rOut(a) + 1.4, c = at(T, a, rL, g.y), top = g.y;
       if (!fits(c.x, c.z, 1.5, -1, top + 3.6)) continue;
       claim(c.x, c.z, 1.5, -1, top + 3.6);
+      for (let r = g.rIn + LANE; r < g.rOut(a); r += 0.7) { const q = at(T, a, r, g.y); claim(q.x, q.z, 0.75, g.y + 0.05, g.y + 2.3, "lane"); }     // the way from the lane out to it
       const hw = 1.05, H = top + 3.3, yaw = a;
       b.room(c.x, 0, c.z, yaw); b.set(MAT.WOOD, TIMBER, 3300 + made);
       const cs = [[-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]];
@@ -1421,6 +1646,13 @@ function lifts(b, out, T, R, segs, fits, claim, n) {
       // the landing from the platform's edge to the cage, and a gap in the railing for it
       b.set(MAT.DECK, [0.5, 0.42, 0.34], 3320); b.box(0, top - 0.09, -hw - 0.35, 1.5, 0.18, 1.0);
       g.gaps.push(at(T, a, g.rOut(a), g.y));
+      for (const sx of [-1, 1]) railing(b, [V(sx * 0.72, top, -hw - 0.75), V(sx * 0.72, top, -hw + 0.05)], false, [], TIMBER, 3321 + sx);     // the landing's sides
+      b.set(MAT.WOOD, TIMBER, 3323); for (const sx of [-1, 1]) b.beam(V(sx * 0.76, top, -hw + 0.1), V(sx * 0.76, top + 1.1, -hw + 0.1), 0.09, 0.09);   // the gate's posts
+      if (b.walk) {
+        const W = (x, y, z) => b.world(x, y, z);
+        b.walk.quad(W(-0.75, top, -hw - 0.85), W(0.75, top, -hw - 0.85), W(0.75, top, -hw + 0.15), W(-0.75, top, -hw + 0.15));
+        for (const [x, z] of cs) { const p = W(x, 0, z); b.walk.circle(p.x, p.z, 0.13, -1, H); }
+      }
       out.lifts.push({ x: c.x, z: c.z, yaw, y0: 0.4, y1: top, top: H + 0.35, ph: R() * 40 });
       out.lights.push({ p: at(T, a, rL, top + 2.0), c: WARM, i: 3, s: 1 });
       made++;
@@ -1442,7 +1674,7 @@ function waterworks(b, out, T, R, segs, fits, claim, n = 1) {
     return true;
   };
   const clearPath = (pts) => pts.every((p) => fits(p.x, p.z, 0.2, p.y - 0.12, p.y + 0.12, null, "deck"));
-  const inRange = (g, a, m = 0.05) => a > g.a0 + m && a < g.a1 - m;
+  const inRange = (g, a, m = 0.05) => { const u = ((a - g.a0) % TAU + TAU) % TAU; return u > m && u < g.a1 - g.a0 - m; };    // arcs go on round the spiral: compare angles round the trunk
   const lower = segs.slice().sort((p, q) => q.y - p.y);
   // a tub on a shelf off a lower platform, out beyond the edge of `gF` (the platform the water leaves) at angle aF
   const nextTub = (gF, aF, yFrom) => {
@@ -1560,7 +1792,7 @@ function waterworks(b, out, T, R, segs, fits, claim, n = 1) {
     b.set(MAT.BOARDV, [0.5, 0.36, 0.22], 3420); b.lathe([[0.6, 0], [0.68, 0.6], [0.62, 0.62]], 16); b.lathe([[0, 0.02], [0.6, 0.02]], 16);
     b.set(MAT.METAL, IRON, 3421, 0.1); b.lathe([[0.65, 0.12], [0.66, 0.2]], 16); b.lathe([[0.68, 0.44], [0.69, 0.52]], 16);
     wb.set(1, [1, 1, 1], R(), 0); wb.room(tub.x, st.g.y, tub.z, 0); wb.lathe([[0.63, 0.54], [0, 0.54]], 16, { uFrac: true });
-    claim(tub.x, tub.z, 0.75, st.g.y, st.g.y + 0.8);
+    claim(tub.x, tub.z, 0.75, st.g.y, st.g.y + 0.8); b.walk?.circle(tub.x, tub.z, 0.68, st.g.y - 0.2, st.g.y + 0.65);
   };
   // brackets holding a pipe to the bark, and hangers up to the platforms where it runs under one
   const brackets = (pts, under) => {
@@ -1600,7 +1832,7 @@ function waterworks(b, out, T, R, segs, fits, claim, n = 1) {
     b.set(MAT.WOOD, TIMBER, 3400); for (const [x, z] of [[-0.6, -0.6], [0.6, -0.6], [0.6, 0.6], [-0.6, 0.6]]) b.beam(V(x, 0, z), V(x, 0.7, z), 0.14, 0.14);
     b.set(MAT.BOARDV, [0.45, 0.32, 0.2], 3401); b.lathe([[0.85, 0.7], [0.95, 1.4], [0.85, 2.2], [0, 2.2]], 18); b.lathe([[0, 0.7], [0.85, 0.7]], 18);
     b.set(MAT.METAL, IRON, 3402, 0.1); for (const y of [0.95, 1.85]) b.lathe([[0.93, y - 0.05], [0.93, y + 0.05]], 18);
-    claim(cst.x, cst.z, 1.0, g0.y, g0.y + 2.3);
+    claim(cst.x, cst.z, 1.0, g0.y, g0.y + 2.3); b.walk?.circle(cst.x, cst.z, 0.95, g0.y - 0.2, g0.y + 2.2);
     for (const leg of legs) {
       if (leg.kind === "fall") {
         const { from, to } = leg, src = from.tub ? from.r + 0.4 : from.r + 0.8;
@@ -1650,6 +1882,7 @@ function details(b, sb, out, T, R, houses, segs, limbs, fits, claim, green) {
     const ab = V(B.x - A.x, 0, B.z - A.z).normalize(), y = Math.min(A.y, B.y) + 2.05;
     const P0 = V(A.x, y, A.z).addScaledVector(ab, A.r * 0.8), P1 = V(B.x, y, B.z).addScaledVector(ab, -B.r * 0.8), m = P0.clone().lerp(P1, 0.5);
     if (!fits(m.x, m.z, 0.3, y - 1.0, y, null, "deck")) continue;
+    if ([0.2, 0.4, 0.6, 0.8].some((f) => { const q = P0.clone().lerp(P1, f), [ax, az] = tAxis(T, q.y); return Math.hypot(q.x - ax, q.z - az) < tRad(T, q.y) * 1.06 + 1.3 + LANE + 0.3; })) continue;   // not across the lane
     const pts = sagLine(P0, P1, 0.25, 16), len = P0.distanceTo(P1), n = V().crossVectors(ab, UP);
     b.room(0, 0, 0); b.set(MAT.ROPE, [0.7, 0.68, 0.62], 2700 + i); b.tube(pts, 0.01, 3);
     for (let t = 0.12; t < 0.9; t += (0.5 + R() * 0.3) / len) {
@@ -1678,6 +1911,7 @@ function details(b, sb, out, T, R, houses, segs, limbs, fits, claim, green) {
     }
     b.set(MAT.ROPE, [0.6, 0.55, 0.45], 2801); b.tube([A.clone().add(V(0, 0.3, 0)), pts[1]], 0.012, 3); b.tube([B.clone().add(V(0, 0.3, 0)), pts[11]], 0.012, 3);
     b.set(MAT.WOOD, TIMBER, 2802); b.beam(A.clone().add(V(0, -1.0, 0)), A.clone().add(V(0, 0.35, 0)), 0.09, 0.09); b.beam(B.clone().add(V(0, -1.0, 0)), B.clone().add(V(0, 0.35, 0)), 0.09, 0.09);
+    b.walk?.seg(A, B, g.y - 0.2, g.y + 1.3);
     ham++;
   }
   // rope swings under the limbs, swinging
@@ -1714,7 +1948,7 @@ function details(b, sb, out, T, R, houses, segs, limbs, fits, claim, green) {
     b.set(MAT.BOARDV, [0.5, 0.35, 0.22], 3100); b.lathe([[0.28, 0], [0.33, 0.4], [0.28, 0.8], [0, 0.8]], 12);
     b.set(MAT.METAL, IRON, 3101, 0.1); b.lathe([[0.31, 0.18], [0.31, 0.24]], 12); b.lathe([[0.31, 0.58], [0.31, 0.64]], 12);
     b.set(MAT.METAL, [0.35, 0.33, 0.3], 3102, 0.4); b.tube([V(0.1, 0.75, 0), V(0.1, 2.3, 0), V(0.25, 2.5, 0)], 0.04, 6);
-    claim(p.x, p.z, 0.45, g.y, g.y + 2.5);
+    claim(p.x, p.z, 0.45, g.y, g.y + 2.5); b.walk?.circle(p.x, p.z, 0.33, g.y - 0.2, g.y + 0.8);
   }
   // a telescope on the highest platform, pointed at the moon
   const top = segs.filter((g) => g.ti === CITY[TREES.indexOf(T)].tiers.length - 1);
@@ -1727,7 +1961,7 @@ function details(b, sb, out, T, R, houses, segs, limbs, fits, claim, green) {
     b.set(MAT.METAL, BRASS, 3201, 0.2);
     b.push(new THREE.Matrix4().makeTranslation(tp.x, tp.y, tp.z).multiply(new THREE.Matrix4().lookAt(V(), MOON_DIR, UP)).multiply(new THREE.Matrix4().makeRotationX(-Math.PI / 2)));
     b.lathe([[0.06, 0.55], [0.06, 0.35], [0.075, 0.3], [0.075, -0.3], [0.09, -0.35], [0.1, -0.85], [0.08, -0.9]], 12); b.pop();
-    claim(p.x, p.z, 0.6, g.y, g.y + 1.8);
+    claim(p.x, p.z, 0.6, g.y, g.y + 1.8); b.walk?.circle(p.x, p.z, 0.45, g.y - 0.2, g.y + 1.3);
   }
 }
 
@@ -1753,7 +1987,7 @@ function world(b, sb, out) {
     const [ca, cb] = L.ends;
     if (!ca.top && L.cable) return;       // a station that found no room
     if (L.cable) {
-      let B = cb && cb.top;
+      let B = cb && cb.top, dB = cb && cb.deckC;
       if (L.ground) {             // the valley station: a timber tower standing up out of the mist, a hut and a pylon on top
         const G = V(L.ground[0], 0, L.ground[1]), yT = 13, a = Math.atan2(TREES[L.a].x - G.x, TREES[L.a].z - G.z), side = V(Math.cos(a), 0, -Math.sin(a));
         b.room(G.x, 0, G.z, a); b.set(MAT.WOOD, TIMBER, 2450);
@@ -1762,7 +1996,9 @@ function world(b, sb, out) {
         for (let y = 3; y < yT; y += 3.5) for (let i = 0; i < 4; i++) { const [x0, z0] = cs[i], [x1, z1] = cs[(i + 1) % 4], f = 1 - 0.2 * y / yT; b.beam(V(x0 * f, y, z0 * f), V(x1 * f, y, z1 * f), 0.15, 0.15); }
         b.room(0, 0, 0); deck(b, poly(G.x, yT, G.z, Array.from({ length: 8 }, (_, i) => 3.6 + 0.3 * Math.sin(i * 1.7)), 0.4), [V(G.x, yT, G.z).addScaledVector(V(Math.sin(a), 0, Math.cos(a)), 3.6)], 2451);
         const R = rng(5150), H = planHouse(R, "gable", 0.75), hp = V(G.x, yT, G.z).addScaledVector(V(Math.sin(a), 0, Math.cos(a)), -1.3);
-        buildHouse(b, sb, out, H, hp.x, yT, hp.z, a + Math.PI);
+        H.doorTo = a;
+        buildHouse(b, sb, out, H, hp.x, yT, hp.z, a + Math.PI); out.houseList.push(H);
+        dB = V(G.x, yT, G.z);
         const base = V(G.x, yT, G.z).addScaledVector(V(Math.sin(a), 0, Math.cos(a)), 1.6);
         b.room(0, 0, 0); b.set(MAT.WOOD, TIMBER, 2452); b.beam(base, base.clone().add(V(0, 4.2, 0)), 0.22, 0.22);
         b.beam(base.clone().add(V(0, 4.0, 0)).addScaledVector(side, -1.3), base.clone().add(V(0, 4.0, 0)).addScaledVector(side, 1.3), 0.16, 0.2);
@@ -1775,7 +2011,7 @@ function world(b, sb, out) {
       const A = ca.top, dir = V().subVectors(B, A).setY(0).normalize(), P = V(dir.z, 0, -dir.x).multiplyScalar(1.15), sag = 1.2 + A.distanceTo(B) * 0.02;
       b.room(0, 0, 0); b.set(MAT.METAL, IRON, 2400, 0);
       for (const sg of [-1, 1]) b.tube(sagLine(A.clone().addScaledVector(P, sg), B.clone().addScaledVector(P, sg), sag, 60), 0.035, 5);
-      out.cables.push({ A, B, sag, P });
+      out.cables.push({ A, B, sag, P, dA: ca.deckC, dB });
       return;
     }
     if (L.mid) {
@@ -1791,7 +2027,8 @@ function world(b, sb, out) {
       }
       const side = V(Math.cos(ca.a), 0, -Math.sin(ca.a)), R = rng(4242), H = planHouse(R, "witch", 0.78);
       const hp = M.clone().addScaledVector(side, 0.9);
-      buildHouse(b, sb, out, H, hp.x, M.y, hp.z, ca.a + Math.PI / 2);
+      H.doorTo = toward(hp, M.clone().addScaledVector(side, -1));
+      buildHouse(b, sb, out, H, hp.x, M.y, hp.z, ca.a + Math.PI / 2); out.houseList.push(H);
       lantern(sb, M.clone().addScaledVector(side, -1.6).add(V(0, 2.4, 0)), 0.25, [1.0, 0.6, 0.35], 6, 2502);
       b.room(0, 0, 0); b.set(MAT.WOOD, TIMBER, 2503); b.beam(M.clone().addScaledVector(side, -1.6), M.clone().addScaledVector(side, -1.6).add(V(0, 2.55, 0)), 0.12, 0.12);
       across(ca.end, eA, 2600 + li); across(eB, cb.end, 2650 + li);
@@ -1864,6 +2101,7 @@ function roots(b, tr, R) {
     const a = (i + R() * 0.5) / 6 * TAU + tr.seed, d = V(Math.sin(a), 0, Math.cos(a)), r0 = tr.r * 0.45;
     const pts = Array.from({ length: 6 }, (_, k) => { const t = k / 5; return V(tr.x, 2.5 - t * 3.2, tr.z).addScaledVector(d, tr.r * 1.2 + t * (4 + R() * 2)); });
     bark(b, tr, tr.seed + 50 + i, TAU * r0); b.tube(pts, (t) => r0 * (1 - 0.7 * t), 7);
+    if (b.walk) pts.forEach((p, k) => { const r = r0 * (1 - 0.7 * k / 5); b.walk.circle(p.x, p.z, r, p.y - r, p.y + r); });
   }
 }
 
@@ -1975,6 +2213,7 @@ const LEAF_FRAG = /* glsl */`
 uniform sampler2D uAtlas;
 varying vec2 vUv; varying vec3 vW, vNs, vCol, vFl; varying float vR, vCell;
 void main(){
+  if (roomCut(vW)) discard;
   vec2 off = vec2(mod(vCell, 2.) * 0.5, 0.5 - floor(vCell / 2.) * 0.5);
   vec4 t = texture2D(uAtlas, off + (vUv * 0.96 + 0.02) * 0.5);
   float d = distance(cameraPosition, vW);
@@ -2143,7 +2382,254 @@ void main(){
 }`;
 
 // ---------------------------------------------------------------- the scene
-export function startAerie3D(canvasEl, { reduced = false } = {}) {
+// ---------------------------------------------------------------- the rooms inside the houses
+// Built when you come near a house you can go into (and kept): in the house's own frame and with its lean, so it
+// fits its walls. Walls are set in 7 cm from the outside ones, with real openings where the windows and the door are
+// (reveals, frames and glazing bars round them, no glass), under a ceiling that follows the roof, with rafters. Then
+// it is furnished: a bed, a desk under a window with a chair, shelves of books, an armchair, a chest, a plant, a rug,
+// pictures on the walls, a stove under the stovepipe if the house has one, a lamp hanging from the middle; the door
+// stands open against the wall. Everything is seeded by the house, so a room is the same each time you come back.
+const ROOM_WALLS = [[MAT.PLASTER, [0.86, 0.78, 0.62]], [MAT.PLASTER, [0.7, 0.74, 0.6]], [MAT.PLASTER, [0.82, 0.66, 0.58]], [MAT.PLANK, [0.62, 0.7, 0.72]], [MAT.BOARDV, [0.78, 0.68, 0.5]], [MAT.PLANK, [0.8, 0.74, 0.64]], [MAT.PLASTER, [0.66, 0.7, 0.8]]];
+const CLOTHS = [[0.7, 0.3, 0.28], [0.32, 0.45, 0.62], [0.78, 0.62, 0.32], [0.45, 0.58, 0.4], [0.62, 0.44, 0.7], [0.85, 0.82, 0.74], [0.55, 0.32, 0.25]];
+function buildInterior(H) {
+  const ib = builder(), R = rng(H.seed * 7 + 3), e = 0.07, kind = H.kind;
+  ib.room(H.x, H.y, H.z, H.yaw, bend(H.lean[0], H.lean[1], H.twist));
+  const [wm, wc] = pick(R, ROOM_WALLS), wood = [0.5 + R() * 0.12, 0.36 + R() * 0.08, 0.24], cloth = () => pick(R, CLOTHS);
+  // the walls: each a strip seen from inside, P(u, v) on it, n(u) pointing out of the room; holes {u0, u1, v0, v1}
+  const walls = [];
+  if (H.box) {
+    const [w, d] = H.box, hx = w / 2 - e, hz = d / 2 - e, S = BOX_SIDES(w, d), hh = H.h;
+    for (const sd of ["z+", "x+", "z-", "x-"]) {
+      const [o, n, len] = S[sd], t = V().crossVectors(UP, n), o2 = o.clone().addScaledVector(n, -e).addScaledVector(t, e), L = len - 2 * e;
+      let top = () => hh;
+      if ((kind === "gable" || kind === "aframe") && sd[0] === "x") { const s = H.rh / (d / 2); top = (u) => hh + s * (hz - Math.abs(u - L / 2)); }
+      if (kind === "shed") {
+        const rz = (z) => hh + H.rh * (d / 2 - z) / d;
+        if (sd === "z-") top = () => rz(-hz); else if (sd === "x+") top = (u) => rz(hz - u); else if (sd === "x-") top = (u) => rz(-hz + u); else top = () => rz(hz);
+      }
+      const holes = H.wins.filter((q) => q.side === sd).map((q) => ({ u0: q.a - e - q.w / 2, u1: q.a - e + q.w / 2, v0: q.y, v1: q.y + q.h }));
+      if (H.door.side === sd) holes.push({ u0: H.door.a - e - H.door.w / 2 - 0.02, u1: H.door.a - e + H.door.w / 2 + 0.02, v0: -0.01, v1: H.door.h + 0.03, door: true });
+      walls.push({ L, top, holes, P: (u, v) => o2.clone().addScaledVector(t, u).setY(v), n: () => n, sd });
+    }
+  } else if (H.oct) {
+    const Ri = H.oct - e / Math.cos(TAU / 16), hh = H.h;
+    for (let q = 0; q < 8; q++) {
+      const a = (q + 0.5) * TAU / 8, c = (q + 1.5) * TAU / 8, p = V(Math.sin(a) * Ri, 0, Math.cos(a) * Ri), pq = V(Math.sin(c) * Ri, 0, Math.cos(c) * Ri);
+      const L = p.distanceTo(pq), t = V().subVectors(pq, p).normalize(), n = V(Math.sin((a + c) / 2), 0, Math.cos((a + c) / 2)), holes = [];
+      if (q === H.door.q) holes.push({ u0: L / 2 - 0.4, u1: L / 2 + 0.4, v0: -0.01, v1: H.door.h + 0.03, door: true });
+      const wq = H.wins.find((x) => x.q === q); if (wq) holes.push({ u0: L / 2 - wq.w / 2, u1: L / 2 + wq.w / 2, v0: wq.y, v1: wq.y + wq.h });
+      walls.push({ L, top: () => hh, holes, P: (u, v) => p.clone().addScaledVector(t, u).setY(v), n: () => n });
+    }
+  } else {
+    const ri = H.round - e, L = TAU * ri, at0 = (th) => (((th % TAU) + TAU) % TAU) * ri, holes = [];
+    const hole = (th, w, v0, v1, door) => { const u = at0(th); holes.push({ u0: u - w / 2, u1: u + w / 2, v0, v1, door }); if (u - w / 2 < 0) holes.push({ u0: u - w / 2 + L, u1: L + 0.01, v0, v1 }); if (u + w / 2 > L) holes.push({ u0: -0.01, u1: u + w / 2 - L, v0, v1 }); };
+    hole(H.door.th, H.door.w + 0.04, -0.01, H.door.h + 0.03, true);
+    for (const q of H.wins) hole(q.th, q.w, q.y, q.y + q.h);
+    walls.push({ L, top: () => H.h, holes, P: (u, v) => V(Math.sin(u / ri) * ri, v, Math.cos(u / ri) * ri), n: (u) => V(Math.sin(u / ri), 0, Math.cos(u / ri)), round: true });
+  }
+  // build the walls column by column: split at the holes' edges (and every 30 cm on a curve or under a slope)
+  ib.set(wm, wc, H.seed + 1, 0, 3);
+  for (const W of walls) {
+    const cuts = new Set([0, W.L]);
+    for (const h of W.holes) { if (h.u0 > 0 && h.u0 < W.L) cuts.add(h.u0); if (h.u1 > 0 && h.u1 < W.L) cuts.add(h.u1); }
+    const step = W.round || W.top(0) !== W.top(W.L) || W.top(W.L / 2) !== W.top(0) ? 0.3 : 99;
+    for (let u = step; u < W.L; u += step) cuts.add(u);
+    const us = [...cuts].sort((p, q) => p - q);
+    for (let i = 0; i + 1 < us.length; i++) {
+      const u0 = us[i], u1 = us[i + 1], um = (u0 + u1) / 2, t0 = W.top(u0), t1 = W.top(u1);
+      const over = W.holes.filter((h) => um > h.u0 && um < h.u1).sort((p, q) => p.v0 - q.v0);
+      let v = 0;
+      const strip = (va, vb0, vb1) => { const a = W.P(u0, va), b = W.P(u1, va), c = W.P(u1, vb1), dd = W.P(u0, vb0); if (vb0 - va > 0.005 || vb1 - va > 0.005) ib.quad(a, b, c, dd, [[u0, va], [u1, va], [u1, vb1], [u0, vb0]]); };
+      for (const h of over) { if (h.v0 > v) strip(v, Math.min(h.v0, t0), Math.min(h.v0, t1)); v = Math.max(v, h.v1); }
+      if (v < Math.min(t0, t1)) strip(v, t0, t1);
+    }
+  }
+  // round each opening: reveals out to the outer wall, a frame on the inside, glazing bars where the window is
+  for (const W of walls) for (const h of W.holes) {
+    const um = (h.u0 + h.u1) / 2, n = W.n(um).clone(), cs = [W.P(h.u0, h.v0), W.P(h.u1, h.v0), W.P(h.u1, h.v1), W.P(h.u0, h.v1)], o = n.clone().multiplyScalar(e + 0.05);
+    ib.set(MAT.WOOD, TRIM, H.seed + 2);
+    for (let k = 0; k < 4; k++) { if (h.door && k === 0) continue; const a = cs[k], b = cs[(k + 1) % 4]; ib.quad(a, b, b.clone().add(o), a.clone().add(o)); }
+    for (let k = 0; k < 4; k++) { if (h.door && k === 0) continue; const a = cs[k], b = cs[(k + 1) % 4]; ib.beam(a.clone().addScaledVector(n, -0.02), b.clone().addScaledVector(n, -0.02), 0.07, 0.05, n); }
+    if (!h.door) {
+      const mid = (p, q) => p.clone().lerp(q, 0.5).addScaledVector(n, e * 0.7);
+      ib.set(MAT.WOOD, [0.62, 0.56, 0.46], H.seed + 3);
+      ib.beam(mid(cs[0], cs[3]), mid(cs[1], cs[2]), 0.03, 0.03, n); ib.beam(mid(cs[0], cs[1]), mid(cs[3], cs[2]), 0.03, 0.03, n);
+      ib.set(MAT.WOOD, TRIM, H.seed + 2); ib.beam(cs[0].clone().addScaledVector(n, -0.06).add(V(0, -0.03, 0)), cs[1].clone().addScaledVector(n, -0.06).add(V(0, -0.03, 0)), 0.16, 0.05, UP);   // the sill
+    }
+  }
+  // floor, ceiling and rafters
+  const floorCol = [0.56, 0.42, 0.3], ceilCol = [0.62, 0.52, 0.4];
+  let lampY = 2.3;
+  if (H.box) {
+    const [w, d] = H.box, hx = w / 2 - e, hz = d / 2 - e, hh = H.h;
+    ib.set(MAT.DECK, floorCol, H.seed + 4); ib.quad(V(-hx, 0.012, hz), V(hx, 0.012, hz), V(hx, 0.012, -hz), V(-hx, 0.012, -hz), [[-hx, hz], [hx, hz], [hx, -hz], [-hx, -hz]]);
+    ib.set(MAT.DECK, ceilCol, H.seed + 5);
+    if (kind === "gable" || kind === "aframe") {
+      const yR = hh + H.rh / (d / 2) * hz;
+      for (const sz of [-1, 1]) ib.quad(V(-hx, hh, sz * hz), V(hx, hh, sz * hz), V(hx, yR, 0), V(-hx, yR, 0), [[0, 0], [2 * hx, 0], [2 * hx, hz * 1.3], [0, hz * 1.3]]);
+      ib.set(MAT.WOOD, TIMBER, H.seed + 6);
+      ib.beam(V(-hx, yR - 0.08, 0), V(hx, yR - 0.08, 0), 0.14, 0.14);
+      for (let x = -hx + 0.35; x < hx - 0.2; x += 0.7) for (const sz of [-1, 1]) ib.beam(V(x, hh - 0.04, sz * (hz - 0.04)), V(x, yR - 0.1, 0), 0.08, 0.12);
+      if (kind === "gable") for (let x = -hx + 0.6; x < hx - 0.3; x += 1.2) ib.beam(V(x, hh - 0.06, -hz), V(x, hh - 0.06, hz), 0.1, 0.12);      // tie beams
+      lampY = Math.min(hh + 0.15, yR - 0.6);
+    } else if (kind === "shed") {
+      const rz = (z) => hh + H.rh * (d / 2 - z) / d;
+      ib.quad(V(-hx, rz(hz), hz), V(hx, rz(hz), hz), V(hx, rz(-hz), -hz), V(-hx, rz(-hz), -hz), [[0, 0], [2 * hx, 0], [2 * hx, 2 * hz], [0, 2 * hz]]);
+      ib.set(MAT.WOOD, TIMBER, H.seed + 6);
+      for (let x = -hx + 0.3; x < hx - 0.1; x += 0.7) ib.beam(V(x, rz(hz) - 0.06, hz), V(x, rz(-hz) - 0.06, -hz), 0.08, 0.12);
+      lampY = rz(0) - 0.45;
+    } else {
+      ib.quad(V(-hx, hh, hz), V(hx, hh, hz), V(hx, hh, -hz), V(-hx, hh, -hz), [[-hx, hz], [hx, hz], [hx, -hz], [-hx, -hz]]);
+      ib.set(MAT.WOOD, TIMBER, H.seed + 6); ib.beam(V(-hx, hh - 0.07, 0), V(hx, hh - 0.07, 0), 0.12, 0.12); ib.beam(V(0, hh - 0.07, -hz), V(0, hh - 0.07, hz), 0.12, 0.12);
+      lampY = hh - 0.5;
+    }
+  } else if (H.oct) {
+    const Ri = H.oct - e, f = H.oct / 1.6, HE = H.h;
+    ib.set(MAT.DECK, floorCol, H.seed + 4); ib.lathe([[Ri, 0.012], [0, 0.012]], 8, { a0: TAU / 16, a1: TAU + TAU / 16 });
+    ib.set(wm, wc, H.seed + 5, 0, 3); ib.lathe([[Ri, HE], [1.5 * f * 0.95, HE + 0.15 * f]], 8, { a0: TAU / 16, a1: TAU + TAU / 16 });
+    ib.set(MAT.PLASTER, [0.5, 0.62, 0.66], H.seed + 7);                 // the inside of the dome, painted like a summer sky
+    ib.lathe([[1.5, 0.15], [1.82, 0.6], [1.86, 1.05], [1.55, 1.6], [0.85, 2.15], [0.3, 2.65], [0.02, 2.75]].map(([r, y]) => [r * f * 0.95, HE + y * f - 0.04]), 20);
+    lampY = HE + 0.6;
+  } else {
+    const ri = H.round - e;
+    ib.set(MAT.DECK, floorCol, H.seed + 4); ib.lathe([[ri, 0.012], [0, 0.012]], 24);
+    ib.set(kind === "thatch" ? MAT.THATCH : MAT.DECK, kind === "thatch" ? [0.8, 0.72, 0.6] : ceilCol, H.seed + 5); ib.lathe([[ri, H.h], [0.03, H.h + H.rh * 0.86]], 24, { uR: ri });
+    ib.set(MAT.WOOD, TIMBER, H.seed + 6);
+    for (let k = 0; k < 6; k++) { const a = k / 6 * TAU; ib.beam(V(Math.sin(a) * (ri - 0.05), H.h - 0.04, Math.cos(a) * (ri - 0.05)), V(0, H.h + H.rh * 0.8, 0), 0.08, 0.1); }
+    ib.lathe([[ri - 0.02, H.h - 0.12], [ri - 0.02, H.h]], 24);
+    lampY = H.h + 0.1;
+  }
+  // furniture: against the walls, away from the door, tall things not across a window
+  const items = [], foot = [], lights = [];
+  const dIn = H.door.o.clone().addScaledVector(H.door.n, -0.6);
+  const inRoom = (x, z, m) => (H.box ? Math.abs(x) < H.box[0] / 2 - e - m && Math.abs(z) < H.box[1] / 2 - e - m : Math.hypot(x, z) < (H.round ?? H.oct * 0.92) - e - m);
+  const fits = (cx, cz, ax, az, hw, hd) => {
+    const cs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, k]) => [cx + ax[0] * hw * i + az[0] * hd * k, cz + ax[1] * hw * i + az[1] * hd * k]);
+    if (!cs.every(([x, z]) => inRoom(x, z, -0.01))) return false;
+    if (cs.concat([[cx, cz]]).some(([x, z]) => Math.hypot(x - dIn.x, z - dIn.z) < 0.95)) return false;
+    return foot.every((f) => Math.hypot(f[0] - cx, f[1] - cz) > f[2] + Math.hypot(hw, hd) * 0.82);
+  };
+  // the places along the walls for something w wide and dp deep: centre, its x axis (along the wall) and z (into the room)
+  const slots = (w, dp, tall) => {
+    const out = [];
+    for (const W of walls) {
+      for (let u = w / 2 + 0.05; u <= W.L - w / 2 - 0.05; u += 0.12) {
+        if (tall && W.holes.some((h) => !h.door && u + w / 2 > h.u0 - 0.05 && u - w / 2 < h.u1 + 0.05)) continue;
+        if (W.holes.some((h) => h.door && u + w / 2 > h.u0 - 0.1 && u - w / 2 < h.u1 + 0.1)) continue;
+        const n = W.n(u), back = W.round ? Math.sqrt(Math.max(0, (H.round - e) ** 2 - (w / 2) ** 2)) : 0;
+        const p = W.round ? n.clone().multiplyScalar(back - dp / 2 - 0.03) : W.P(u, 0).addScaledVector(n, -dp / 2 - 0.02);
+        out.push({ c: [p.x, p.z], ax: [-n.z, n.x], az: [-n.x, -n.z], W, u });
+      }
+    }
+    for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; }
+    return out;
+  };
+  const place = (w, dp, tall, build, coll = [[0, 0, w / 2, dp / 2, tall ? 1.9 : 0.8]]) => {
+    for (const s of slots(w, dp, tall)) {
+      if (!fits(s.c[0], s.c[1], s.ax, s.az, w / 2, dp / 2)) continue;
+      foot.push([s.c[0], s.c[1], Math.hypot(w / 2, dp / 2) * 0.82]);
+      const m = new THREE.Matrix4().makeBasis(V(s.ax[0], 0, s.ax[1]), UP, V(s.az[0], 0, s.az[1])).setPosition(s.c[0], 0, s.c[1]);
+      ib.push(m); build(); ib.pop();
+      items.push({ m, coll });
+      return s;
+    }
+    return null;
+  };
+  const leg = (x, z, h, t = 0.05) => ib.box(x, h / 2, z, t, h, t);
+  // a bed: frame, mattress, a blanket over most of it, a pillow, a headboard
+  const bed = () => place(1.95, 0.95, false, () => {
+    ib.set(MAT.WOOD, wood, H.seed + 10); ib.box(0, 0.24, 0, 1.95, 0.12, 0.95); for (const [x, z] of [[-0.93, -0.43], [0.93, -0.43], [0.93, 0.43], [-0.93, 0.43]]) leg(x, z, 0.24, 0.07);
+    ib.box(-0.95, 0.5, 0, 0.06, 0.62, 0.95);
+    ib.set(MAT.FABRIC, [0.86, 0.83, 0.76], H.seed + 11); ib.box(0.02, 0.37, 0, 1.86, 0.14, 0.88); ib.box(-0.72, 0.5, 0, 0.32, 0.12, 0.6);
+    ib.set(MAT.FABRIC, cloth(), H.seed + 12); ib.box(0.3, 0.45, 0, 1.3, 0.05, 0.94); ib.box(0.3, 0.3, 0.48, 1.3, 0.3, 0.02);
+  }, [[0, 0, 0.98, 0.48, 0.55]]);
+  // a desk with a lamp and books on it, a chair in front
+  const desk = () => place(1.05, 1.2, false, () => {
+    ib.set(MAT.WOOD, wood, H.seed + 20); ib.box(0, 0.74, -0.32, 1.05, 0.04, 0.55); for (const [x, z] of [[-0.48, -0.55], [0.48, -0.55], [0.48, -0.1], [-0.48, -0.1]]) leg(x, z, 0.72);
+    ib.set(MAT.FABRIC, cloth(), H.seed + 21); ib.box(-0.28, 0.79, -0.4, 0.22, 0.05, 0.3); ib.set(MAT.FABRIC, cloth(), H.seed + 22); ib.box(-0.27, 0.83, -0.4, 0.2, 0.03, 0.28);
+    ib.set(MAT.METAL, BRASS, H.seed + 23, 0.2); ib.push(new THREE.Matrix4().makeTranslation(0.3, 0.76, -0.45)); ib.lathe([[0.07, 0], [0.02, 0.02], [0.015, 0.3]], 8); ib.pop();
+    ib.set(MAT.LANTERN, [1.0, 0.7, 0.4], H.seed + 24, 2.5); ib.push(new THREE.Matrix4().makeTranslation(0.3, 1.02, -0.45)); ib.lathe([[0.04, 0], [0.12, 0.0], [0.08, 0.14], [0.03, 0.15]], 10, { uFrac: true }); ib.pop();
+    lights.push({ p: ib.world(0.3, 1.05, -0.45), c: [1.0, 0.68, 0.4], i: 0.55, s: 0.5 });
+    ib.set(MAT.WOOD, wood.map((c) => c * 0.85), H.seed + 25); ib.box(0, 0.45, 0.28, 0.42, 0.04, 0.42); for (const [x, z] of [[-0.18, 0.1], [0.18, 0.1], [0.18, 0.46], [-0.18, 0.46]]) leg(x, z, 0.44, 0.04);
+    ib.box(0, 0.75, 0.48, 0.42, 0.5, 0.04);
+  }, [[0, -0.32, 0.55, 0.3, 0.76], [0, 0.28, 0.24, 0.24, 0.5]]);
+  // shelves of books
+  const shelf = () => place(0.9, 0.32, true, () => {
+    ib.set(MAT.WOOD, wood, H.seed + 30); ib.box(-0.44, 0.9, 0, 0.03, 1.8, 0.32); ib.box(0.44, 0.9, 0, 0.03, 1.8, 0.32); ib.box(0, 0.9, -0.15, 0.9, 1.8, 0.02);
+    for (let k = 0; k < 5; k++) {
+      const y = 0.08 + k * 0.42; ib.set(MAT.WOOD, wood, H.seed + 31); ib.box(0, y, 0, 0.88, 0.03, 0.32);
+      if (k === 4) break;
+      for (let x = -0.4; x < 0.38;) { const bw = 0.03 + R() * 0.05, bh = 0.22 + R() * 0.13; if (R() < 0.12) { x += 0.08; continue; } ib.set(MAT.FABRIC, palette3(R()), H.seed + 40 + k); ib.box(x + bw / 2, y + 0.015 + bh / 2, 0.02, bw, bh, 0.22); x += bw + 0.005; }
+    }
+  }, [[0, 0, 0.46, 0.17, 1.8]]);
+  // an armchair
+  const chair = () => place(0.82, 0.82, false, () => {
+    const c = cloth(); ib.set(MAT.FABRIC, c, H.seed + 50); ib.box(0, 0.25, 0.04, 0.8, 0.22, 0.72); ib.box(0, 0.62, -0.32, 0.8, 0.6, 0.16);
+    ib.set(MAT.FABRIC, c.map((x) => x * 0.85), H.seed + 51); for (const sx of [-1, 1]) ib.box(sx * 0.35, 0.48, 0.02, 0.12, 0.3, 0.74);
+    ib.set(MAT.FABRIC, cloth(), H.seed + 52); ib.box(0, 0.4, 0.06, 0.64, 0.1, 0.6);
+  }, [[0, 0, 0.42, 0.42, 0.9]]);
+  // a chest with iron bands
+  const chest = () => place(0.9, 0.5, false, () => {
+    ib.set(MAT.BOARDV, [0.5, 0.33, 0.2], H.seed + 60, 0, 0.5); ib.box(0, 0.25, 0, 0.9, 0.46, 0.5);
+    ib.set(MAT.METAL, IRON, H.seed + 61, 0.1); for (const x of [-0.3, 0.3]) ib.box(x, 0.25, 0, 0.05, 0.48, 0.52); ib.box(0, 0.47, 0, 0.92, 0.04, 0.52);
+  }, [[0, 0, 0.46, 0.26, 0.5]]);
+  // a plant in a pot
+  const plant = () => place(0.45, 0.45, false, () => {
+    ib.set(MAT.PLANK, [0.6, 0.32, 0.22], H.seed + 70); ib.lathe([[0.13, 0], [0.18, 0.32], [0.2, 0.34], [0, 0.34]], 10);
+    ib.set(MAT.FABRIC, [0.22, 0.38, 0.18], H.seed + 71);
+    for (let k = 0; k < 9; k++) { const a = k * 2.4, l = 0.35 + R() * 0.3, d = V(Math.sin(a), 0, Math.cos(a)), tip = d.clone().multiplyScalar(l * 0.6).add(V(0, 0.34 + l, 0)), s = V(d.z, 0, -d.x).multiplyScalar(0.07); ib.tri([s.x, 0.34, s.z, 0, 0, 1, 0, 0], [-s.x, 0.34, -s.z, 0, 0, 1, 1, 0], [tip.x, tip.y, tip.z, 0, 0, 1, 0.5, 1]); }
+  }, [[0, 0, 0.22, 0.22, 0.9]]);
+  // the stove, right under the stovepipe, glowing
+  if (H.stove) {
+    const [sx, sz] = H.stove;
+    if (inRoom(sx, sz, 0.3) && Math.hypot(sx - dIn.x, sz - dIn.z) > 0.9) {
+      ib.push(new THREE.Matrix4().makeTranslation(sx, 0, sz));
+      ib.set(MAT.METAL, [0.2, 0.19, 0.18], H.seed + 80, 0.1); ib.box(0, 0.36, 0, 0.55, 0.62, 0.5); for (const [x, z] of [[-0.24, -0.2], [0.24, -0.2], [0.24, 0.2], [-0.24, 0.2]]) leg(x, z, 0.06, 0.05);
+      ib.set(MAT.LANTERN, [1.0, 0.45, 0.15], H.seed + 81, 3.5); ib.box(0, 0.36, 0.252, 0.3, 0.2, 0.005);
+      ib.set(MAT.METAL, [0.25, 0.23, 0.22], H.seed + 82, 0.15); ib.lathe([[0.1, 0.66], [0.1, H.h + H.rh * 0.6]], 10);
+      ib.pop();
+      foot.push([sx, sz, 0.45]); items.push({ m: new THREE.Matrix4().makeTranslation(sx, 0, sz), coll: [[0, 0, 0.28, 0.26, 0.7]] });
+      lights.push({ p: ib.world(sx, 0.45, sz + 0.5), c: [1.0, 0.45, 0.18], i: 0.9, s: 0.6 });
+    }
+  }
+  for (const f of [bed, desk, shelf, chair, chest, plant, shelf, plant]) f();
+  // a rug, and pictures where there is wall
+  ib.set(MAT.FABRIC, cloth(), H.seed + 90);
+  { const rw = H.box ? Math.min(1.7, H.box[0] - 1.4) : (H.round ?? H.oct) * 0.8, rd = H.box ? Math.min(1.1, H.box[1] - 1.4) : rw * 0.65; if (rw > 0.5 && rd > 0.4) ib.quad(V(-rw / 2, 0.02, rd / 2), V(rw / 2, 0.02, rd / 2), V(rw / 2, 0.02, -rd / 2), V(-rw / 2, 0.02, -rd / 2), [[0, 0], [rw, 0], [rw, rd], [0, rd]]); }
+  for (const W of walls) {
+    if (W.round || R() < 0.4 || W.L < 1.2) continue;
+    const u = W.L * (0.3 + R() * 0.4), pw = 0.35 + R() * 0.3, ph = 0.28 + R() * 0.22, y = 1.45;
+    if (W.holes.some((h) => u + pw / 2 + 0.1 > h.u0 && u - pw / 2 - 0.1 < h.u1) || W.top(u) < y + ph + 0.1) continue;
+    const n = W.n(u), c = W.P(u, y).addScaledVector(n, -0.03);
+    ib.push(new THREE.Matrix4().makeBasis(V(-n.z, 0, n.x), UP, n.clone().negate()).setPosition(c));
+    ib.set(MAT.WOOD, [0.45, 0.3, 0.12], H.seed + 91); ib.box(0, 0, 0, pw + 0.06, ph + 0.06, 0.03);
+    ib.set(MAT.FABRIC, palette3(R()), H.seed + 92); ib.box(0, 0, 0.018, pw, ph, 0.005);
+    ib.pop();
+  }
+  // the door, standing open against the room
+  {
+    const D = H.door, n = D.n.clone(), t = V(-n.z, 0, n.x), hinge = D.o.clone().addScaledVector(n, -e - 0.02).addScaledVector(t, -D.w / 2);
+    const dir = t.clone().multiplyScalar(Math.cos(1.75)).addScaledVector(n, -Math.sin(1.75));
+    ib.push(new THREE.Matrix4().makeBasis(dir, UP, V().crossVectors(dir, UP)).setPosition(hinge));
+    ib.set(MAT.DOOR, pick(R, DOORS), H.seed + 95, D.w, D.h); ib.box(D.w / 2, D.h / 2, 0, D.w, D.h, 0.05);
+    ib.pop();
+    items.push({ m: new THREE.Matrix4().makeBasis(dir, UP, V().crossVectors(dir, UP)).setPosition(hinge), coll: [[D.w / 2, 0, D.w / 2, 0.04, D.h]] });
+  }
+  // the lamp hanging in the middle
+  ib.set(MAT.ROPE, [0.3, 0.25, 0.2], H.seed + 96); ib.tube([V(0, lampY + 0.6, 0), V(0, lampY + 0.18, 0)], 0.012, 3);
+  ib.set(MAT.LANTERN, [1.0, 0.62, 0.32], H.seed + 97, 1.7); ib.push(new THREE.Matrix4().makeTranslation(0, lampY - 0.1, 0)); ib.lathe([[0.06, 0.28], [0.22, 0.22], [0.26, 0.1], [0.12, 0]], 12, { uFrac: true }); ib.pop();
+  lights.push({ p: ib.world(0, lampY - 0.15, 0), c: WARM, i: 1.15, s: 0.8 });
+  // what you bump into: the furniture, in the world
+  const coll = [];
+  for (const it of items) for (const [cx, cz, hw, hd, h] of it.coll) {
+    const cs = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([x, z]) => { const p = V(cx + x, 0, cz + z).applyMatrix4(it.m); return ib.world(p.x, 0, p.z); });
+    coll.push({ cs, y0: H.y - 0.1, y1: H.y + h });
+  }
+  return { geo: ib.geometry(), lights, coll };
+}
+const palette3 = (s) => { const P = [[0.62, 0.28, 0.24], [0.28, 0.4, 0.55], [0.72, 0.58, 0.3], [0.35, 0.5, 0.36], [0.5, 0.34, 0.55], [0.75, 0.7, 0.6], [0.45, 0.28, 0.2], [0.3, 0.3, 0.34]]; return P[Math.floor(s * P.length) % P.length]; };
+
+export function startAerie3D(canvasEl, { reduced = false, mode: startMode = "walk", onEvent = () => {} } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: false, powerPreference: "high-performance" });
   let pr = Math.min(window.devicePixelRatio || 1, 1.5);
   const LITE = matchMedia("(pointer: coarse)").matches;     // phones and tablets: a thinner forest round the village
@@ -2160,13 +2646,15 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     uLp: { value: Array.from({ length: NL }, () => V(0, -999, 0)) }, uLc: { value: Array.from({ length: NL }, () => V()) }, uLs: { value: new Array(NL).fill(1) },
     uCity: { value: V(0.05, 0.028, 0.012) }, uCtr: { value: new THREE.Vector2(...CTR) }, uTrees: { value: TREES.map((t, i) => new THREE.Vector4(t.x, t.z, t.r / 5.4, CITY[i].tiers[CITY[i].tiers.length - 1])) }, uWind: { value: new THREE.Vector2(0.8, 0.5).normalize() },
     uShadow: { value: null }, uShadowM: { value: new THREE.Matrix4() }, uShPx: { value: 1 / 2048 }, uAtlas: { value: null },
+    uRoomM: { value: new THREE.Matrix4() }, uRoomA: { value: new THREE.Vector4() }, uDoorA: { value: new THREE.Vector4() }, uDoorB: { value: new THREE.Vector4() },
   };
   const shader = (vert, frag, extra = {}) => new THREE.ShaderMaterial({ uniforms: SU, vertexShader: GLSL_COMMON + vert, fragmentShader: GLSL_COMMON + GLSL_LIGHT + GLSL_BUMP + frag, ...extra });
 
   // ---- build: the cities in the four great trees and the bridges between them, the crowns, then the forest round them
   HALOS.length = 0;
   const b = builder(), sb = builder(true), fb = builder();
-  const out = { lights: [], smoke: [], bulbs: [], flowers: [], clumps: [], vanes: [], mills: [], baskets: [], cables: [], lifts: [], launch: [], houses: 0, bridges: 0, wb: builder() };
+  const walk = b.walk = walkWorld();                        // what you can stand on and bump into, collected as it is built
+  const out = { lights: [], smoke: [], bulbs: [], flowers: [], clumps: [], vanes: [], mills: [], baskets: [], cables: [], lifts: [], launch: [], levels: [], houseList: [], houses: 0, bridges: 0, wb: builder() };
   const leaves = [], drapes = [];
   const R = rng(2026);
   world(b, sb, out);
@@ -2236,6 +2724,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   const atlas = paintLeaves(); atlas.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy()); SU.uAtlas.value = atlas;
   const buildMat = shader(BUILD_VERT, BUILD_FRAG, { side: THREE.DoubleSide });
   const swingMat = shader(BUILD_VERT, BUILD_FRAG, { side: THREE.DoubleSide, defines: { SWING: "" } });
+  const roomMat = shader(BUILD_VERT, BUILD_FRAG, { side: THREE.DoubleSide, defines: { INTERIOR: "" } });
   const vGeo = b.geometry(), sGeo = sb.geometry(), fGeo = fb.geometry();
   // the water: falls and tub surfaces, drawn last, see-through
   const water = new THREE.Mesh(out.wb.geometry(), shader(BUILD_VERT, WATER_FRAG, { side: THREE.DoubleSide, transparent: true, depthWrite: false }));
@@ -2303,12 +2792,13 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   // (spread out, none within 5 m of another; the ones already in keep their place unless a closer one needs it)
   const allLights = out.lights.filter((l) => l.i > 0);
   let lights = [];
-  const focus = V();
+  const focus = V(), carried = { p: V(), c: [1.0, 0.66, 0.38], i: 0.22, s: 2.5 };
   const pickLights = () => {
-    focus.copy(camera.position).add(V(0, 0, -22).applyQuaternion(camera.quaternion));
-    const ranked = allLights.map((l) => [l, l.p.distanceTo(focus) - (lights.includes(l) ? 5 : 0)]).sort((p, q) => p[1] - q[1]);
-    const next = [];
-    for (const [l] of ranked) { if (next.length >= NL) break; if (next.every((m) => m.p.distanceTo(l.p) > 5)) next.push(l); }
+    const near = mode === "walk", gap = near ? 2.2 : 5;
+    focus.copy(camera.position).add(V(0, 0, near ? -2.5 : -22).applyQuaternion(camera.quaternion));
+    const ranked = allLights.map((l) => [l, l.p.distanceTo(focus) - (lights.includes(l) ? gap : 0)]).sort((p, q) => p[1] - q[1]);
+    const next = near ? [carried] : [];               // walking, you carry a small lantern: it takes the first slot
+    for (const [l] of ranked) { if (next.length >= NL) break; if (next.every((m) => m === carried || m.p.distanceTo(l.p) > gap)) next.push(l); }
     lights = next;
     for (let i = 0; i < NL; i++) { const l = lights[i]; SU.uLp.value[i].copy(l ? l.p : V(0, -999, 0)); SU.uLs.value[i] = l ? l.s : 1; if (!l) SU.uLc.value[i].set(0, 0, 0); }
   };
@@ -2436,25 +2926,50 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     p.set(MAT.LANTERN, [1.0, 0.6, 0.3], 1633, 3); p.push(new THREE.Matrix4().makeTranslation(0, 0.12, 0)); p.lathe([[0.06, 0], [0.09, 0.08], [0.06, 0.18]], 8, { uFrac: true }); p.pop();
   });
   const baskets = copies(basket, out.baskets.length);
-  // the cable car: a little cabin with lit windows under a trolley, crossing between the stations and resting at each
+  // the cable car: a cabin you can ride in, panelled to the waist with open windows above, a bench at each end and a
+  // lamp under the ridge, hung from a trolley; it crosses between the stations and rests at each. SEAT is where you stand
+  const CAB = { W: 2.0, D: 1.6, H: 1.95, y0: -2.6 }, SEAT = V(0.45, CAB.y0 + 1.52, 0);
   const cabin = (col, roof) => part((p) => {
-    p.room(0, -2.6, 0, 0);
-    boxWalls(p, 1.5, 1.3, 1.35, MAT.PLANK, col, 1650, { floor: true });
-    boxSides(p, 1.5, 1.3, { "z+": [{ a: 0.75, w: 0.95, h: 0.62, y: 0.5 }], "z-": [{ a: 0.75, w: 0.95, h: 0.62, y: 0.5 }], "x+": [{ a: 0.65, w: 0.5, h: 0.62, y: 0.5 }], "x-": [{ a: 0.65, w: 0.5, h: 0.62, y: 0.5 }] }, 1651, null);
-    gableRoof(p, 1.5, 1.3, 1.35, 0.45, 0.12, MAT.SHINGLE, roof, MAT.PLANK, col, 1652);
-    p.room(0, 0, 0, 0); p.set(MAT.METAL, IRON, 1653, 0.1);
-    p.beam(V(0, -0.85, 0), V(0, 0.05, 0), 0.07, 0.07); p.beam(V(-0.35, 0.05, 0), V(0.35, 0.05, 0), 0.06, 0.12);
+    const { W, D, H, y0 } = CAB, pw = 0.94;
+    p.room(0, y0, 0, 0);
+    p.set(MAT.DECK, [0.5, 0.42, 0.34], 1650); p.box(0, -0.05, 0, W, 0.1, D);
+    p.set(MAT.WOOD, TIMBER, 1650); p.box(0, -0.16, 0, W + 0.12, 0.12, D + 0.12);
+    p.set(MAT.BOARDV, col, 1651, 0, pw);
+    for (const sx of [-1, 1]) { p.box(sx * W / 2, pw / 2, 0, 0.06, pw, D); p.box(0, pw / 2, sx * D / 2, W, pw, 0.06); }
+    p.set(MAT.WOOD, TRIM, 1652);
+    for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) p.box(x * W / 2, H / 2, z * D / 2, 0.08, H, 0.08);
+    for (const sx of [-1, 1]) {
+      p.box(0, (pw + H) / 2, sx * D / 2, 0.05, H - pw, 0.05); p.box(sx * W / 2, (pw + H) / 2, 0, 0.05, H - pw, 0.05);
+      p.box(0, pw + 0.02, sx * D / 2, W + 0.04, 0.06, 0.1); p.box(sx * W / 2, pw + 0.02, 0, 0.1, 0.06, D + 0.04);      // the sills
+      p.box(0, H, sx * D / 2, W + 0.04, 0.08, 0.08); p.box(sx * W / 2, H, 0, 0.08, 0.08, D + 0.04);
+    }
+    gableRoof(p, W, D, H, 0.45, 0.12, MAT.SHINGLE, roof, MAT.PLANK, col, 1653);
+    p.set(MAT.WOOD, [0.45, 0.32, 0.22], 1654);
+    for (const sx of [-1, 1]) { p.box(sx * (W / 2 - 0.27), 0.44, 0, 0.42, 0.06, D - 0.16); p.box(sx * (W / 2 - 0.07), 0.72, 0, 0.04, 0.5, D - 0.16); p.box(sx * (W / 2 - 0.27), 0.22, 0, 0.36, 0.42, 0.06); }
+    p.set(MAT.LANTERN, [1.0, 0.6, 0.3], 1655, 3); p.push(new THREE.Matrix4().makeTranslation(0, H + 0.02, 0)); p.lathe([[0.09, 0], [0.13, 0.1], [0.08, 0.22]], 10, { uFrac: true }); p.pop();
+    p.room(0, 0, 0, 0); p.set(MAT.METAL, IRON, 1656, 0.1);
+    p.beam(V(0, y0 + H + 0.4, 0), V(0, 0.05, 0), 0.07, 0.07); p.beam(V(-0.35, 0.05, 0), V(0.35, 0.05, 0), 0.06, 0.12);
     for (const x of [-0.3, 0.3]) { p.push(new THREE.Matrix4().makeTranslation(x, 0.1, 0).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))); p.lathe([[0.1, -0.03], [0.1, 0.03]], 10); p.pop(); }
   });
   const cabins = [cabin([0.62, 0.22, 0.2], [0.25, 0.3, 0.42]), cabin([0.3, 0.46, 0.52], [0.5, 0.25, 0.2]), cabin([0.8, 0.62, 0.3], [0.3, 0.38, 0.28])];
   const gondolas = out.cables.flatMap((_, i) => [0, 1].map((k) => copies(cabins[(i + k) % 3], 1)[0]));
+  // where cabin j is at time t: the two of a line go opposite ways and pass in the middle, resting 12 s at each end
+  // (at = 0 resting at A, 1 at B, -1 on the way)
+  const gondAt = (j, t) => {
+    const i = j >> 1, k = j & 1, { A, B, sag, P } = out.cables[i], L = A.distanceTo(B), trip = L / 2.2, cyc = ((t + i * 23) / (trip + 12)) % 2;
+    const leg = cyc % 1, f = clamp((leg * (trip + 12) - 6) / trip, 0, 1), u0 = f * f * (3 - 2 * f), u1 = cyc < 1 ? u0 : 1 - u0, u = k ? 1 - u1 : u1;
+    const tt = clamp(u, 0.05, 0.95), p = A.clone().lerp(B, tt).add(V(0, -sag * 4 * tt * (1 - tt), 0)).addScaledVector(P, k ? -1 : 1);
+    return { p, yaw: Math.atan2(B.x - A.x, B.z - A.z) + Math.PI / 2, sway: Math.sin(t * 0.9 + j) * 0.025 * (u0 > 0 && u0 < 1 ? 1 : 0.3), at: u < 1e-4 ? 0 : u > 1 - 1e-4 ? 1 : -1 };
+  };
+  // the gate across each lift's landing: a bar that swings up when the cage is there
+  const gateBar = part((p) => { p.room(0, 0, 0, 0); p.set(MAT.WOOD, [0.75, 0.68, 0.58], 1675); p.beam(V(0, 0, 0), V(1.42, 0, 0), 0.07, 0.07); p.set(MAT.FABRIC, [0.72, 0.25, 0.22], 1676); p.beam(V(0.45, 0, 0), V(0.75, 0, 0), 0.075, 0.075); });
+  const gates = out.lifts.map(() => ({ m: copies(gateBar, 1)[0], a: 0 }));
   // the lifts: an open cage with a lamp in it, its counterweight, and the ropes up to the pulley (stretched each frame)
   const cage = part((p) => {
     p.room(0, 0, 0, 0); p.set(MAT.DECK, [0.5, 0.42, 0.34], 1660); p.box(0, -0.06, 0, 1.7, 0.12, 1.7);
     p.set(MAT.WOOD, TIMBER, 1661); for (const [x, z] of [[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]]) p.box(x, 1.05, z, 0.08, 2.1, 0.08);
     p.box(0, 2.15, 0, 1.8, 0.1, 1.8); p.beam(V(0, 2.2, 0), V(0, 2.45, 0), 0.08, 0.08);
     p.set(MAT.BOARDV, [0.55, 0.3, 0.22], 1662); p.box(0, 0.45, 0.82, 1.6, 0.9, 0.04); p.box(0.82, 0.45, 0, 0.04, 0.9, 1.6); p.box(-0.82, 0.45, 0, 0.04, 0.9, 1.6);
-    p.set(MAT.WOOD, TIMBER, 1663); p.box(0, 1.0, -0.82, 1.6, 0.06, 0.06);
     p.set(MAT.LANTERN, [1.0, 0.6, 0.3], 1664, 4); p.push(new THREE.Matrix4().makeTranslation(0, 1.7, 0)); p.lathe([[0.09, 0], [0.14, 0.12], [0.09, 0.26]], 10, { uFrac: true }); p.pop();
   });
   const weight = part((p) => { p.room(0, 0, 0, 0); p.set(MAT.METAL, IRON, 1670, 0.1); p.box(0, 0.5, 0, 0.35, 1.0, 0.35); });
@@ -2490,6 +3005,121 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     }
   };
 
+  // ---- walking. You start on the platform at the tip of the old giant's limb toward the baobab, looking across the
+  // bridge. The trunks (with their buttresses) push you off, the lift cages carry you, and a fall of more than a few
+  // metres fades out and puts you back where you last stood
+  let mode = startMode, fallT = 0, prompt = "";
+  const trunkR = (tr, y, a) => tRad(tr, y) * (1 + 0.42 * Math.exp(-Math.max(y, 0) / 3.2) * Math.max(0, Math.sin(a * 5 + tr.seed)) ** 2 + 0.035 * Math.sin(a * 9 + y * 0.5 + tr.seed));
+  const trunks = {
+    floorAt: () => -Infinity,
+    push(x, z, r, y0, y1, o) {
+      o[0] = o[1] = 0;
+      for (const tr of TREES) {
+        const y = Math.max(0, y0 - 0.4); if (y > tr.h * 0.94) continue;
+        const [ax, az] = tAxis(tr, y), dx = x + o[0] - ax, dz = z + o[1] - az, d = Math.hypot(dx, dz);
+        if (d > tRad(tr, y) * 1.5 + 2) continue;
+        const Rr = trunkR(tr, y, Math.atan2(dx, dz)) + r;
+        if (d < Rr && d > 1e-6) { o[0] += dx / d * (Rr - d); o[1] += dz / d * (Rr - d); }
+      }
+      return o;
+    },
+  };
+  // a lift: wait at the bottom, up, wait at the top, down; its cage is a moving floor with three walls (four while it
+  // moves), and while it is away a gate closes the landing at the top
+  const liftAt = (L, t) => { const travel = (L.y1 - L.y0) / 1.8, per = 2 * travel + 16, c = (t + L.ph) % per, u = c < 8 ? 0 : c < 8 + travel ? (c - 8) / travel : c < 16 + travel ? 1 : 1 - (c - 16 - travel) / travel; return u * u * (3 - 2 * u); };
+  const segPush = (lx, lz, r, segs, o) => {
+    for (const [ax, az, bx, bz] of segs) {
+      const ex = bx - ax, ez = bz - az, t = clamp(((lx + o[0] - ax) * ex + (lz + o[1] - az) * ez) / (ex * ex + ez * ez), 0, 1);
+      const dx = lx + o[0] - ax - ex * t, dz = lz + o[1] - az - ez * t, d = Math.hypot(dx, dz);
+      if (d < r && d > 1e-6) { o[0] += dx / d * (r - d); o[1] += dz / d * (r - d); }
+    }
+    return o;
+  };
+  const liftDyn = out.lifts.map((L) => {
+    const c = Math.cos(L.yaw), s = Math.sin(L.yaw), lo = [0, 0];
+    const local = (x, z) => [(x - L.x) * c - (z - L.z) * s, (x - L.x) * s + (z - L.z) * c];
+    return {
+      L, y: L.y1, delta: V(), moving: false,
+      floorAt(x, z, yTop) { const [lx, lz] = local(x, z); return Math.abs(lx) < 0.86 && Math.abs(lz) < 0.86 && this.y <= yTop ? this.y : -Infinity; },
+      push(x, z, r, y0, y1, o) {
+        const [lx, lz] = local(x, z), w = [];
+        if (y1 > this.y && y0 < this.y + 1.0) { w.push([-0.82, 0.82, 0.82, 0.82], [0.82, -0.82, 0.82, 0.82], [-0.82, -0.82, -0.82, 0.82]); if (this.moving) w.push([-0.82, -0.82, 0.82, -0.82]); }
+        if (Math.abs(this.y - L.y1) > 0.05 && y1 > L.y1 && y0 < L.y1 + 1.2) w.push([-0.75, -0.9, 0.75, -0.9]);
+        lo[0] = lo[1] = 0; segPush(lx, lz, r, w, lo);
+        o[0] = lo[0] * c + lo[1] * s; o[1] = -lo[0] * s + lo[1] * c;
+        return o;
+      },
+    };
+  });
+  const ARENA_W = 172;
+  const walker = makeWalker(walk, {
+    dyn: [trunks, ...liftDyn],
+    ground: (x, z) => (Math.hypot(x - GC[0], z - GC[1]) < ARENA_W + 2 ? 0 : -Infinity),
+    onFall: () => { if (fallT <= 0) { fallT = 1.6; walker.frozen = true; onEvent("fell"); } },
+  });
+  const sp = out.spawn ?? { x: GC[0], y: 0, z: GC[1] + 60, yaw: Math.PI };
+  walker.place(sp.x, sp.y + 0.2, sp.z, sp.yaw);
+  const input = walkInput(canvasEl, { active: () => mode === "walk", onUse: () => use() });
+  let ride = null, station = null;
+  const use = () => {
+    if (mode !== "walk") return;
+    if (ride && gondolas[ride.j].userData.at >= 0) {               // step out onto the deck, a little way in from the cabin
+      const c = out.cables[ride.j >> 1], at = gondolas[ride.j].userData.at, d = at ? c.dB : c.dA, g = gondolas[ride.j].position;
+      const dx = g.x - d.x, dz = g.z - d.z, l = Math.hypot(dx, dz) || 1, k = Math.min(1.4, l * 0.5);
+      walker.place(d.x + dx / l * k, d.y + 0.3, d.z + dz / l * k, Math.atan2(-dx, -dz)); walker.pitch = 0;
+      ride = null; onEvent("out");
+    } else if (!ride && station && station.j != null) {               // in, facing the way it will go
+      const c = out.cables[station.i], from = station.end ? c.B : c.A, to = station.end ? c.A : c.B;
+      ride = { j: station.j }; walker.yaw = Math.atan2(to.x - from.x, to.z - from.z); walker.pitch = -0.12; onEvent("board");
+    }
+  };
+
+  // ---- the rooms: built as you come near a door (the nearest first, one at a time, a dozen kept), their furniture added
+  // to what you bump into and their lamps to the warm lights. The house whose door you are at has it cut open; inside
+  // one, its own walls and roof are cut away so that you see the room and, through its windows, the night
+  const enterable = out.houseList.filter((H) => H.enter), rooms = new Map();
+  for (const H of enterable) { const c = Math.cos(H.yaw), s = Math.sin(H.yaw), o = H.door.o; H.doorW = V(H.x + o.x * c + o.z * s, H.y, H.z - o.x * s + o.z * c); }
+  const roomOf = (H) => {
+    let r = rooms.get(H);
+    if (r) { r.used = performance.now(); return r; }
+    const I = buildInterior(H), mesh = new THREE.Mesh(I.geo, roomMat);
+    scene.add(mesh);
+    if (!H.collided) { for (const c of I.coll) for (let k = 0; k < 4; k++) walk.seg(c.cs[k], c.cs[(k + 1) % 4], c.y0, c.y1); H.collided = true; }
+    allLights.push(...I.lights);
+    rooms.set(H, r = { mesh, lights: I.lights, used: performance.now() });
+    if (rooms.size > 12) {                                         // let the one longest unvisited go
+      const [oldH, old] = [...rooms].filter(([h]) => h !== H).sort((p, q) => p[1].used - q[1].used)[0];
+      scene.remove(old.mesh); old.mesh.geometry.dispose(); rooms.delete(oldH);
+      for (const l of old.lights) allLights.splice(allLights.indexOf(l), 1);
+    }
+    return r;
+  };
+  let nearRooms = [], roomTick = 0, inRoom = null;
+  const roomM = new THREE.Matrix4();
+  const updateRooms = (dt) => {
+    const x = walker.x, y = walker.y, z = walker.z;
+    if ((roomTick -= dt) <= 0) {
+      roomTick = 0.3;
+      nearRooms = enterable.filter((H) => Math.abs(H.y - y) < 7 && Math.hypot(H.doorW.x - x, H.doorW.z - z) < 16).sort((p, q) => Math.hypot(p.doorW.x - x, p.doorW.z - z) - Math.hypot(q.doorW.x - x, q.doorW.z - z));
+      const next = nearRooms.find((H) => !rooms.has(H)); if (next) roomOf(next);
+    }
+    let act = null, inside = false;
+    if (!ride) {
+      act = nearRooms.find((H) => Math.abs(y - H.y) < 1.3 && insideHouse(H, x, z, 0.02));
+      inside = !!act;
+      act ||= nearRooms.find((H) => Math.abs(y - H.y) < 1.5 && Math.hypot(H.doorW.x - x, H.doorW.z - z) < 3.6);
+    }
+    inRoom = inside ? act : null;
+    if (!act) { SU.uRoomA.value.w = 0; SU.uDoorB.value.z = 0; return; }
+    roomOf(act);
+    SU.uRoomM.value.copy(roomM.makeRotationY(act.yaw).setPosition(act.x, act.y, act.z).invert());
+    const D = act.door, top = act.top + 1.4;
+    if (!inside) SU.uRoomA.value.w = 0;
+    else if (act.box) SU.uRoomA.value.set(act.box[0] / 2 + 0.14, top, act.box[1] / 2 + 0.14, 1);
+    else SU.uRoomA.value.set((act.round ?? act.oct * 1.17) + 0.14, top, 0, 2);          // (an onion dome bulges out past its walls)
+    SU.uDoorA.value.set(D.o.x, D.o.z, D.w / 2 + 0.05, D.h + 0.08); SU.uDoorB.value.set(D.n.x, D.n.z, 1, 0);
+  };
+
   // ---- input. The mouse looks round (its position, across the whole window). Panning (←/→, A/D, or dragging sideways) slides
   // the point you look at across the group and leaves it where you let go (it coasts to a stop; nothing pulls it back). The
   // only thing that snaps is the point you circle: it is always the centre of the tree nearest the focus (`nearest`), so
@@ -2500,7 +3130,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   let lookX = 0, lookY = 0, lookXT = 0, lookYT = 0, keyPan = 0, keyOrb = 0, keyH = 0, keyZoom = 0, glide = false, glideDir = 1, roll = 0, angPrev = ang;
   let pvel = 0, fvx = 0, fvz = 0, dragM = 0, goTo = false, shiftHeld = false;       // the focus's velocity, metres dragged this frame, gliding to a centre (T)
   const SETTLE = 6.5, ARENA = 90;                                                                // spring rate for T (settled in ~1 s), how far the focus may stray from the group's middle
-  addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse" || e.buttons) return; if (e.target !== canvasEl) { lookXT = lookYT = 0; return; } lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
+  addEventListener("pointermove", (e) => { if (mode !== "fly" || e.pointerType !== "mouse" || e.buttons) return; if (e.target !== canvasEl) { lookXT = lookYT = 0; return; } lookXT = (e.clientX / innerWidth - 0.5) * 1.1; lookYT = -(e.clientY / innerHeight - 0.5) * 0.6; }, { passive: true });
   document.addEventListener("mouseout", (e) => { if (!e.relatedTarget) { lookXT = 0; lookYT = 0; } });
   const touches = new Map();
   let pinch = 0;
@@ -2508,6 +3138,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   const midX = () => { let m = 0; touches.forEach((p) => { m += p[0]; }); return m / touches.size; };
   let tapDown = null, tapPrev = null;                                // a quick press without moving is a tap; two in a row (double-click, double-tap) centre on the nearest tree
   canvasEl.addEventListener("pointerdown", (e) => {
+    if (mode !== "fly") return;
     touches.set(e.pointerId, [e.clientX, e.clientY, e.shiftKey || e.button !== 0 ? 1 : 0]);
     if (touches.size === 2) { pinch = spread(); if (tapDown) tapDown.bad = true; }
     else if (touches.size === 1) tapDown = { x: e.clientX, y: e.clientY, t: e.timeStamp, bad: e.button !== 0 };
@@ -2540,6 +3171,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
   }, { passive: true });
   addEventListener("wheel", (e) => {                                  // pixels, lines or pages; a trackpad pinch arrives as ctrl+wheel with small steps
     e.preventDefault();
+    if (mode !== "fly") return;
     const d = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1) * (e.ctrlKey ? 4 : 1);
     distT = clamp(distT * Math.exp(d * 0.0018), DMIN, DMAX);
   }, { passive: false });
@@ -2548,7 +3180,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     arrowup: [0, 0, 1, 0], w: [0, 0, 1, 0], arrowdown: [0, 0, -1, 0], s: [0, 0, -1, 0], "+": [0, 0, 0, -1], "=": [0, 0, 0, -1], "-": [0, 0, 0, 1], _: [0, 0, 0, 1] };
   addEventListener("keydown", (e) => {
     shiftHeld = e.shiftKey;                                           // Shift with a key: 2.5 times faster
-    const k = KEYS[e.key.toLowerCase()]; if (!k || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = KEYS[e.key.toLowerCase()]; if (!k || mode !== "fly" || e.metaKey || e.ctrlKey || e.altKey) return;
     if (k[0]) keyPan = k[0]; if (k[1]) { keyOrb = k[1]; glideDir = k[1]; } if (k[2]) keyH = k[2]; if (k[3]) keyZoom = k[3];
   });
   addEventListener("keyup", (e) => { shiftHeld = e.shiftKey; const k = KEYS[e.key.toLowerCase()]; if (!k) return; if (k[0] && keyPan === k[0]) keyPan = 0; if (k[1]) keyOrb = 0; if (k[2]) keyH = 0; if (k[3]) keyZoom = 0; });
@@ -2566,7 +3198,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     const w = canvasEl.clientWidth || innerWidth, hh = canvasEl.clientHeight || innerHeight;
     renderer.setSize(w, hh, false);
     camera.aspect = w / hh;
-    camera.fov = camera.aspect < 1 ? 72 : 50;
+    camera.fov = mode === "walk" ? (camera.aspect < 1 ? 82 : 68) : camera.aspect < 1 ? 72 : 50;
     camera.updateProjectionMatrix();
     glowU.uPx.value = renderer.domElement.height * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     post.setSize();
@@ -2591,7 +3223,43 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     mixv(SU.uHor.value, DUSK.hor, NIGHT.hor, night); mixv(SU.uGlowCol.value, DUSK.glow, NIGHT.glow, night);
     if (lightTick-- <= 0 || dt === 0) { pickLights(); lightTick = 8; }
     lights.forEach((l, i) => { const f = 0.9 + 0.06 * Math.sin(t * 7.1 + i * 3.1) + 0.04 * Math.sin(t * 12.9 + i); SU.uLc.value[i].set(...l.c).multiplyScalar(l.i * f * (1 + night * 0.25)); });
-    post.U.uExposure.value = 1.25 + night * 0.45;
+    // falling: fade out, put you back, fade in
+    let fadeK = 0;
+    if (fallT > 0) {
+      const was = fallT; fallT -= dt > 0 ? dt : 0;
+      if (was > 0.7 && fallT <= 0.7) walker.respawn();
+      if (fallT <= 0) { fallT = 0; walker.frozen = false; }
+      fadeK = fallT > 0.7 ? smooth(1.6, 0.9, fallT) : smooth(0, 0.7, fallT);
+    }
+    post.U.uExposure.value = (1.25 + night * 0.45) * (1 - fadeK);
+    // the lift cages, before you are moved, so that standing in one you go with it
+    liftDyn.forEach((d) => { const e = liftAt(d.L, t), y = lerp(d.L.y0, d.L.y1, e); d.delta.set(0, dt > 0 ? y - d.y : 0, 0); d.moving = e > 0.001 && e < 0.999; d.y = y; });
+    // the cable cars, also before you are moved: riding one, you sit in it
+    gondolas.forEach((g, j) => { const q = gondAt(j, t); g.position.copy(q.p); g.rotation.order = "YXZ"; g.rotation.y = q.yaw; g.rotation.z = q.sway; g.userData.at = q.at; });
+    if (mode === "walk") {
+      walker.frozen = fallT > 0 || !!ride;
+      walker.update(dt, input.take());
+      updateRooms(dt);
+      // at a station with a cabin waiting you can get in; in one that has come in, you can get out
+      prompt = ""; station = null;
+      if (ride) prompt = gondolas[ride.j].userData.at >= 0 ? "out" : "";
+      else if (fallT <= 0) out.cables.forEach((c, i) => [c.dA, c.dB].forEach((d, end) => {
+        if (!d || Math.hypot(walker.x - d.x, walker.z - d.z) > 4.8 || Math.abs(walker.y - d.y) > 1.6) return;
+        const j = [2 * i, 2 * i + 1].find((jj) => gondolas[jj].userData.at === end);
+        station = { i, end, j }; prompt = j != null ? "board" : "wait";
+      }));
+      const off = Math.hypot(walker.x - GC[0], walker.z - GC[1]);
+      if (off > ARENA_W) { walker.x = GC[0] + (walker.x - GC[0]) * ARENA_W / off; walker.z = GC[1] + (walker.z - GC[1]) * ARENA_W / off; }
+      const bob = reduced ? 0 : Math.sin(walker.bob * 2.4) * 0.03 * smooth(0.3, 2.5, walker.moved);
+      if (ride) { const g = gondolas[ride.j]; g.updateMatrixWorld(); camera.position.copy(SEAT).applyMatrix4(g.matrixWorld); }
+      else camera.position.set(walker.x, walker.eye + bob, walker.z);
+      const cp = Math.cos(walker.pitch);
+      look.set(camera.position.x + Math.sin(walker.yaw) * cp, camera.position.y + Math.sin(walker.pitch), camera.position.z + Math.cos(walker.yaw) * cp);
+      camera.up.set(0, 1, 0); camera.lookAt(look);
+      if (dbgCam) { camera.position.copy(dbgCam[0]); camera.lookAt(dbgCam[1]); }
+      carried.p.set(0.25, -0.55, -0.45).applyQuaternion(camera.quaternion).add(camera.position);
+      if (lights[0] === carried) SU.uLp.value[0].copy(carried.p);
+    } else {
 
     // panning slides the focus across the group and lets go onto the nearest tree; flying round the tree is on its circle,
     // pushed out wherever the village reaches further. Responsive: the camera catches up with what you ask in a fraction
@@ -2651,6 +3319,7 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     roll += (clamp(w * 0.02, -0.06, 0.06) - roll) * k;
     camera.rotateZ(roll);
     if (dbgCam) { camera.position.copy(dbgCam[0]); camera.up.set(0, 1, 0); camera.lookAt(dbgCam[1]); }
+    }
     sky.position.copy(camera.position);
     glowU.uBox0.value.set(camera.position.x - 20, camera.position.y - 12, camera.position.z - 20);
 
@@ -2661,17 +3330,13 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
       const bt = out.baskets[i].top, cyc = (t * 0.035 + out.baskets[i].ph) % 1, travel = bt.y - 4.5;
       bk.position.set(bt.x, bt.y - 1.0 - travel * (0.5 - 0.5 * Math.cos(Math.min(1, Math.abs(cyc * 2 - 1) * 1.25) * Math.PI)), bt.z);
     });
-    gondolas.forEach((g, j) => {             // the two cabins of a line go opposite ways and pass in the middle
-      const i = j >> 1, k = j & 1, { A, B, sag, P } = out.cables[i], L = A.distanceTo(B), trip = L / 2.2, cyc = ((t + i * 23) / (trip + 12)) % 2;
-      const leg = cyc % 1, f = clamp((leg * (trip + 12) - 6) / trip, 0, 1), u0 = f * f * (3 - 2 * f), u1 = cyc < 1 ? u0 : 1 - u0, u = k ? 1 - u1 : u1;
-      const tt = clamp(u, 0.05, 0.95), p = A.clone().lerp(B, tt).add(V(0, -sag * 4 * tt * (1 - tt), 0)).addScaledVector(P, k ? -1 : 1);
-      g.position.copy(p); g.rotation.order = "YXZ"; g.rotation.y = Math.atan2(B.x - A.x, B.z - A.z) + Math.PI / 2;
-      g.rotation.z = Math.sin(t * 0.9 + j) * 0.025 * (u0 > 0 && u0 < 1 ? 1 : 0.3);
+    gates.forEach((gt, i) => {
+      const L = out.lifts[i], c = Math.cos(L.yaw), sn = Math.sin(L.yaw), lx = -0.72, lz = -1.05 + 0.1;
+      gt.a += ((Math.abs(liftDyn[i].y - L.y1) < 0.05 ? 1.4 : 0) - gt.a) * (dt > 0 ? 1 - Math.exp(-dt * 4) : 1);
+      gt.m.position.set(L.x + lx * c + lz * sn, L.y1 + 0.95, L.z - lx * sn + lz * c); gt.m.rotation.order = "YXZ"; gt.m.rotation.y = L.yaw; gt.m.rotation.z = gt.a;
     });
     liftParts.forEach((lp, i) => {          // wait at the bottom, up, wait at the top, down
-      const L = out.lifts[i], travel = (L.y1 - L.y0) / 1.8, per = 2 * travel + 16, c = (t + L.ph) % per;
-      const u = c < 8 ? 0 : c < 8 + travel ? (c - 8) / travel : c < 16 + travel ? 1 : 1 - (c - 16 - travel) / travel;
-      const e = u * u * (3 - 2 * u), y = lerp(L.y0, L.y1, e), wy = lerp(L.y1 - 0.5, L.y0 + 1, e);
+      const L = out.lifts[i], e = liftAt(L, t), y = lerp(L.y0, L.y1, e), wy = lerp(L.y1 - 0.5, L.y0 + 1, e);
       const ox = Math.cos(L.yaw) * 1.4, oz = -Math.sin(L.yaw) * 1.4;      // the counterweight runs outside the tower's side
       lp.cage.position.set(L.x, y, L.z); lp.cage.rotation.y = L.yaw;
       lp.weight.position.set(L.x + ox, wy, L.z + oz); lp.weight.rotation.y = L.yaw;
@@ -2742,13 +3407,13 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     slow = dt > 0.032 ? slow + 1 : Math.max(0, slow - 1);
     if (slow > 40 && pr > 0.6) { pr *= 0.8; renderer.setPixelRatio(pr); resize(); slow = 0; }
     frame(dt);
-    if (!reduced) raf = requestAnimationFrame(loop);
+    if (!reduced || mode === "walk") raf = requestAnimationFrame(loop);     // walking moves only when you move, so it runs even with reduced motion
   }
   const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
   io.observe(canvasEl);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
   if (reduced) frame(0);
-  else raf = requestAnimationFrame((n) => { last = n; loop(n); });
+  if (!reduced || mode === "walk") raf = requestAnimationFrame((n) => { last = n; loop(n); });
 
   const toggleNight = () => { nightT = nightT > 0.5 ? 0 : 1; return nightT === 1; };
   const setNight = (v) => { night = nightT = v; };
@@ -2766,10 +3431,36 @@ export function startAerie3D(canvasEl, { reduced = false } = {}) {
     dEff = clearR(cx, cz, ang, h, d); lookX = lookXT = THREE.MathUtils.degToRad(lookXDeg); lookY = lookYT = THREE.MathUtils.degToRad(lookYDeg); roll = 0;
   };
   const lookAt = (p, q) => { dbgCam = p ? [V(...p), V(...q)] : null; };
+  // walk or fly; flying starts from the opening view, walking from where you last walked
+  const setMode = (m) => {
+    if (m === mode) return mode;
+    mode = m; input.release(); touches.clear(); keyPan = keyOrb = keyH = keyZoom = 0; ride = null;
+    if (m === "fly") { SU.uRoomA.value.w = 0; SU.uDoorB.value.z = 0; inRoom = null; }
+    if (m === "fly") resetView();
+    resize(); lightTick = 0;
+    if (!raf && m === "walk") { last = performance.now(); raf = requestAnimationFrame(loop); }
+    if (reduced && m === "fly") frame(0);
+    return mode;
+  };
+  // for screenshots: stand at (x, y, z) looking along yaw and pitch (degrees)
+  const stand = (x, y, z, yawDeg = 0, pitchDeg = 0) => { setMode("walk"); walker.place(x, y + 0.3, z, THREE.MathUtils.degToRad(yawDeg)); walker.pitch = THREE.MathUtils.degToRad(pitchDeg); };
   return {
     renderer, frame, toggleNight, setNight, toggleGlide, zoomBy, rise, setView, nextCentre, resetView, get centre() { return ci; }, look: lookAt, release, scene, camera, SU,
-    get night() { return nightT > 0.5; }, get glide() { return glide; }, get height() { return (h - HMIN) / (HMAX - HMIN); },
-    parts: { water: out.waterLegs, lifts: out.lifts, cables: out.cables, spouts: out.spouts || [], pipes: out.pipes || [] },
+    get night() { return nightT > 0.5; }, get glide() { return glide; }, get height() { return ((mode === "walk" ? walker.y : h) - HMIN) / (HMAX - HMIN); },
+    // for checking the layout: what you can walk to from the start (lifts held at the top), per tree, and which doors
+    audit: (max = 800000) => {
+      const held = liftDyn.map((d) => ({ floorAt: (x, z, y) => { const yy = d.y; d.y = d.L.y1; const f = d.floorAt(x, z, y); d.y = yy; return f; } }));
+      const R = reachable(walk, [trunks, ...held], sp.x, sp.y, sp.z, max), pts = [...R.values()], cell = new Map();
+      for (const p of pts) { const k = Math.round(p[0]) + "," + Math.round(p[2]); (cell.get(k) || cell.set(k, []).get(k)).push(p[1]); }
+      const near = (x, y, z, d = 0.6) => { for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const yy of cell.get((Math.round(x) + i) + "," + (Math.round(z) + j)) || []) if (Math.abs(yy - y) < 0.6) { const pp = pts.find((p) => p[1] === yy && Math.hypot(p[0] - x, p[2] - z) < d); if (pp) return true; } return false; };
+      const doors = out.houseList.filter((H) => H.enter).map((H) => { const c = Math.cos(H.yaw), s = Math.sin(H.yaw), o = H.door.o, n = H.door.n, lx = o.x + n.x * 0.55, lz = o.z + n.z * 0.55; return near(H.x + lx * c + lz * s, H.y, H.z - lx * s + lz * c); });
+      return { cells: R.size, ground: pts.filter((p) => p[1] < 1).length, perTree: TREES.map((t) => pts.filter((p) => Math.hypot(p[0] - t.x, p[2] - t.z) < 32 && p[1] > 5).length),
+        houses: out.houseList.length, enter: doors.length, doors: doors.filter(Boolean).length, lifts: out.lifts.map((L) => near(L.x, L.y1, L.z, 0.9)).filter(Boolean).length + "/" + out.lifts.length,
+        stations: out.cables.map((c) => [c.dA, c.dB].map((d) => d && near(d.x, d.y, d.z, 3) ? 1 : 0).join("")).join(" "), pts };
+    },
+    houseList: out.houseList, lifts: liftDyn,
+    setMode, get mode() { return mode; }, get prompt() { return prompt; }, get riding() { return !!ride; }, get inside() { return inRoom; }, get stride() { return Math.floor(walker.bob / 2.2 / 0.72); }, get onEarth() { return walker.y < 1; }, use: () => use(), jump: () => input.jumpNow(), walker, stand,
+    parts: { levels: out.levels, water: out.waterLegs, lifts: out.lifts, cables: out.cables, spouts: out.spouts || [], pipes: out.pipes || [] }, walk,
     stats: { houses: out.houses, bridges: out.bridges, lifts: out.lifts.length, cables: out.cables.length, water: out.wb.count() / 3, tris: (vGeo.attributes.position.count + sGeo.attributes.position.count + fGeo.attributes.position.count) / 3, leaves: leaves.length, drapes: drapes.length, lights: allLights.length, bulbs: out.bulbs.length / 4, info: renderer.info.render },
   };
 }

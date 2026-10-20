@@ -1,6 +1,7 @@
 // Soundscape for the Aerie page, synthesised live with WebAudio (no asset files): wind in the leaves (stronger the
 // higher you fly), crickets and tree frogs, wind chimes hung about the houses ringing in the gusts, ropes and timbers
-// creaking, and at night an owl. `height` (0 = low, 1 = up under the crown) sets the wind; `release()` sends lanterns
+// creaking, and at night an owl. `height` (0 = low, 1 = up under the crown) sets the wind; `step(soft)` is a footstep
+// (on the boards, or soft on the forest floor); `release()` sends lanterns
 // up with a soft rush and a rising run of bells; `night` brings the owl and more frogs. Must be created from a user
 // gesture (browsers block audio until then).
 export function createAerieAudio() {
@@ -122,6 +123,21 @@ export function createAerieAudio() {
     get on() { return on; },
     set night(v) { night = v; },
     set height(v) { if (Math.abs(v - height) > 0.02) { height = v; if (on) mix(); } },
+    // a footstep: a knock on the boards, or a soft one on the forest floor
+    step(soft) {
+      if (!on) return;
+      const t = ctx.currentTime + 0.01, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = white; f.type = soft ? "lowpass" : "bandpass"; f.frequency.value = soft ? 380 : 700 + Math.random() * 500; f.Q.value = soft ? 0.7 : 1.6;
+      const a = (soft ? 0.05 : 0.07) * (0.7 + Math.random() * 0.5);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(a, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + (soft ? 0.12 : 0.09));
+      src.connect(f); f.connect(g); g.connect(master); src.start(t, Math.random() * 3, 0.2);
+      if (!soft) {
+        const o = ctx.createOscillator(), og = ctx.createGain();
+        o.type = "sine"; o.frequency.setValueAtTime(150 + Math.random() * 40, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.08);
+        og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.06, t + 0.006); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+        o.connect(og); og.connect(master); o.start(t); o.stop(t + 0.12);
+      }
+    },
     release() {
       if (!on) return;
       const t = ctx.currentTime + 0.02, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
