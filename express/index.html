@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Express — Thomas Brüggemann</title>
+  <meta name="description" content="Inside a grand express on a stormy autumn evening: walk through mahogany-panelled carriages, a sleeping car, the dining car, the bar and the salon, while the train winds through the mountains and over long stone viaducts. three.js.">
+  <meta name="theme-color" content="#0a0c10">
+  <link rel="canonical" href="https://thomasbrueggemann.com/express/">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    html, body { margin: 0; height: 100%; background: #0a0c10; overflow: hidden; }
+    canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+    .ui { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
+      display: flex; flex-wrap: wrap; gap: 8px; right: max(16px, env(safe-area-inset-right)); font: 500 14px/1 "Inter Tight", system-ui, sans-serif; transition: opacity .6s; }
+    .ui.idle { opacity: 0; }
+    .ui a, .ui button, .tbtn { color: #e8e6e1; background: rgba(10,12,16,.55); border: 1px solid rgba(232,230,225,.25);
+      padding: 10px 14px; border-radius: 999px; text-decoration: none; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
+    .hint { position: fixed; top: max(16px, env(safe-area-inset-top)); left: 0; right: 0; margin: 0; text-align: center; pointer-events: none;
+      font: 500 13px/1.3 "Inter Tight", system-ui, sans-serif; letter-spacing: .04em; color: rgba(232,230,225,.75); text-shadow: 0 1px 8px rgba(0,0,0,.6); transition: opacity .6s; padding: 0 16px; }
+    .hint.idle { opacity: 0; }
+    .say { position: fixed; left: 50%; bottom: calc(max(16px, env(safe-area-inset-bottom)) + 64px); transform: translateX(-50%); margin: 0; pointer-events: none;
+      font: 500 15px/1.3 "Inter Tight", system-ui, sans-serif; color: #e8e6e1; background: rgba(10,12,16,.55); padding: 8px 14px; border-radius: 999px; backdrop-filter: blur(6px); transition: opacity .3s; white-space: nowrap; }
+    .say:empty { opacity: 0; }
+    .car { position: fixed; left: 0; right: 0; top: 38%; margin: 0; text-align: center; pointer-events: none; font: 400 italic 30px/1.2 "Instrument Serif", Georgia, serif;
+      color: rgba(240,228,205,.9); text-shadow: 0 2px 16px rgba(0,0,0,.7); opacity: 0; transition: opacity 1.2s; }
+    .car.show { opacity: 1; transition: opacity .4s; }
+    .cross { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: rgba(232,230,225,.5); pointer-events: none; }
+    .tbtn { font: 500 15px/1 "Inter Tight", system-ui, sans-serif; position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: calc(max(16px, env(safe-area-inset-bottom)) + 120px); font-size: 15px; padding: 14px 18px; }
+    .tbtn[hidden] { display: none; }
+    .ui [hidden] { display: none; }
+    .ui a:hover, .ui button:hover, .ui a:focus-visible, .ui button:focus-visible { border-color: #e0a96d; color: #e0a96d; outline: none; }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+</head>
+<body>
+  <canvas id="express" aria-label="Inside a mahogany-panelled dining car on a moving train at dusk: white tablecloths, pink-shaded lamps, rain on the windows and storm-dark mountains outside"></canvas>
+  <p class="hint" id="hint">W A S D or the arrows to walk · drag to look round · E to sit down by a window</p>
+  <p class="car" id="car" aria-live="polite"></p>
+  <div class="cross" id="cross"></div>
+  <p class="say" id="say"></p>
+  <button class="tbtn" id="tuse" type="button" hidden>Sit down</button>
+  <nav class="ui" id="ui">
+    <a href="../">← Back</a>
+    <button id="fs" type="button">Fullscreen</button>
+    <button id="snd" type="button" aria-pressed="false" title="Sound (M)">Sound: off</button>
+    <button id="next" type="button" title="Go on to the next carriage (C)">Next carriage</button>
+    <button id="out" type="button" aria-pressed="false" title="Step outside and watch the train go by, or get back on (V)">Step outside</button>
+    <button id="whistle" type="button" title="The engine's whistle (H)">Whistle</button>
+    <button id="bolt" type="button" title="Lightning (L)">Lightning</button>
+  </nav>
+  <script type="module">
+    import { startExpress3D } from "../js/express3d.js";
+    import { createExpressAudio } from "../js/express-audio.js";
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const coarse = matchMedia("(pointer: coarse)").matches;
+    const ex = window.__express = startExpress3D(document.getElementById("express"), { reduced });
+    let audio = null;
+    ex.onThunder = (d, p) => audio?.thunder(d, p);
+    ex.hooks.clack = (g, pan) => audio?.clack(g, pan);
+
+    const snd = document.getElementById("snd");
+    const setSound = async (v) => {
+      audio ||= createExpressAudio();
+      await audio.set(v);
+      snd.textContent = "Sound: " + (v ? "on" : "off");
+      snd.setAttribute("aria-pressed", String(v));
+    };
+    snd.onclick = () => setSound(!(audio && audio.on));
+    const whistle = () => { if (!audio?.on) setSound(true).then(() => audio.whistle()); else audio.whistle(); };
+    document.getElementById("whistle").onclick = whistle;
+    document.getElementById("bolt").onclick = () => ex.strike(1);
+    const carEl = document.getElementById("car");
+    let carT = 0, lastCar = "";
+    const showCar = (name) => { carEl.textContent = name[0].toUpperCase() + name.slice(1); carEl.classList.add("show"); clearTimeout(carT); carT = setTimeout(() => carEl.classList.remove("show"), 1800); };
+    const outBtn = document.getElementById("out");
+    const toggleOut = () => { const o = ex.toggleOutside(); outBtn.textContent = o ? "Back aboard" : "Step outside"; outBtn.setAttribute("aria-pressed", String(o)); document.getElementById("cross").hidden = o; };
+    outBtn.onclick = toggleOut;
+    document.getElementById("next").onclick = () => { if (ex.outside) toggleOut(); ex.nextCar(1); };
+
+    // what E does where you stand, the carriage you come into, the sounds that depend on where you are
+    const say = document.getElementById("say"), tuse = document.getElementById("tuse");
+    tuse.onclick = () => ex.use();
+    setInterval(() => {
+      const p = ex.prompt;
+      if (coarse) { tuse.hidden = !p; tuse.textContent = ex.sitting ? "Stand up" : "Sit down"; say.textContent = ""; }
+      else say.textContent = p;
+      if (ex.car !== lastCar) { if (lastCar) showCar(ex.car); lastCar = ex.car; }
+      if (audio?.on) {
+        audio.bridge = ex.hooks.bridge;
+        const w = ex.walker, d = Math.hypot(w.x + 0.9, w.Z - (2 * 23 + 8.1));
+        audio.setPiano(Math.max(0, 1 - d / 14) ** 1.5);
+        audio.clinks = Math.max(0, 1 - Math.abs(w.Z - 23) / 13);
+      }
+    }, 200);
+
+    const ui = document.getElementById("ui"), fs = document.getElementById("fs");
+    if (!document.documentElement.requestFullscreen) fs.hidden = true;
+    const toggleFs = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    fs.onclick = toggleFs;
+    document.addEventListener("fullscreenchange", () => { fs.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"; });
+    addEventListener("keydown", (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "f") toggleFs();
+      if (k === "m") snd.click();
+      if (k === "h") whistle();
+      if (k === "l") ex.strike(1);
+      if (k === "c") document.getElementById("next").click();
+      if (k === "v") toggleOut();
+    });
+
+    let t;
+    const hint = document.getElementById("hint");
+    const wake = () => { ui.classList.remove("idle"); hint.classList.remove("idle"); clearTimeout(t); t = setTimeout(() => { ui.classList.add("idle"); hint.classList.add("idle"); }, 3000); };
+    if (coarse) hint.textContent = "Left thumb to walk · right thumb to look round";
+    addEventListener("keydown", (e) => { if ("wasd".includes(e.key.toLowerCase()) || e.key.startsWith("Arrow")) hint.hidden = true; });
+    ["pointermove", "pointerdown", "keydown"].forEach((ev) => addEventListener(ev, wake, { passive: true }));
+    ui.addEventListener("focusin", wake);
+    wake();
+  </script>
+</body>
+</html>
