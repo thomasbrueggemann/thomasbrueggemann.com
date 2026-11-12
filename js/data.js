@@ -9,6 +9,31 @@
 // ---------------------------------------------------------------------------
 export const worlds = [
   {
+    slug: "express",
+    title: "Express",
+    kicker: "A grand train through the mountains",
+    tagline: "A night train in the old style, crossing the mountains on a stormy autumn evening. Walk through it.",
+    description:
+      "Five carriages panelled in mahogany with brass, velvet and etched glass: a sleeping car, the dining car, the bar with its piano, the salon and an observation car at the back. Walk from one end to the other, sit down by a window, and watch the mountains go by as the train winds round them in the rain, over long stone viaducts. Or step outside and watch it pass.",
+    date: "2026-11",
+    genre: "First-person",
+    tags: ["three.js", "GLSL", "procedural", "first-person", "WebAudio"],
+    highlights: [
+      "Walk the whole train, through the gangways from carriage to carriage, and sit down at any seat",
+      "The carriages sway and knock over every rail joint, and the sound of the wheels keeps time with it",
+      "A loop of track round a mountain with stone viaducts over the gorges, under storm clouds and lightning",
+    ],
+    play: "express/",
+    label: "Enter",
+    shots: [
+      { src: "express-1.webp", alt: "A table for two in a mahogany-panelled dining car, a pink-shaded lamp by the window, rain on the glass and dark autumn mountains outside", caption: "A table in the dining car" },
+      { src: "express-2.webp", alt: "A train with lit windows crossing a long stone viaduct over a wooded gorge at dusk, smoke trailing from the engine", caption: "Over the viaduct" },
+      { src: "express-3.webp", alt: "The bar car: shelves of bottles behind a marble counter, leather stools, a doorway through to the next carriage", caption: "The bar" },
+      { src: "express-4.webp", alt: "The corridor of the sleeping car: mahogany doors with etched glass, a blue patterned runner, windows on the right", caption: "The sleeping car" },
+      { src: "express-5.webp", alt: "The glazed end of the observation car looking back down the line, the track curving away between autumn trees", caption: "From the observation car" },
+    ],
+  },
+  {
     slug: "aerie",
     title: "Aerie",
     kicker: "A city in the trees",
